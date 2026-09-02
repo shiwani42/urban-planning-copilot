@@ -898,9 +898,13 @@ export function compareScenarioMetrics(
 ): Array<Record<string, string | number>> {
   return results.map((r) => {
     const ag = r.result?.aggregateMetrics ?? [];
-    const get = (k: string) => ag.find((m) => m.key === k)?.value ?? 0;
+    const get = (k: string) => ag.find((m) => m.key === k)?.value;
     const candidates = r.result?.candidates ?? [];
-    const top = candidates[0];
+    const top =
+      candidates.length > 0
+        ? candidates.find((c) => c.rank === 1) ??
+          [...candidates].sort((a, b) => a.rank - b.rank)[0]
+        : undefined;
     const topCap = top?.metrics.find((m) => m.key === "capacity")?.value ?? 0;
     const meetsAlone =
       r.housingTarget != null
@@ -916,15 +920,17 @@ export function compareScenarioMetrics(
     return {
       scenarioId: r.scenarioId,
       name: r.name,
-      eligible_count: get("eligible_count"),
-      total_capacity: get("total_capacity"),
-      avg_transit_distance: get("avg_transit_distance"),
-      median_transit_distance: get("median_transit_distance"),
-      meets_target_count: meetsAlone,
+      eligible_count: get("eligible_count") ?? "—",
+      total_capacity: get("total_capacity") ?? "—",
+      avg_transit_distance: get("avg_transit_distance") ?? "—",
+      median_transit_distance: get("median_transit_distance") ?? "—",
+      meets_target_count: meetsAlone ?? "—",
       top_candidate: top?.label ?? "—",
-      top_candidate_capacity: topCap,
-      top_rank_score: top?.score ?? 0,
+      top_candidate_capacity: topCap ?? "—",
+      top_rank_score: top?.score ?? "—",
       top_3: candidates
+        .slice()
+        .sort((a, b) => a.rank - b.rank)
         .slice(0, 3)
         .map((c) => c.label)
         .join(", ") || "—",

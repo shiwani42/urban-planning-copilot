@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "seed": "tsx scripts/seed.ts",
-    "test": "tsx --test src/lib/domain/spatial.test.ts src/lib/domain/decision.test.ts src/lib/domain/explore.test.ts src/lib/domain/geographic.test.ts",
+    "test": "tsx --test src/lib/format.test.ts src/lib/domain/spatial.test.ts src/lib/domain/decision.test.ts src/lib/domain/explore.test.ts src/lib/domain/geographic.test.ts",
     "eval:webmcp:local": "npx --yes webmcp-evals local -t webmcp/schema.json -e webmcp/evals.json",
     "eval:webmcp:smoke": "npx --yes webmcp-evals smoke -u http://localhost:3000/new -e webmcp/evals.json -v",
     "eval:webmcp:browser": "node scripts/exercise-webmcp.mjs",
