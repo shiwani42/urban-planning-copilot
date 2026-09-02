@@ -286,11 +286,11 @@ export function parseObjective(
     requirements.push("Respect residential zoning compatibility");
     constraints.push({
       id: nanoid(),
-      label: "Residential zoning compatible",
+      label: "Residential land use compatible",
       datasetKind: "parcels",
-      attribute: "zoning",
-      operator: "in",
-      value: ["R1", "R2", "R3", "MX", "MU"],
+      attribute: "land_use",
+      operator: "eq",
+      value: "residential",
       hard: true,
       enabled: true,
     });

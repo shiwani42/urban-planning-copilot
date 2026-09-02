@@ -150,7 +150,7 @@ export default function NewProjectPage() {
         body: JSON.stringify({
           name: name.trim(),
           objectiveText: objective.trim(),
-          geographyLabel: "North River study area (synthetic)",
+          geographyLabel: "San Francisco — Mission & SoMa demo area",
         }),
       });
       const data = await res.json();
@@ -214,7 +214,7 @@ export default function NewProjectPage() {
                 setName(e.target.value);
                 if (nameError) setNameError(null);
               }}
-              placeholder="e.g. North River Housing Strategy"
+              placeholder="e.g. San Francisco Housing Strategy"
               aria-invalid={Boolean(nameError)}
               aria-describedby={nameError ? "project-name-error" : undefined}
               className={`w-full border-b bg-transparent py-2 text-body-lg focus:outline-none ${
@@ -324,7 +324,7 @@ export default function NewProjectPage() {
             </div>
             <div>
               <div className="font-mono text-data-label uppercase text-on-surface mb-1">Geography</div>
-              <p className="text-body-sm">North River study area (synthetic seed geography)</p>
+              <p className="text-body-sm">San Francisco — Mission & SoMa demo area (open data snapshot)</p>
             </div>
             <div>
               <div className="font-mono text-data-label uppercase text-on-surface mb-2">

@@ -1,0 +1,35 @@
+# Data attribution
+
+Urban Planning Copilot serves **checked-in snapshots** of San Francisco open data. The app does **not** call Socrata, 511.org, or FEMA at request time.
+
+## Map basemap
+
+| Layer | Provider | License / terms |
+|-------|----------|-----------------|
+| Voyager (default) | CARTO + OpenStreetMap | © OpenStreetMap contributors, © CARTO — [Carto attributions](https://carto.com/attributions) |
+
+Configure an optional API key via `NEXT_PUBLIC_CARTO_API_KEY` (free at [carto.com/basemaps/apikey](https://carto.com/basemaps/apikey)). Without a key, tiles are loaded from the Carto public CDN — not `tile.openstreetmap.org`.
+
+## City open data (PDDL snapshots)
+
+Refresh with `npm run ingest:sf`. Outputs live in `data/sf/` (gzipped GeoJSON).
+
+| Dataset | Source | License | Vintage (snapshot) |
+|---------|--------|---------|-------------------|
+| Active parcels | [data.sfgov.org/d/acdm-wktn](https://data.sfgov.org/d/acdm-wktn) | PDDL | See `data/sf/manifest.json` (`data_as_of` from source) |
+| Muni stops | [Muni Stops (i28k-bkz6)](https://data.sfgov.org/Transportation/Muni-Stops/i28k-bkz6) | PDDL | See manifest |
+| 100-year storm flood | [SFPUC flood risk (jzu3-4yxp)](https://data.sfgov.org/Public-Safety/100-Year-Storm-Flood-Risk-Zone-July-2022-/jzu3-4yxp) | PDDL | July 2022 model (see manifest) |
+
+**Demo AOI:** Mission & South of Market — clipped and simplified for browser performance. Not full city coverage.
+
+## Illustrative layers (not city open data in Pass 09)
+
+Population grid, schools, and infrastructure nodes remain **illustrative** synthetic supplements until a future ingest pass. They are labeled in the Data explorer and marked `synthetic: true` in dataset metadata where applicable.
+
+## What we do not use
+
+- Bhuvan snapshots
+- `tile.openstreetmap.org` as a production tile CDN
+- Overture parcels
+- Live 511.org feeds
+- Full California TIGER in `/data`

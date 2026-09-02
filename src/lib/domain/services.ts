@@ -16,7 +16,7 @@ import {
 import { formatReportDateTime } from "../format";
 import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
 import { getStore, updateStore } from "./store";
-import { STUDY_BOUNDS } from "./seed";
+import { STUDY_BOUNDS } from "./study-bounds";
 import type {
   ActivityEvent,
   AnalysisJob,

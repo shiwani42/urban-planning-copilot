@@ -13,7 +13,8 @@ import {
 } from "react-leaflet";
 import type { WorkspaceSnapshot, Candidate, GeographicSelection } from "@/lib/domain/types";
 import { featureIdsInExclusions, ringFromPolygon } from "@/lib/domain/geographic";
-import { STUDY_BOUNDS } from "@/lib/domain/seed";
+import { STUDY_BOUNDS } from "@/lib/domain/study-bounds";
+import BasemapLayer from "@/components/BasemapLayer";
 import L from "leaflet";
 
 export type MapDrawMode = "none" | "exclude" | "include" | "edit";
@@ -168,17 +169,10 @@ export default function PlanningMap({
 
   return (
     <div className="absolute inset-0">
-      <div
-        className="absolute inset-0 z-0"
-        style={{
-          background:
-            "repeating-linear-gradient(0deg, #e8eef0 0px, #e8eef0 1px, #f4f7f8 1px, #f4f7f8 24px), repeating-linear-gradient(90deg, #e8eef0 0px, #e8eef0 1px, #f4f7f8 1px, #f4f7f8 24px)",
-        }}
-        aria-hidden
-      />
+    <div className="absolute inset-0 z-0 bg-surface-container-low" aria-hidden />
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1001] pointer-events-none">
         <div className="bg-surface/95 border border-outline-variant px-4 py-1.5 rounded-full shadow-sm text-caption text-on-surface-variant font-medium whitespace-nowrap">
-          Synthetic geography — not a real city
+          San Francisco open data — Mission & SoMa demo area
         </div>
       </div>
       <MapContainer
@@ -191,6 +185,7 @@ export default function PlanningMap({
       >
         <ZoomControl position="topright" />
         <ScaleControl position="bottomleft" imperial={false} />
+        <BasemapLayer />
         <FitBoundsOnce bounds={studyBounds} />
         <RestrictToStudyArea bounds={studyBounds} />
         <DrawModeHandler enabled={drawingActive} />

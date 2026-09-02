@@ -11,7 +11,8 @@ import {
 } from "react-leaflet";
 import type { Candidate } from "@/lib/domain/types";
 import type { ExploreAnalysisType } from "@/lib/domain/explore";
-import { STUDY_BOUNDS } from "@/lib/domain/seed";
+import { STUDY_BOUNDS } from "@/lib/domain/study-bounds";
+import BasemapLayer from "@/components/BasemapLayer";
 import L from "leaflet";
 
 function FitBoundsOnce({
@@ -80,17 +81,10 @@ export function ExploreMap({
 
   return (
     <div className="relative h-[360px] rounded border border-outline-variant overflow-hidden">
-      <div
-        className="absolute inset-0 z-0"
-        style={{
-          background:
-            "repeating-linear-gradient(0deg, #e8eef0 0px, #e8eef0 1px, #f4f7f8 1px, #f4f7f8 24px), repeating-linear-gradient(90deg, #e8eef0 0px, #e8eef0 1px, #f4f7f8 1px, #f4f7f8 24px)",
-        }}
-        aria-hidden
-      />
+      <div className="absolute inset-0 z-0 bg-surface-container-low" aria-hidden />
       <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1001] pointer-events-none">
         <div className="bg-surface/95 border border-outline-variant px-3 py-1 rounded-full text-[10px] text-on-surface-variant font-medium whitespace-nowrap">
-          Synthetic geography — not a real city
+          San Francisco open data — Mission & SoMa demo area
         </div>
       </div>
       <MapContainer
@@ -105,6 +99,7 @@ export function ExploreMap({
       >
         <ZoomControl position="topright" />
         <ScaleControl position="bottomleft" imperial={false} />
+        <BasemapLayer />
         <FitBoundsOnce bounds={STUDY_BOUNDS} />
 
         {showFlood && layerData.flood && (

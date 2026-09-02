@@ -46,7 +46,7 @@ export default function DataPage() {
       <main className="max-w-5xl mx-auto px-section-padding py-10">
         <h1 className="text-display mb-2">Evidence &amp; data explorer</h1>
         <p className="text-body-sm text-on-surface-variant mb-8">
-          Manage dataset availability, freshness, and inspect synthetic seed metadata.
+          Manage dataset availability, freshness, and open-data provenance (PDDL snapshots).
         </p>
         <div className="space-y-4">
           {datasets.map((d) => (

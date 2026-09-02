@@ -2,11 +2,38 @@ import { promises as fs } from "fs";
 import path from "path";
 import type { AppStore } from "./types";
 import { generateSyntheticCity } from "./seed";
+import {
+  loadSanFranciscoCity,
+  syntheticSupplementDatasets,
+} from "./sf-data";
 
 const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
 const STORE_PATH = path.join(DATA_DIR, "store.json");
 
-function emptyStore(): AppStore {
+async function buildDefaultStore(): Promise<AppStore> {
+  const now = new Date().toISOString();
+  const sf = await loadSanFranciscoCity();
+  if (sf.available) {
+    const supplement = syntheticSupplementDatasets(now);
+    return {
+      version: 1,
+      projects: [],
+      scenarios: [],
+      decisions: [],
+      activities: [],
+      confirmations: [],
+      proposals: [],
+      analysisJobs: [],
+      analysisResults: [],
+      reports: [],
+      datasets: [...sf.datasets, ...supplement.datasets],
+      featuresByDataset: {
+        ...sf.featuresByDataset,
+        ...supplement.featuresByDataset,
+      },
+    };
+  }
+
   const city = generateSyntheticCity();
   return {
     version: 1,
@@ -34,16 +61,15 @@ export async function ensureStore(): Promise<AppStore> {
     const raw = await fs.readFile(STORE_PATH, "utf8");
     memory = JSON.parse(raw) as AppStore;
     if (!memory.proposals) memory.proposals = [];
-    // Ensure datasets exist (e.g. after schema upgrades)
     if (!memory.datasets?.length || !memory.featuresByDataset) {
-      const city = generateSyntheticCity();
-      memory.datasets = city.datasets;
-      memory.featuresByDataset = city.featuresByDataset;
+      const fresh = await buildDefaultStore();
+      memory.datasets = fresh.datasets;
+      memory.featuresByDataset = fresh.featuresByDataset;
       await persist(memory);
     }
     return memory;
   } catch {
-    memory = emptyStore();
+    memory = await buildDefaultStore();
     await persist(memory);
     return memory;
   }
@@ -74,7 +100,7 @@ export async function updateStore(
 }
 
 export async function resetStore(): Promise<AppStore> {
-  memory = emptyStore();
+  memory = await buildDefaultStore();
   await persist(memory);
   return memory;
 }
