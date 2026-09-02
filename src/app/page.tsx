@@ -7,6 +7,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { PlannerGreeting } from "@/components/PlannerGreeting";
 import { ProvenanceChip } from "@/components/workspace-hooks";
 import { formatRelativeTime, projectRecencyIso } from "@/lib/format";
+import { onWorkspaceMutated } from "@/lib/workspace-sync";
 
 type Project = {
   id: string;
@@ -86,7 +87,7 @@ export default function HomePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/projects");
+      const res = await fetch("/api/projects", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load projects");
       setProjects(data.projects ?? []);
@@ -99,6 +100,9 @@ export default function HomePage() {
 
   useEffect(() => {
     loadProjects();
+    return onWorkspaceMutated(() => {
+      loadProjects();
+    });
   }, [loadProjects]);
 
   const sortedProjects = useMemo(

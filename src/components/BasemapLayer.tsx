@@ -8,12 +8,13 @@ type Props = {
 };
 
 export default function BasemapLayer({ style = "voyager" }: Props) {
+  const key = process.env.NEXT_PUBLIC_CARTO_API_KEY?.trim();
   return (
     <TileLayer
       url={cartoBasemapUrl(style)}
       attribution={basemapAttribution()}
-      maxZoom={20}
-      subdomains="abcd"
+      maxZoom={key ? 20 : 19}
+      subdomains={key ? "abcd" : "abc"}
     />
   );
 }

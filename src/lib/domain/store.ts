@@ -107,6 +107,13 @@ export async function getStore(): Promise<AppStore> {
   return ensureStore();
 }
 
+/** Re-read store.json from disk — ensures GET handlers see persisted WebMCP mutations. */
+export async function reloadStoreFromDisk(): Promise<AppStore> {
+  memory = null;
+  memoryDataDir = null;
+  return ensureStore();
+}
+
 export async function persist(store: AppStore): Promise<void> {
   const dir = dataDir();
   const pathToStore = storePath();

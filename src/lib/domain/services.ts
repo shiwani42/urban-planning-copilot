@@ -16,8 +16,14 @@ import {
 import { formatReportDateTime, dedupeLimitations } from "../format";
 import { isHousingIntent, isAccessIntent } from "./intent";
 import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
-import { getStore, updateStore } from "./store";
+import { getStore, updateStore, reloadStoreFromDisk } from "./store";
 import { STUDY_BOUNDS } from "./study-bounds";
+import { ToolError } from "./tool-errors";
+import {
+  assertObjectiveTextAllowed,
+  assertProposalAction,
+  humanizeProposalTitle,
+} from "./webmcp-validation";
 import type {
   ActivityEvent,
   AnalysisJob,
@@ -212,7 +218,7 @@ function assertProjectName(name: string) {
 }
 
 export async function listProjects(): Promise<ProjectListItem[]> {
-  const store = await getStore();
+  const store = await reloadStoreFromDisk();
   return store.projects
     .slice()
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -285,7 +291,7 @@ export async function deleteProject(projectId: string): Promise<void> {
 }
 
 export async function getWorkspace(projectId: string): Promise<WorkspaceSnapshot | null> {
-  const store = await getStore();
+  const store = await reloadStoreFromDisk();
   const project = store.projects.find((p) => p.id === projectId);
   if (!project) return null;
   return {
@@ -387,11 +393,12 @@ export async function createProject(input: {
 }
 
 export async function updateObjective(projectId: string, text: string) {
+  const objectiveText = assertObjectiveTextAllowed(text);
   await updateStore((store) => {
     const project = store.projects.find((p) => p.id === projectId);
     const scenario = store.scenarios.find((s) => s.id === project?.activeScenarioId);
-    if (!project || !scenario) throw new Error("Project/scenario not found");
-    const parsed = parseForStore(store, text, project.geographyLabel);
+    if (!project || !scenario) throw new ToolError("NOT_FOUND", "Project/scenario not found", "projectId");
+    const parsed = parseForStore(store, objectiveText, project.geographyLabel);
     scenario.objective = parsed.objective;
     scenario.constraints = parsed.constraints;
     scenario.weights = parsed.weights;
@@ -413,7 +420,7 @@ export async function updateObjective(projectId: string, text: string) {
       category: "objective",
       action: "update_objective",
       summary: "Updated planning objective",
-      inputs: { text },
+      inputs: { text: objectiveText },
       outputs: { intent: parsed.objective.intent, requirements: parsed.objective.parsedRequirements },
     });
   });
@@ -501,6 +508,38 @@ export async function updateAssumptions(
   return getWorkspace(projectId);
 }
 
+export async function excludeMapArea(
+  projectId: string,
+  scenarioId: string,
+  selection: Omit<GeographicSelection, "id" | "createdAt" | "type">
+) {
+  const store = await getStore();
+  if (!store.projects.some((p) => p.id === projectId)) {
+    throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+  }
+  requireScenario(store, projectId, scenarioId);
+  return addGeographicSelection(projectId, scenarioId, {
+    ...selection,
+    type: "exclusion",
+  });
+}
+
+export async function setMapView(
+  projectId: string,
+  view: { center: [number, number]; zoom?: number }
+) {
+  const store = await getStore();
+  const project = store.projects.find((p) => p.id === projectId);
+  if (!project) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+  return updateMapState(projectId, {
+    viewport: {
+      ...project.mapState.viewport,
+      center: view.center,
+      zoom: view.zoom ?? project.mapState.viewport.zoom,
+    },
+  });
+}
+
 export async function addGeographicSelection(
   projectId: string,
   scenarioId: string,
@@ -524,7 +563,9 @@ export async function addGeographicSelection(
       actor: selection.createdBy === "human" ? "human" : "agent",
       category: "map",
       action: "geographic_selection",
-      summary: `${selection.type} area "${selection.label}" added (${full.id.slice(0, 6)})`,
+      summary: `${selection.type} area "${selection.label}" added by ${
+        selection.createdBy === "human" ? "planner" : "AI agent"
+      }`,
       inputs: { type: selection.type, label: selection.label, selectionId: full.id },
     });
   });
@@ -648,15 +689,33 @@ export async function selectCandidate(
   featureIds?: string[],
   scenarioId?: string
 ) {
-  await updateStore((store) => {
-    const project = store.projects.find((p) => p.id === projectId);
-    if (!project) throw new Error("Project not found");
-    const activeScenarioId = scenarioId ?? project.activeScenarioId;
-    project.mapState.selectedCandidateId = candidateId;
-    project.mapState.selectedCandidateScenarioId = candidateId ? activeScenarioId : undefined;
-    project.mapState.selectedFeatureIds = featureIds ?? (candidateId ? [candidateId] : []);
-    project.mapState.highlightFeatureIds = featureIds ?? (candidateId ? [candidateId] : []);
-    project.updatedAt = now();
+  const store = await getStore();
+  const project = store.projects.find((p) => p.id === projectId);
+  if (!project) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+  const activeScenarioId = scenarioId ?? project.activeScenarioId;
+  if (candidateId) {
+    const scenario = store.scenarios.find(
+      (s) => s.id === activeScenarioId && s.projectId === projectId
+    );
+    if (!scenario) throw new ToolError("NOT_FOUND", "Scenario not found", "scenarioId");
+    const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
+    const candidate = result?.candidates.find(
+      (c) => c.id === candidateId || c.featureIds.includes(candidateId)
+    );
+    if (!candidate) {
+      throw new ToolError("NOT_FOUND", `Candidate not found: ${candidateId}`, "candidateId");
+    }
+  }
+  await updateStore((s) => {
+    const p = s.projects.find((x) => x.id === projectId);
+    if (!p) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+    p.mapState.selectedCandidateId = candidateId;
+    p.mapState.selectedCandidateScenarioId = candidateId ? activeScenarioId : undefined;
+    p.mapState.selectedFeatureIds =
+      featureIds ?? (candidateId ? [candidateId] : []);
+    p.mapState.highlightFeatureIds =
+      featureIds ?? (candidateId ? [candidateId] : []);
+    p.updatedAt = now();
   });
   return getWorkspace(projectId);
 }
@@ -1090,16 +1149,19 @@ export async function compareScenarios(projectId: string, scenarioIds: string[])
   const store = await getStore();
   const rows = scenarioIds.map((id) => {
     const scenario = store.scenarios.find((s) => s.id === id && s.projectId === projectId);
-    const result = store.analysisResults.find((r) => r.id === scenario?.latestResultId);
+    if (!scenario) {
+      throw new ToolError("NOT_FOUND", `Scenario not found: ${id}`, "scenarioIds");
+    }
+    const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
     return {
       scenarioId: id,
-      name: scenario?.name ?? id,
-      weights: scenario?.weights,
+      name: scenario.name,
+      weights: scenario.weights,
       housingTarget:
-        scenario?.objective.intent === "housing_capacity"
+        scenario.objective.intent === "housing_capacity"
           ? scenario.objective.targetValue
           : undefined,
-      intent: scenario?.objective.intent,
+      intent: scenario.objective.intent,
       result: result
         ? {
             candidates: result.candidates,
@@ -1107,14 +1169,29 @@ export async function compareScenarios(projectId: string, scenarioIds: string[])
             summary: result.summary,
             limitations: result.limitations,
             stepLogs: result.stepLogs ?? [],
+            status: result.status,
+            stale: result.stale,
           }
         : null,
     };
   });
+  const missingAnalysis = rows.filter(
+    (r) => !r.result || r.result.status !== "completed" || r.result.stale
+  );
+  if (scenarioIds.length >= 2 && missingAnalysis.length > 0) {
+    return {
+      comparison: [],
+      insights: [],
+      scenarios: scenarioIds.map((id) => store.scenarios.find((s) => s.id === id)),
+      status: "incomplete" as const,
+      message: `Run analysis first for: ${missingAnalysis.map((r) => r.name).join(", ")}`,
+    };
+  }
   return {
     comparison: compareScenarioMetrics(rows),
     insights: buildComparisonInsights(rows),
     scenarios: scenarioIds.map((id) => store.scenarios.find((s) => s.id === id)),
+    status: "ready" as const,
   };
 }
 
@@ -1632,6 +1709,9 @@ export async function stageProposal(input: {
   payload: Record<string, unknown>;
   createdBy?: "agent" | "human";
 }) {
+  assertProposalAction(input.action, input.payload);
+  const title = humanizeProposalTitle(input.title, input.action);
+  const description = input.description.trim() || title;
   let proposalId = "";
   await updateStore((store) => {
     const scenario = requireScenario(store, input.projectId, input.scenarioId);
@@ -1639,8 +1719,8 @@ export async function stageProposal(input: {
       id: nanoid(),
       projectId: input.projectId,
       scenarioId: input.scenarioId,
-      title: input.title,
-      description: input.description,
+      title,
+      description,
       action: input.action,
       payload: input.payload,
       baseRevision: configHashFor(scenario),
@@ -1809,10 +1889,23 @@ export async function verifyOperation(projectId: string, proposalId?: string) {
         (p) => p.projectId === projectId && p.status === "approved" && p.receiptSha256
       );
 
-  if (!proposal?.receiptSha256) {
+  if (!proposal) {
     return {
+      status: "nothing_to_verify" as const,
       verified: false,
-      error: "No approved operation with receipt found",
+      message: proposalId
+        ? "No proposal found with that id for this project"
+        : "No approved operation with receipt found for this project",
+    };
+  }
+
+  if (!proposal.receiptSha256) {
+    return {
+      status: "pending" as const,
+      verified: false,
+      proposalId: proposal.id,
+      action: proposal.action,
+      message: "Proposal exists but has not been approved yet — nothing to verify",
     };
   }
 
@@ -1826,14 +1919,18 @@ export async function verifyOperation(projectId: string, proposalId?: string) {
     payload: proposal.payload,
   };
   const computed = sha256Receipt(receipt);
+  const verified = computed === proposal.receiptSha256;
 
   return {
-    verified: computed === proposal.receiptSha256,
+    status: verified ? ("verified" as const) : ("failed" as const),
+    verified,
     receiptSha256: proposal.receiptSha256,
     computedSha256: computed,
     proposalId: proposal.id,
     action: proposal.action,
-    status: proposal.status,
+    message: verified
+      ? "Receipt matches the approved operation"
+      : "Receipt hash mismatch — verification failed",
   };
 }
 

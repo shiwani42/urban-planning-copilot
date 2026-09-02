@@ -172,7 +172,7 @@ export default function PlanningMap({
     <div className="absolute inset-0 z-0 bg-surface-container-low" aria-hidden />
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1001] pointer-events-none">
         <div className="bg-surface/95 border border-outline-variant px-4 py-1.5 rounded-full shadow-sm text-caption text-on-surface-variant font-medium whitespace-nowrap">
-          San Francisco open data — Mission & SoMa demo area
+          {workspace.project.geographyLabel}
         </div>
       </div>
       <MapContainer
@@ -549,6 +549,12 @@ export function MapLegend({
     items.push({
       label: "Population",
       swatch: <div className="w-3 h-3 bg-outline-variant/50 rounded-full" />,
+    });
+  }
+  if (visibleKinds.has("parks")) {
+    items.push({
+      label: "Parks",
+      swatch: <div className="w-2.5 h-2.5 bg-tertiary-container rounded-full border border-tertiary" />,
     });
   }
   if (visibleKinds.has("infrastructure")) {

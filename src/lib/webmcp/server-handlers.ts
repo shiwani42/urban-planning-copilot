@@ -2,7 +2,19 @@
  * Server-side WebMCP tool execution — same domain operations as browser tools.
  */
 import * as services from "@/lib/domain/services";
+import { ToolError } from "@/lib/domain/tool-errors";
+import {
+  assertCompareScenarioIds,
+  assertExclusionLabel,
+  assertNonEmptyProjectId,
+  assertObjectiveTextAllowed,
+  assertPriorityWeights,
+  assertProposalAction,
+  assertTransitThresholdMeters,
+  validatePolygonRing,
+} from "@/lib/domain/webmcp-validation";
 import { getToolMeta, PLANNING_TOOL_META } from "./tool-definitions";
+import type { ToolErrorPayload } from "@/lib/domain/tool-errors";
 
 type WorkspaceLike = NonNullable<Awaited<ReturnType<typeof services.getWorkspace>>>;
 
@@ -29,17 +41,21 @@ export async function executePlanningTool(
   input: Record<string, unknown>
 ): Promise<unknown> {
   if (FORBIDDEN.has(name) || /sql|eval|exec|dom|click|selector/i.test(name)) {
-    throw new Error(`Tool "${name}" is not permitted. Use semantic planning tools only.`);
+    throw new ToolError(
+      "FORBIDDEN",
+      `Tool "${name}" is not permitted. Use semantic planning tools only.`
+    );
   }
 
   if (!getToolMeta(name)) {
-    throw new Error(`Unknown tool: ${name}`);
+    throw new ToolError("UNKNOWN_TOOL", `Unknown tool: ${name}`);
   }
 
   switch (name) {
     case "get_workspace": {
-      const ws = await services.getWorkspace(input.projectId as string);
-      if (!ws) throw new Error("Project not found");
+      const projectId = assertNonEmptyProjectId(input.projectId);
+      const ws = await services.getWorkspace(projectId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
       const { scenario, result } = activeContext(ws);
       return {
         projectId: ws.project.id,
@@ -109,8 +125,8 @@ export async function executePlanningTool(
       return services.listDatasets();
     case "compare_scenarios":
       return services.compareScenarios(
-        input.projectId as string,
-        input.scenarioIds as string[]
+        assertNonEmptyProjectId(input.projectId),
+        assertCompareScenarioIds(input.scenarioIds)
       );
     case "verify_operation":
       return services.verifyOperation(
@@ -132,8 +148,8 @@ export async function executePlanningTool(
     }
     case "set_planning_objective": {
       const ws = await services.updateObjective(
-        input.projectId as string,
-        input.objectiveText as string
+        assertNonEmptyProjectId(input.projectId),
+        assertObjectiveTextAllowed(input.objectiveText)
       );
       const { scenario } = activeContext(ws!);
       return {
@@ -143,38 +159,28 @@ export async function executePlanningTool(
       };
     }
     case "set_transit_threshold": {
-      const meters = Number(input.meters);
-      const ws = await services.getWorkspace(input.projectId as string);
-      if (!ws) throw new Error("Project not found");
+      const meters = assertTransitThresholdMeters(input.meters);
+      const projectId = assertNonEmptyProjectId(input.projectId);
+      const ws = await services.getWorkspace(projectId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
       const scenario = ws.scenarios.find((s) => s.id === input.scenarioId);
-      if (!scenario) throw new Error("Scenario not found");
+      if (!scenario) throw new ToolError("NOT_FOUND", "Scenario not found", "scenarioId");
       const constraints = scenario.constraints.map((c) =>
         c.operator === "within_distance"
           ? { ...c, value: meters, label: `Within ${meters}m of transit` }
           : c
       );
-      await services.updateConstraints(
-        input.projectId as string,
-        input.scenarioId as string,
-        constraints
-      );
+      await services.updateConstraints(projectId, input.scenarioId as string, constraints);
       return { meters, note: "Criteria changed — recalculate with run_analysis" };
     }
     case "set_priority_weights": {
-      const ws = await services.getWorkspace(input.projectId as string);
-      if (!ws) throw new Error("Project not found");
+      const projectId = assertNonEmptyProjectId(input.projectId);
+      const ws = await services.getWorkspace(projectId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
       const sc = ws.scenarios.find((s) => s.id === input.scenarioId);
-      if (!sc) throw new Error("Scenario not found");
-      const wmap = input.weights as Record<string, number>;
-      const weights = sc.weights.map((w) => ({
-        ...w,
-        weight: wmap[w.key] ?? w.weight,
-      }));
-      await services.updateWeights(
-        input.projectId as string,
-        input.scenarioId as string,
-        weights
-      );
+      if (!sc) throw new ToolError("NOT_FOUND", "Scenario not found", "scenarioId");
+      const weights = assertPriorityWeights(sc, input.weights);
+      await services.updateWeights(projectId, input.scenarioId as string, weights);
       return { weights, note: "Weights updated — run_analysis to refresh ranking" };
     }
     case "run_analysis": {
@@ -222,33 +228,60 @@ export async function executePlanningTool(
         name: input.name,
       };
     }
-    case "select_candidate":
-      await services.selectCandidate(
-        input.projectId as string,
-        input.candidateId as string,
-        [input.candidateId as string]
-      );
-      return { selected: input.candidateId };
-    case "exclude_map_area": {
-      const ring = input.coordinates as number[][];
-      if (!Array.isArray(ring) || ring.length < 3) {
-        throw new Error("coordinates require at least 3 [lng,lat] pairs");
+    case "select_candidate": {
+      const projectId = assertNonEmptyProjectId(input.projectId);
+      const candidateId = String(input.candidateId ?? "").trim();
+      if (!candidateId) {
+        throw new ToolError("MISSING_FIELD", "candidateId is required", "candidateId");
       }
-      const closed =
-        ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1]
-          ? [...ring, ring[0]]
-          : ring;
-      await services.addGeographicSelection(
-        input.projectId as string,
-        input.scenarioId as string,
-        {
-          type: "exclusion",
-          label: input.label as string,
-          geometry: { type: "Polygon", coordinates: [closed] },
-          createdBy: "agent",
-        }
-      );
-      return { excluded: input.label, note: "Results stale — call run_analysis" };
+      await services.selectCandidate(projectId, candidateId, undefined, input.scenarioId as string | undefined);
+      return { selected: candidateId };
+    }
+    case "exclude_map_area": {
+      const projectId = assertNonEmptyProjectId(input.projectId);
+      const scenarioId = String(input.scenarioId ?? "").trim();
+      if (!scenarioId) {
+        throw new ToolError("MISSING_FIELD", "scenarioId is required", "scenarioId");
+      }
+      const label = assertExclusionLabel(input.label);
+      const closed = validatePolygonRing(input.coordinates);
+      const ws = await services.excludeMapArea(projectId, scenarioId, {
+        label,
+        geometry: { type: "Polygon", coordinates: [closed] },
+        createdBy: "agent",
+      });
+      return {
+        excluded: label,
+        selectionId: ws?.scenarios
+          .find((s) => s.id === scenarioId)
+          ?.geographicSelections.at(-1)?.id,
+        note: "Results stale — call run_analysis",
+      };
+    }
+    case "set_map_view": {
+      const projectId = assertNonEmptyProjectId(input.projectId);
+      const centerInput = input.center as number[] | undefined;
+      if (!Array.isArray(centerInput) || centerInput.length < 2) {
+        throw new ToolError(
+          "INVALID_INPUT",
+          "center must be [lng, lat]",
+          "center"
+        );
+      }
+      const lng = Number(centerInput[0]);
+      const lat = Number(centerInput[1]);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+        throw new ToolError("INVALID_INPUT", "center must contain finite numbers", "center");
+      }
+      const zoom = input.zoom == null ? undefined : Number(input.zoom);
+      if (zoom != null && (!Number.isFinite(zoom) || zoom < 1 || zoom > 20)) {
+        throw new ToolError("INVALID_INPUT", "zoom must be between 1 and 20", "zoom");
+      }
+      const ws = await services.setMapView(projectId, { center: [lng, lat], zoom });
+      return {
+        center: ws?.project.mapState.viewport.center,
+        zoom: ws?.project.mapState.viewport.zoom,
+      };
     }
     case "remove_map_area": {
       await services.removeGeographicSelection(
@@ -283,16 +316,20 @@ export async function executePlanningTool(
       );
       return { updated: input.selectionId, note: "Results stale — call run_analysis" };
     }
-    case "stage_proposal":
+    case "stage_proposal": {
+      const action = String(input.action ?? "");
+      const payload = (input.payload ?? {}) as Record<string, unknown>;
+      assertProposalAction(action, payload);
       return services.stageProposal({
-        projectId: input.projectId as string,
-        scenarioId: input.scenarioId as string,
-        title: input.title as string,
-        description: input.description as string,
-        action: input.action as string,
-        payload: input.payload as Record<string, unknown>,
+        projectId: assertNonEmptyProjectId(input.projectId),
+        scenarioId: String(input.scenarioId ?? ""),
+        title: String(input.title ?? ""),
+        description: String(input.description ?? ""),
+        action,
+        payload,
         createdBy: "agent",
       });
+    }
     case "reject_candidate":
       await services.recordDecision({
         projectId: input.projectId as string,
@@ -347,13 +384,26 @@ export async function executePlanningTool(
 export function validateToolInput(
   name: string,
   input: Record<string, unknown>
-): string | null {
+): ToolErrorPayload | null {
   const meta = getToolMeta(name);
-  if (!meta) return `Unknown tool: ${name}`;
+  if (!meta) {
+    return { code: "UNKNOWN_TOOL", message: `Unknown tool: ${name}` };
+  }
   const required = meta.inputSchema.required ?? [];
   for (const key of required) {
     if (input[key] === undefined || input[key] === null) {
-      return `Missing required field: ${key}`;
+      return {
+        code: "MISSING_FIELD",
+        field: key,
+        message: `Missing required field: ${key}`,
+      };
+    }
+    if (key === "objectiveText" && typeof input[key] === "string" && !input[key].trim()) {
+      return {
+        code: "INVALID_INPUT",
+        field: key,
+        message: "objectiveText cannot be empty",
+      };
     }
   }
   return null;

@@ -9,6 +9,13 @@ import {
   type ModelContextClient,
   type WebMcpToolDefinition,
 } from "./browser-types";
+import { formatToolErrorMessage } from "@/lib/domain/tool-errors";
+import type { ToolErrorPayload } from "@/lib/domain/tool-errors";
+import { parseToolArguments } from "@/lib/domain/webmcp-validation";
+import {
+  notifyWorkspaceMutated,
+  WORKSPACE_MUTATING_TOOLS,
+} from "@/lib/workspace-sync";
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {
   const res = await fetch(path, {
@@ -20,9 +27,13 @@ async function api(path: string, init?: RequestInit): Promise<unknown> {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    const err = data as { error?: string | ToolErrorPayload };
+    if (err.error && typeof err.error === "object" && "message" in err.error) {
+      throw new Error(formatToolErrorMessage(err.error as ToolErrorPayload));
+    }
     throw new Error(
-      typeof (data as { error?: string }).error === "string"
-        ? (data as { error: string }).error
+      typeof err.error === "string"
+        ? err.error
         : `Request failed (${res.status})`
     );
   }
@@ -50,13 +61,42 @@ async function confirmSensitive(
   return window.confirm(message);
 }
 
-async function invokeMcpTool(name: string, args: Record<string, unknown>) {
+async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
+  const args = parseToolArguments(rawArgs);
   const res = await api("/api/mcp", {
     method: "POST",
     body: JSON.stringify({ tool: name, arguments: args }),
   });
-  const data = res as { ok?: boolean; result?: unknown; error?: string };
-  if (data.ok === false) throw new Error(data.error ?? "Tool failed");
+  const data = res as {
+    ok?: boolean;
+    result?: unknown;
+    error?: string | ToolErrorPayload;
+    projectId?: string;
+  };
+  if (data.ok === false) {
+    const message =
+      data.error && typeof data.error === "object"
+        ? formatToolErrorMessage(data.error)
+        : typeof data.error === "string"
+          ? data.error
+          : "Tool failed";
+    throw new Error(message);
+  }
+  if (WORKSPACE_MUTATING_TOOLS.has(name)) {
+    notifyWorkspaceMutated({
+      tool: name,
+      projectId:
+        data.projectId ??
+        (typeof args.projectId === "string" ? args.projectId : undefined) ??
+        (data.result &&
+        typeof data.result === "object" &&
+        data.result !== null &&
+        "projectId" in data.result &&
+        typeof (data.result as { projectId?: unknown }).projectId === "string"
+          ? (data.result as { projectId: string }).projectId
+          : undefined),
+    });
+  }
   return data.result ?? data;
 }
 
@@ -112,12 +152,13 @@ export async function registerPlanningWebMcpTools(options?: {
     inputSchema: meta.inputSchema,
     annotations: meta.annotations,
     execute: async (input, client) => {
+      const parsedInput = parseToolArguments(input);
       if (SENSITIVE_TOOLS.has(meta.name)) {
-        const msg = CONFIRM_MESSAGES[meta.name]?.(input) ?? `Confirm ${meta.name}?`;
+        const msg = CONFIRM_MESSAGES[meta.name]?.(parsedInput) ?? `Confirm ${meta.name}?`;
         const confirmed = await confirmSensitive(client, msg);
         if (!confirmed) throw new Error(`${meta.name} cancelled by planner`);
       }
-      const result = await invokeMcpTool(meta.name, input);
+      const result = await invokeMcpTool(meta.name, parsedInput);
       return ok(result);
     },
   }));

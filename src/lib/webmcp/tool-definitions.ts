@@ -225,6 +225,26 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
   },
   {
     layer: "action",
+    name: "set_map_view",
+    description:
+      "Pan/zoom the workspace map viewport to a lng/lat center (optional zoom 1–20).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        center: {
+          type: "array",
+          description: "[lng, lat] — exactly two numbers",
+          items: { type: "number" },
+        },
+        zoom: { type: "number", description: "Optional zoom level (1–20)" },
+      },
+      required: ["projectId", "center"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
     name: "exclude_map_area",
     description: "Add a human/agent geographic exclusion polygon; marks results stale.",
     inputSchema: {
