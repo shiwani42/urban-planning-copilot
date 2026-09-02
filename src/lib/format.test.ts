@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   dedupeLimitations,
+  formatDecisionStatus,
+  formatDecisionType,
   formatLocaleDateTime,
   formatLocaleTime,
   PLANNER_TIME_ZONE,
@@ -18,6 +20,13 @@ describe("format planner timestamps", () => {
     }).format(new Date(iso));
     assert.equal(formatted, parts);
     assert.match(formatLocaleTime(iso), /12:00/);
+  });
+});
+
+describe("decision labels", () => {
+  it("humanizes decision types and statuses", () => {
+    assert.equal(formatDecisionType("approve_scenario"), "Approved");
+    assert.equal(formatDecisionStatus("changes_requested"), "Changes requested");
   });
 });
 

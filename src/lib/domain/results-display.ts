@@ -106,6 +106,23 @@ export function resultsColumnsForIntent(
   ];
 }
 
+export function housingGoalSummary(input: {
+  target?: number;
+  totalCapacity?: number;
+  targetGapMetric?: { value: number; method?: string; unit?: string };
+}): string | null {
+  const { target, totalCapacity, targetGapMetric } = input;
+  if (target == null || totalCapacity == null) return null;
+  const gap = target - totalCapacity;
+  if (gap <= 0) {
+    return `Estimated ${totalCapacity.toLocaleString()} homes — meets ${target.toLocaleString()}-home target.`;
+  }
+  const gapNote = targetGapMetric
+    ? ` (${targetGapMetric.method ?? "aggregate shortfall"})`
+    : "";
+  return `Estimated ${totalCapacity.toLocaleString()} homes — ${gap.toLocaleString()} short of ${target.toLocaleString()}-home target${gapNote}.`;
+}
+
 export function headlineMetric(
   intent: PlanningIntent,
   aggregateMetrics: MetricValue[]

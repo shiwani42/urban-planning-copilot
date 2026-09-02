@@ -117,3 +117,15 @@ describe("store persistence", () => {
     assert.ok(branchResult!.candidates.length > 0);
   });
 });
+
+describe("transit threshold normalization", () => {
+  it("clamps unrealistic UI values", async () => {
+    const { normalizeTransitThresholdMeters } = await import("./transit-threshold");
+    const extreme = normalizeTransitThresholdMeters(4000);
+    assert.equal(extreme.meters, 2000);
+    assert.match(extreme.warning ?? "", /bike-access/i);
+    const walk = normalizeTransitThresholdMeters(1500);
+    assert.equal(walk.meters, 1500);
+    assert.match(walk.warning ?? "", /walk distance/i);
+  });
+});

@@ -13,11 +13,11 @@ import {
   getLatestFreshResult,
   topRankedCandidate,
 } from "./decision";
-import { formatReportDateTime, dedupeLimitations } from "../format";
+import { formatReportDateTime, dedupeLimitations, formatDecisionType } from "../format";
+import { cloneScenarioForBranch } from "./scenario-clone";
 import { isHousingIntent, isAccessIntent } from "./intent";
 import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
 import { getStore, updateStore, reloadStoreFromDisk } from "./store";
-import { cloneScenarioForBranch } from "./scenario-clone";
 import { STUDY_BOUNDS } from "./study-bounds";
 import { ToolError } from "./tool-errors";
 import {
@@ -833,9 +833,9 @@ export async function getAnalysisRunStatus(projectId: string, scenarioId: string
 
 export async function runAnalysis(projectId: string, scenarioId: string) {
   return withAnalysisGate(projectId, async () => {
-  await requireProject(projectId);
-  const store = await reloadStoreFromDisk();
-  const scenario = requireScenario(store, projectId, scenarioId);
+    await requireProject(projectId);
+    const store = await reloadStoreFromDisk();
+    const scenario = requireScenario(store, projectId, scenarioId);
   const missing: string[] = [];
   const layers = layersForScenario(store, scenario);
   if (!layers.parcels) missing.push("parcels");
@@ -913,7 +913,7 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
   });
 
   // Execute synchronously but expose stepwise activity (deterministic engine)
-  const live = await getStore();
+  const live = await reloadStoreFromDisk();
   const sc = requireScenario(live, projectId, scenarioId);
   const rejected = new Set(
     live.decisions
@@ -1088,7 +1088,7 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
     );
   });
 
-  return getWorkspace(projectId);
+    return getWorkspace(projectId);
   });
 }
 
@@ -1101,8 +1101,14 @@ export async function createScenario(
     const project = store.projects.find((p) => p.id === projectId);
     if (!project) throw new Error("Project not found");
     const source = fromScenarioId
-      ? store.scenarios.find((s) => s.id === fromScenarioId && s.projectId === projectId)
+      ? store.scenarios.find(
+          (s) => s.id === fromScenarioId && s.projectId === projectId
+        )
       : store.scenarios.find((s) => s.id === project.activeScenarioId);
+
+    if (fromScenarioId && !source) {
+      throw new Error("Source scenario not found");
+    }
 
     const createdAt = now();
     const scenario: Scenario = source
@@ -1386,7 +1392,7 @@ export async function recordDecision(input: {
       summary: `Human decision: ${input.type}${input.reason ? ` — ${input.reason}` : ""}`,
       inputs: { subjectId: input.subjectId, reason: input.reason },
     });
-    touchProject(s, input.projectId, `Decision recorded: ${input.type}`);
+    touchProject(s, input.projectId, `Decision recorded: ${formatDecisionType(input.type)}`);
   });
   return getWorkspace(input.projectId);
 }
@@ -1580,10 +1586,13 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
       ].join("\n"),
     });
 
+    const targetGap = result.aggregateMetrics.find((m) => m.key === "housing_target_gap");
     const resultsBody = [
       result.summary,
       housingTarget != null && totalCapacity != null
-        ? `Aggregate capacity: ${totalCapacity.toLocaleString()} homes vs ${housingTarget.toLocaleString()}-home target (${Number(meetsTarget ?? 0)} candidates meet target alone).`
+        ? totalCapacity >= housingTarget
+          ? `Housing goal: ${totalCapacity.toLocaleString()} estimated homes — meets ${housingTarget.toLocaleString()}-home target.`
+          : `Housing goal: ${totalCapacity.toLocaleString()} estimated homes — ${(housingTarget - totalCapacity).toLocaleString()} short of ${housingTarget.toLocaleString()}-home target${targetGap ? ` (${targetGap.method})` : ""}.`
         : isAccessIntent(sc.objective.intent) && schoolUnderserved != null
           ? `School access gap: ${schoolUnderserved.toLocaleString()} people lack adequate school access across ranked areas.`
           : isAccessIntent(sc.objective.intent) && parkUnderserved != null
