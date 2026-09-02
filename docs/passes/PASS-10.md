@@ -44,7 +44,7 @@ Live reference: https://urban-planning-copilot.onrender.com/
 | 12 | `verify_operation` ambiguous | `status`: `nothing_to_verify` \| `pending` \| `verified` \| `failed` |
 | 13 | No map viewport tool | `set_map_view` with live follow |
 | 14 | Human-review banner overlaps nav | Banner below header; revision hash stripped from titles |
-| 15 | Carto “API KEY REQUIRED” without key | Wikimedia OSM fallback when `NEXT_PUBLIC_CARTO_API_KEY` unset |
+| 15 | Carto “API KEY REQUIRED” watermark | Fixed tile URL: `?key=` (not `api_key=`), no `{r}` suffix; subdomains `abcd`, maxZoom 20 |
 | 16 | `generate_report` / sensitive tools via WebMCP | `pending_planner` flow + structured errors |
 
 ## P2 — Fixed (cheap)
