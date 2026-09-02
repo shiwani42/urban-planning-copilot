@@ -9,6 +9,12 @@ import type {
   PlanningObjective,
 } from "./types";
 import { normalizeWeights } from "./objective";
+import {
+  isAccessIntent,
+  isHousingIntent,
+  intentUsesParkMetrics,
+  intentUsesSchoolMetrics,
+} from "./intent";
 
 export type FeatureProps = GeoJSON.GeoJsonProperties & {
   id?: string;
@@ -279,6 +285,46 @@ function populationNear(
   }, 0);
 }
 
+/** Population in the feature whose nearest service point exceeds the access radius. */
+export function underservedPopulationInFeature(
+  feature: GeoJSON.Feature,
+  population: GeoJSON.FeatureCollection | undefined,
+  servicePoints: GeoJSON.FeatureCollection | undefined,
+  radiusM: number
+): { total: number; underserved: number; served: number } {
+  if (!population?.features.length) {
+    return { total: 0, underserved: 0, served: 0 };
+  }
+  let total = 0;
+  let underserved = 0;
+  for (const cell of population.features) {
+    try {
+      if (!turf.booleanIntersects(feature, cell)) continue;
+    } catch {
+      continue;
+    }
+    const pop = Number((cell.properties as FeatureProps | null)?.population ?? 0);
+    if (pop <= 0) continue;
+    total += pop;
+    if (!servicePoints?.features.length) {
+      underserved += pop;
+      continue;
+    }
+    const nearest = nearestDistance(cell, servicePoints);
+    if (nearest.distance > radiusM) underserved += pop;
+  }
+  return { total, underserved, served: total - underserved };
+}
+
+function transitUnderservedPopulation(
+  feature: GeoJSON.Feature,
+  population: GeoJSON.FeatureCollection | undefined,
+  transit: GeoJSON.FeatureCollection | undefined,
+  radiusM: number
+): { total: number; underserved: number } {
+  return underservedPopulationInFeature(feature, population, transit, radiusM);
+}
+
 export interface AnalysisEngineInput {
   objective: PlanningObjective;
   constraints: Constraint[];
@@ -380,10 +426,37 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
     });
   }
 
-  if (!input.layers.transit) limitations.push("Transit dataset unavailable — proximity scores degraded");
-  if (!input.layers.flood) limitations.push("Flood dataset unavailable — flood resilience uncertain");
-  if (!input.layers.population)
-    limitations.push("Population dataset unavailable — coverage metrics limited");
+  if (!input.layers.transit && input.objective.intent === "transit_gap") {
+    limitations.push("Transit dataset unavailable — transit gap analysis cannot run");
+  }
+  if (!input.layers.schools && intentUsesSchoolMetrics(input.objective.intent)) {
+    limitations.push("Schools dataset unavailable — school access metrics cannot be computed");
+  }
+  if (!input.layers.parks && intentUsesParkMetrics(input.objective.intent)) {
+    limitations.push("Parks dataset unavailable — park access metrics cannot be computed");
+  }
+  if (input.objective.dataGaps?.length) {
+    for (const gap of input.objective.dataGaps) {
+      if (!limitations.includes(gap)) limitations.push(gap);
+    }
+  }
+  if (input.objective.analysisUnit === "neighborhood") {
+    limitations.push(
+      "Objective refers to neighborhoods — results rank individual parcels as geographic proxies; neighborhood aggregation is not applied."
+    );
+  }
+  if (input.objective.excludesHousing) {
+    limitations.push("Objective explicitly excludes housing production — capacity metrics are omitted.");
+  }
+  if (!input.layers.transit && input.objective.intent === "housing_capacity") {
+    limitations.push("Transit dataset unavailable — proximity scores degraded");
+  }
+  if (!input.layers.flood && input.constraints.some((c) => c.datasetKind === "flood" && c.enabled)) {
+    limitations.push("Flood dataset unavailable — flood resilience uncertain");
+  }
+  if (!input.layers.population && isAccessIntent(input.objective.intent)) {
+    limitations.push("Population dataset unavailable — underservice metrics limited");
+  }
   if (input.externalLimitations?.length) {
     for (const note of input.externalLimitations) {
       if (!limitations.includes(note)) limitations.push(note);
@@ -403,13 +476,20 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
   }
 
   const weights = normalizeWeights(input.weights);
-  const capacityScoreDenominator =
-    input.objective.intent === "housing_capacity" && input.objective.targetValue
-      ? input.objective.targetValue
-      : 800;
+  const housingIntent = isHousingIntent(input.objective.intent);
+  const accessIntent = isAccessIntent(input.objective.intent);
+  const useSchoolMetrics = intentUsesSchoolMetrics(input.objective.intent);
+  const useParkMetrics =
+    intentUsesParkMetrics(input.objective.intent) && Boolean(input.layers.parks);
+  const includeFloodScore = input.constraints.some(
+    (c) => c.enabled && c.datasetKind === "flood"
+  );
+
   const transitThreshold =
     Number(
-      input.constraints.find((c) => c.operator === "within_distance")?.value ?? 800
+      input.constraints.find((c) => c.operator === "within_distance")?.value ??
+        input.assumptions.find((a) => a.key === "transit_service_radius_m")?.value ??
+        800
     ) || 800;
 
   const shelterRadius = Number(
@@ -418,14 +498,21 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
   const schoolRadius = Number(
     input.assumptions.find((a) => a.key === "school_service_radius_m")?.value ?? 1000
   );
+  const parkRadius = Number(
+    input.assumptions.find((a) => a.key === "park_service_radius_m")?.value ?? 500
+  );
 
   type RawCandidate = {
     feature: GeoJSON.Feature;
     id: string;
     transitDist: number;
     schoolDist: number;
+    parkDist: number;
     popCovered: number;
-    capacityInfo: ReturnType<typeof estimateHousingCapacity>;
+    schoolAccess: ReturnType<typeof underservedPopulationInFeature>;
+    parkAccess: ReturnType<typeof underservedPopulationInFeature>;
+    transitAccess: ReturnType<typeof underservedPopulationInFeature>;
+    capacityInfo: ReturnType<typeof estimateHousingCapacity> | null;
     floodScore: number;
     floodExposure: number;
     labelBase: string;
@@ -439,12 +526,44 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
     const schoolDist = input.layers.schools
       ? nearestDistance(f, input.layers.schools).distance
       : Number.POSITIVE_INFINITY;
-    const popCovered = populationNear(
-      f,
-      input.layers.population,
-      input.exploreProfile === "school_gap" ? schoolRadius : shelterRadius
-    );
-    const floodScore = floodResilienceScore(f, input.layers.flood);
+    const parkDist = input.layers.parks
+      ? nearestDistance(f, input.layers.parks).distance
+      : Number.POSITIVE_INFINITY;
+    const popRadius =
+      input.objective.intent === "emergency_shelter"
+        ? shelterRadius
+        : useSchoolMetrics
+          ? schoolRadius
+          : shelterRadius;
+    const popCovered = populationNear(f, input.layers.population, popRadius);
+    const schoolAccess = useSchoolMetrics
+      ? underservedPopulationInFeature(
+          f,
+          input.layers.population,
+          input.layers.schools,
+          schoolRadius
+        )
+      : { total: 0, underserved: 0, served: 0 };
+    const parkAccess = useParkMetrics
+      ? underservedPopulationInFeature(
+          f,
+          input.layers.population,
+          input.layers.parks,
+          parkRadius
+        )
+      : { total: 0, underserved: 0, served: 0 };
+    const transitAccess =
+      input.objective.intent === "transit_gap"
+        ? underservedPopulationInFeature(
+            f,
+            input.layers.population,
+            input.layers.transit,
+            transitThreshold
+          )
+        : { total: 0, underserved: 0, served: 0 };
+    const floodScore = includeFloodScore
+      ? floodResilienceScore(f, input.layers.flood)
+      : 50;
     const intersectsHigh = input.layers.flood
       ? intersectsRisk(f, input.layers.flood, "high")
       : false;
@@ -460,8 +579,12 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
       id,
       transitDist: transit.distance,
       schoolDist,
+      parkDist,
       popCovered,
-      capacityInfo: estimateHousingCapacity(f, input.assumptions),
+      schoolAccess,
+      parkAccess,
+      transitAccess,
+      capacityInfo: housingIntent ? estimateHousingCapacity(f, input.assumptions) : null,
       floodScore,
       floodExposure,
       labelBase,
@@ -470,22 +593,25 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
 
   const transitDists = rawCandidates.map((r) => r.transitDist);
   const schoolDists = rawCandidates.map((r) => r.schoolDist);
+  const parkDists = rawCandidates.map((r) => r.parkDist);
   const popValues = rawCandidates.map((r) => r.popCovered);
-  const capacityValues = rawCandidates.map((r) => r.capacityInfo.capacity);
+  const schoolUnderserved = rawCandidates.map((r) => r.schoolAccess.underserved);
+  const parkUnderserved = rawCandidates.map((r) => r.parkAccess.underserved);
+  const transitUnderserved = rawCandidates.map((r) => r.transitAccess.underserved);
+  const capacityValues = rawCandidates.map((r) => r.capacityInfo?.capacity ?? 0);
   const floodExposureValues = rawCandidates.map((r) => r.floodExposure);
 
-  const enriched = rawCandidates.map((raw, i) => {
+  const enriched = rawCandidates.map((raw) => {
     const f = raw.feature;
     const id = raw.id;
     const transitScore = scoreFromDistance(raw.transitDist, transitThreshold);
-    const transitGapScore = percentileScore(raw.transitDist, transitDists, true);
-    const schoolGapScore = percentileScore(raw.schoolDist, schoolDists, true);
+    const transitGapScore = percentileScore(raw.transitAccess.underserved, transitUnderserved, true);
+    const schoolGapScore = percentileScore(raw.schoolAccess.underserved, schoolUnderserved, true);
+    const parkGapScore = percentileScore(raw.parkAccess.underserved, parkUnderserved, true);
     const popCoverageScore = percentileScore(raw.popCovered, popValues, true);
-    const capacityScore = percentileScore(
-      raw.capacityInfo.capacity,
-      capacityValues,
-      true
-    );
+    const capacityScore = housingIntent
+      ? percentileScore(raw.capacityInfo?.capacity ?? 0, capacityValues, true)
+      : 0;
     const floodExposureScore = percentileScore(
       raw.floodExposure,
       floodExposureValues,
@@ -495,14 +621,18 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
     const componentScores: Record<string, number> = {
       transit: transitScore,
       capacity: capacityScore,
-      flood_resilience: raw.floodScore,
       flood_exposure: floodExposureScore,
       population_coverage: popCoverageScore,
       accessibility: transitScore,
       accessibility_gain: schoolGapScore,
       underservice: schoolGapScore,
+      park_access_gain: parkGapScore,
+      park_underservice: parkGapScore,
       gap_severity: transitGapScore,
     };
+    if (includeFloodScore) {
+      componentScores.flood_resilience = raw.floodScore;
+    }
 
     let profileScore: number | undefined;
     if (input.exploreProfile === "transit_gap") {
@@ -516,8 +646,10 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
     const { score: composite, breakdown } = compositeScore(componentScores, weights);
     const score = profileScore ?? composite;
 
-    const metrics: MetricValue[] = [
-      {
+    const metrics: MetricValue[] = [];
+
+    if (housingIntent && raw.capacityInfo) {
+      metrics.push({
         key: "capacity",
         label: "Estimated housing capacity",
         value: raw.capacityInfo.capacity,
@@ -526,8 +658,81 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
         method: raw.capacityInfo.method,
         inputs: raw.capacityInfo.inputs,
         assumptions: ["developable_fraction", "units_per_hectare"],
-      },
-      {
+      });
+    }
+
+    if (useSchoolMetrics) {
+      metrics.push(
+        {
+          key: "school_distance_m",
+          label: "Distance to nearest school",
+          value: Number.isFinite(raw.schoolDist) ? Math.round(raw.schoolDist) : -1,
+          unit: "m",
+          kind: "calculated",
+          method: "centroid-to-centroid geodesic distance",
+          inputs: { service_radius_m: schoolRadius },
+        },
+        {
+          key: "school_underserved_pop",
+          label: "Population lacking school access",
+          value: raw.schoolAccess.underserved,
+          unit: "people",
+          kind: "calculated",
+          method: `population in parcel beyond ${schoolRadius}m of nearest school`,
+          inputs: {
+            service_radius_m: schoolRadius,
+            parcel_population: raw.schoolAccess.total,
+          },
+        },
+        {
+          key: "school_gap_score",
+          label: "School access gap score",
+          value: schoolGapScore,
+          kind: "calculated",
+          method: "percentile rank of underserved population (not farthest-parcel distance)",
+        }
+      );
+    }
+
+    if (useParkMetrics) {
+      metrics.push(
+        {
+          key: "park_distance_m",
+          label: "Distance to nearest park",
+          value: Number.isFinite(raw.parkDist) ? Math.round(raw.parkDist) : -1,
+          unit: "m",
+          kind: "calculated",
+          method: "centroid-to-centroid geodesic distance",
+          inputs: { service_radius_m: parkRadius },
+        },
+        {
+          key: "park_underserved_pop",
+          label: "Population lacking park access",
+          value: raw.parkAccess.underserved,
+          unit: "people",
+          kind: "calculated",
+          method: `population in parcel beyond ${parkRadius}m of nearest park`,
+          inputs: {
+            service_radius_m: parkRadius,
+            parcel_population: raw.parkAccess.total,
+          },
+        },
+        {
+          key: "park_gap_score",
+          label: "Park access gap score",
+          value: parkGapScore,
+          kind: "calculated",
+          method: "percentile rank of park-underserved population",
+        }
+      );
+    }
+
+    if (
+      input.objective.intent === "transit_gap" ||
+      housingIntent ||
+      input.objective.intent === "emergency_shelter"
+    ) {
+      metrics.push({
         key: "transit_distance_m",
         label: "Distance to nearest transit",
         value: Number.isFinite(raw.transitDist) ? Math.round(raw.transitDist) : -1,
@@ -535,64 +740,67 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
         kind: "calculated",
         method: "centroid-to-centroid geodesic distance",
         inputs: { threshold_m: transitThreshold },
-      },
-      {
-        key: "transit_gap_score",
-        label: "Transit gap score",
-        value: transitGapScore,
-        kind: "calculated",
-        method: "percentile rank of transit distance across study area",
-      },
-      {
+      });
+    }
+
+    if (input.objective.intent === "transit_gap") {
+      metrics.push(
+        {
+          key: "transit_underserved_pop",
+          label: "Population lacking transit access",
+          value: raw.transitAccess.underserved,
+          unit: "people",
+          kind: "calculated",
+          method: `population in parcel beyond ${transitThreshold}m of nearest transit`,
+        },
+        {
+          key: "transit_gap_score",
+          label: "Transit gap score",
+          value: transitGapScore,
+          kind: "calculated",
+          method: "percentile rank of transit-underserved population",
+        }
+      );
+    }
+
+    if (housingIntent) {
+      metrics.push({
         key: "transit_score",
         label: "Transit accessibility score",
         value: Number(transitScore.toFixed(1)),
         kind: "calculated",
         method: "distance decay relative to threshold",
-      },
-      {
+      });
+    }
+
+    if (includeFloodScore) {
+      metrics.push({
         key: "flood_resilience",
         label: "Flood resilience score",
         value: raw.floodScore,
         kind: "calculated",
         method: "spatial intersection against flood risk polygons",
-      },
-      {
-        key: "flood_exposure_score",
-        label: "Flood exposure score",
-        value: floodExposureScore,
-        kind: "calculated",
-        method: "percentile rank of flood zone intersection severity",
-      },
-      {
+      });
+    }
+
+    if (input.objective.intent === "emergency_shelter") {
+      metrics.push({
         key: "population_coverage",
         label: "Population within service radius",
         value: raw.popCovered,
         unit: "people",
         kind: "calculated",
         method: "sum population cells within radius",
-        inputs: {
-          radius_m:
-            input.exploreProfile === "school_gap" ? schoolRadius : shelterRadius,
-        },
-      },
-      {
-        key: "school_distance_m",
-        label: "Distance to nearest school",
-        value: Number.isFinite(raw.schoolDist) ? Math.round(raw.schoolDist) : -1,
-        unit: "m",
-        kind: "calculated",
-      },
-      {
-        key: "school_gap_score",
-        label: "School access gap score",
-        value: schoolGapScore,
-        kind: "calculated",
-        method: "percentile rank of school distance across study area",
-      },
-    ];
+        inputs: { radius_m: shelterRadius },
+      });
+    }
 
-    if (input.objective.intent === "housing_capacity" && input.objective.targetValue) {
+    if (
+      housingIntent &&
+      input.objective.intent === "housing_capacity" &&
+      input.objective.targetValue &&
+      raw.capacityInfo
+    ) {
       const target = input.objective.targetValue;
       const cap = raw.capacityInfo.capacity;
       const meets = cap >= target;
@@ -611,6 +819,48 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
 
     const label = raw.labelBase;
 
+    const calculations: Candidate["provenance"]["calculations"] = [];
+    if (raw.capacityInfo) {
+      calculations.push({
+        name: "capacity",
+        method: raw.capacityInfo.method,
+        inputs: raw.capacityInfo.inputs,
+        output: raw.capacityInfo.capacity,
+      });
+    }
+    if (useSchoolMetrics) {
+      calculations.push({
+        name: "school_access_gap",
+        method: `underserved population beyond ${schoolRadius}m school service radius`,
+        inputs: {
+          school_distance_m: Math.round(raw.schoolDist),
+          underserved_pop: raw.schoolAccess.underserved,
+          parcel_population: raw.schoolAccess.total,
+        },
+        output: schoolGapScore,
+      });
+    }
+    if (useParkMetrics) {
+      calculations.push({
+        name: "park_access_gap",
+        method: `underserved population beyond ${parkRadius}m park service radius`,
+        inputs: {
+          park_distance_m: Math.round(raw.parkDist),
+          underserved_pop: raw.parkAccess.underserved,
+          parcel_population: raw.parkAccess.total,
+        },
+        output: parkGapScore,
+      });
+    }
+    calculations.push({
+      name: "composite_score",
+      method: profileScore != null
+        ? "explore profile score (percentile-calibrated)"
+        : "weighted sum of normalized criteria",
+      inputs: { weights: Object.fromEntries(weights.map((w) => [w.key, w.weight])) },
+      output: Number(score.toFixed(1)),
+    });
+
     const candidate: Candidate = {
       id,
       label,
@@ -622,28 +872,7 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
       metrics,
       provenance: {
         scoreBreakdown: profileScore != null ? { profile: profileScore, ...breakdown } : breakdown,
-        calculations: [
-          {
-            name: "capacity",
-            method: raw.capacityInfo.method,
-            inputs: raw.capacityInfo.inputs,
-            output: raw.capacityInfo.capacity,
-          },
-          {
-            name: "transit_distance",
-            method: "geodesic nearest neighbor",
-            inputs: { threshold_m: transitThreshold },
-            output: Number.isFinite(raw.transitDist) ? Math.round(raw.transitDist) : -1,
-          },
-          {
-            name: "composite_score",
-            method: profileScore != null
-              ? "explore profile score (percentile-calibrated)"
-              : "weighted sum of normalized criteria",
-            inputs: { weights: Object.fromEntries(weights.map((w) => [w.key, w.weight])) },
-            output: Number(score.toFixed(1)),
-          },
-        ],
+        calculations,
         datasets: Object.values(input.datasetIds),
         assumptions: input.assumptions.map((a) => a.key),
         constraints: input.constraints.filter((c) => c.enabled).map((c) => c.label),
@@ -657,13 +886,15 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
   });
 
   const sortMetricKey =
-    input.exploreProfile === "school_gap"
-      ? "school_distance_m"
-      : input.exploreProfile === "transit_gap"
-        ? "transit_distance_m"
-        : input.exploreProfile === "flood_exposure"
-          ? "flood_exposure_score"
-          : null;
+    input.exploreProfile === "school_gap" || useSchoolMetrics
+      ? "school_underserved_pop"
+      : input.exploreProfile === "transit_gap" || input.objective.intent === "transit_gap"
+        ? "transit_underserved_pop"
+        : useParkMetrics
+          ? "park_underserved_pop"
+          : input.exploreProfile === "flood_exposure"
+            ? "flood_exposure_score"
+            : null;
 
   let ranked = [...enriched].sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
@@ -672,9 +903,11 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
       const mB = b.metrics.find((m) => m.key === sortMetricKey)?.value ?? 0;
       if (mB !== mA) return mB - mA;
     }
-    const capA = a.metrics.find((m) => m.key === "capacity")?.value ?? 0;
-    const capB = b.metrics.find((m) => m.key === "capacity")?.value ?? 0;
-    if (capB !== capA) return capB - capA;
+    if (housingIntent) {
+      const capA = a.metrics.find((m) => m.key === "capacity")?.value ?? 0;
+      const capB = b.metrics.find((m) => m.key === "capacity")?.value ?? 0;
+      if (capB !== capA) return capB - capA;
+    }
     return a.id.localeCompare(b.id);
   });
 
@@ -687,13 +920,15 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
     c.provenance.limitations = [...limitations];
     if (i === 0) {
       c.recommendationNote =
-        input.exploreProfile === "transit_gap"
-          ? "Largest transit accessibility gap in the study area."
-          : input.exploreProfile === "school_gap"
-            ? "Largest school access gap in the study area."
-            : input.exploreProfile === "flood_exposure"
-              ? "Highest flood exposure among analyzed areas."
-              : "Highest-scoring eligible candidate under current weights and constraints.";
+        input.exploreProfile === "transit_gap" || input.objective.intent === "transit_gap"
+          ? "Highest transit access gap by underserved population in the study area."
+          : input.exploreProfile === "school_gap" || useSchoolMetrics
+            ? "Highest school access gap by underserved population in the study area."
+            : useParkMetrics
+              ? "Highest park access gap by underserved population in the study area."
+              : input.exploreProfile === "flood_exposure"
+                ? "Highest flood exposure among analyzed areas."
+                : "Highest-scoring eligible candidate under current weights and constraints.";
     }
   });
 
@@ -705,6 +940,18 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
 
   const totalCapacity = ranked.reduce(
     (s, c) => s + (c.metrics.find((m) => m.key === "capacity")?.value ?? 0),
+    0
+  );
+  const totalSchoolUnderserved = ranked.reduce(
+    (s, c) => s + (c.metrics.find((m) => m.key === "school_underserved_pop")?.value ?? 0),
+    0
+  );
+  const totalParkUnderserved = ranked.reduce(
+    (s, c) => s + (c.metrics.find((m) => m.key === "park_underserved_pop")?.value ?? 0),
+    0
+  );
+  const totalTransitUnderserved = ranked.reduce(
+    (s, c) => s + (c.metrics.find((m) => m.key === "transit_underserved_pop")?.value ?? 0),
     0
   );
   const transitDistances = ranked
@@ -725,70 +972,188 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
       : schoolDistances.reduce((s, d) => s + d, 0) / schoolDistances.length;
   const medianSchool = median(schoolDistances);
 
-  const isGapProfile =
-    input.exploreProfile === "transit_gap" ||
-    input.exploreProfile === "school_gap" ||
-    input.exploreProfile === "flood_exposure";
-
   const gapDistances =
-    input.exploreProfile === "school_gap" ? schoolDistances : transitDistances;
+    input.exploreProfile === "school_gap" || useSchoolMetrics
+      ? schoolDistances
+      : transitDistances;
   const avgGap =
     gapDistances.length === 0
       ? 0
       : gapDistances.reduce((s, d) => s + d, 0) / gapDistances.length;
   const medianGap =
-    input.exploreProfile === "school_gap" ? medianSchool : medianTransit;
+    input.exploreProfile === "school_gap" || useSchoolMetrics ? medianSchool : medianTransit;
 
-  const aggregateMetrics: MetricValue[] = isGapProfile
+  const isGapProfile =
+    input.exploreProfile === "transit_gap" ||
+    input.exploreProfile === "school_gap" ||
+    input.exploreProfile === "flood_exposure" ||
+    accessIntent;
+
+  const aggregateMetrics: MetricValue[] = isGapProfile && !housingIntent
     ? [
         {
           key: "gap_area_count",
           label:
-            input.exploreProfile === "school_gap"
-              ? "Areas analyzed for school access"
-              : input.exploreProfile === "flood_exposure"
-                ? "Areas analyzed for flood exposure"
-                : "Areas with transit gaps",
+            useSchoolMetrics && useParkMetrics
+              ? "Areas analyzed for school & park access"
+              : useSchoolMetrics
+                ? "Areas analyzed for school access"
+                : useParkMetrics
+                  ? "Areas analyzed for park access"
+                  : input.objective.intent === "transit_gap"
+                    ? "Areas with transit access gaps"
+                    : input.exploreProfile === "flood_exposure"
+                      ? "Areas analyzed for flood exposure"
+                      : "Areas analyzed for service access",
           value: ranked.length,
           kind: "calculated",
-          method: "parcel count in gap investigation",
+          method: "parcel count in access-gap investigation",
         },
-        {
-          key: "population_in_gap_areas",
-          label: "Population in analyzed areas",
-          value: ranked.reduce(
-            (s, c) =>
-              s + (c.metrics.find((m) => m.key === "population_coverage")?.value ?? 0),
-            0
-          ),
-          unit: "people",
-          kind: "calculated",
-          method: "sum of population within service radius per area",
-        },
-        {
-          key: "avg_gap_distance_m",
-          label:
-            input.exploreProfile === "school_gap"
-              ? "Average school distance"
-              : "Average transit distance",
-          value: Math.round(avgGap),
-          unit: "m",
-          kind: "calculated",
-          method: "mean distance to nearest service",
-        },
-        {
-          key: "median_gap_distance_m",
-          label:
-            input.exploreProfile === "school_gap"
-              ? "Median school distance"
-              : "Median transit distance",
-          value: Math.round(medianGap),
-          unit: "m",
-          kind: "calculated",
-          method: "median distance to nearest service",
-        },
+        ...(useSchoolMetrics
+          ? [
+              {
+                key: "total_school_underserved_pop",
+                label: "Population lacking school access",
+                value: totalSchoolUnderserved,
+                unit: "people",
+                kind: "calculated" as const,
+                method: `sum of population beyond ${schoolRadius}m of nearest school`,
+                inputs: { service_radius_m: schoolRadius },
+              },
+              {
+                key: "avg_school_distance_m",
+                label: "Average distance to nearest school",
+                value: Math.round(avgSchool),
+                unit: "m",
+                kind: "calculated" as const,
+                method: "mean distance to nearest school among candidates",
+              },
+              {
+                key: "median_school_distance_m",
+                label: "Median distance to nearest school",
+                value: medianSchool,
+                unit: "m",
+                kind: "calculated" as const,
+                method: "median distance to nearest school among candidates",
+              },
+            ]
+          : []),
+        ...(useParkMetrics
+          ? [
+              {
+                key: "total_park_underserved_pop",
+                label: "Population lacking park access",
+                value: totalParkUnderserved,
+                unit: "people",
+                kind: "calculated" as const,
+                method: `sum of population beyond ${parkRadius}m of nearest park`,
+                inputs: { service_radius_m: parkRadius },
+              },
+              {
+                key: "avg_park_distance_m",
+                label: "Average distance to nearest park",
+                value: Math.round(
+                  parkDists.filter((d) => Number.isFinite(d)).length
+                    ? parkDists.filter((d) => Number.isFinite(d)).reduce((s, d) => s + d, 0) /
+                      parkDists.filter((d) => Number.isFinite(d)).length
+                    : 0
+                ),
+                unit: "m",
+                kind: "calculated" as const,
+                method: "mean distance to nearest park among candidates",
+              },
+            ]
+          : []),
+        ...(input.objective.intent === "transit_gap"
+          ? [
+              {
+                key: "total_transit_underserved_pop",
+                label: "Population lacking transit access",
+                value: totalTransitUnderserved,
+                unit: "people",
+                kind: "calculated" as const,
+                method: `sum of population beyond ${transitThreshold}m of nearest transit`,
+              },
+              {
+                key: "avg_gap_distance_m",
+                label: "Average transit distance",
+                value: Math.round(avgGap),
+                unit: "m",
+                kind: "calculated" as const,
+                method: "mean distance to nearest transit",
+              },
+              {
+                key: "median_gap_distance_m",
+                label: "Median transit distance",
+                value: Math.round(medianGap),
+                unit: "m",
+                kind: "calculated" as const,
+                method: "median distance to nearest transit",
+              },
+            ]
+          : []),
+        ...(input.objective.intent === "emergency_shelter"
+          ? [
+              {
+                key: "population_in_gap_areas",
+                label: "Population in analyzed areas",
+                value: ranked.reduce(
+                  (s, c) =>
+                    s + (c.metrics.find((m) => m.key === "population_coverage")?.value ?? 0),
+                  0
+                ),
+                unit: "people",
+                kind: "calculated" as const,
+                method: "sum of population within service radius per area",
+              },
+            ]
+          : []),
       ]
-    : [
+    : isGapProfile
+      ? [
+          {
+            key: "gap_area_count",
+            label: "Areas analyzed",
+            value: ranked.length,
+            kind: "calculated",
+            method: "parcel count in gap investigation",
+          },
+          {
+            key: "population_in_gap_areas",
+            label: "Population in analyzed areas",
+            value: ranked.reduce(
+              (s, c) =>
+                s + (c.metrics.find((m) => m.key === "population_coverage")?.value ?? 0),
+              0
+            ),
+            unit: "people",
+            kind: "calculated",
+            method: "sum of population within service radius per area",
+          },
+          {
+            key: "avg_gap_distance_m",
+            label:
+              input.exploreProfile === "school_gap"
+                ? "Average school distance"
+                : "Average transit distance",
+            value: Math.round(avgGap),
+            unit: "m",
+            kind: "calculated",
+            method: "mean distance to nearest service",
+          },
+          {
+            key: "median_gap_distance_m",
+            label:
+              input.exploreProfile === "school_gap"
+                ? "Median school distance"
+                : "Median transit distance",
+            value: Math.round(medianGap),
+            unit: "m",
+            kind: "calculated",
+            method: "median distance to nearest service",
+          },
+        ]
+      : [
         {
           key: "eligible_count",
           label: "Eligible candidate areas",
@@ -864,8 +1229,28 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
   let summary: string;
   if (ranked.length === 0) {
     summary = isGapProfile
-      ? "No areas matched this gap investigation."
+      ? "No areas matched this access-gap investigation."
       : "No feasible candidates found under the current constraints. Consider relaxing transit distance, flood exclusion, zoning filters, or geographic exclusions.";
+  } else if (accessIntent && !housingIntent) {
+    const top = ranked[0];
+    const schoolGap = top.metrics.find((m) => m.key === "school_underserved_pop");
+    const parkGap = top.metrics.find((m) => m.key === "park_underserved_pop");
+    const parts = [`Found ${ranked.length} areas ranked by service-access gaps.`];
+    if (schoolGap) {
+      parts.push(
+        `Top recommendation: ${top.label} — ${schoolGap.value.toLocaleString()} people lack school access within ${schoolRadius}m (score ${top.score}).`
+      );
+    } else if (parkGap) {
+      parts.push(
+        `Top recommendation: ${top.label} — ${parkGap.value.toLocaleString()} people lack park access within ${parkRadius}m (score ${top.score}).`
+      );
+    } else {
+      parts.push(`Top recommendation: ${top.label} (score ${top.score}).`);
+    }
+    if (input.objective.dataGaps?.length) {
+      parts.push("Partial analysis — see limitations for missing datasets.");
+    }
+    summary = parts.join(" ");
   } else if (
     input.objective.intent === "housing_capacity" &&
     input.objective.targetValue &&
@@ -890,6 +1275,7 @@ export interface ScenarioComparisonInput {
   name: string;
   weights?: CriterionWeight[];
   housingTarget?: number;
+  intent?: PlanningObjective["intent"];
   result: AnalysisEngineOutput | null;
 }
 
@@ -902,6 +1288,12 @@ export function compareScenarioMetrics(
     const candidates = r.result?.candidates ?? [];
     const top = candidates[0];
     const topCap = top?.metrics.find((m) => m.key === "capacity")?.value ?? 0;
+    const topSchoolGap =
+      top?.metrics.find((m) => m.key === "school_underserved_pop")?.value ?? 0;
+    const topParkGap =
+      top?.metrics.find((m) => m.key === "park_underserved_pop")?.value ?? 0;
+    const accessIntent = r.intent ? isAccessIntent(r.intent) : false;
+    const housingIntent = r.intent ? isHousingIntent(r.intent) : Boolean(r.housingTarget);
     const meetsAlone =
       r.housingTarget != null
         ? candidates.filter(
@@ -916,13 +1308,18 @@ export function compareScenarioMetrics(
     return {
       scenarioId: r.scenarioId,
       name: r.name,
-      eligible_count: get("eligible_count"),
-      total_capacity: get("total_capacity"),
+      eligible_count: get("eligible_count") || get("gap_area_count"),
+      total_capacity: housingIntent ? get("total_capacity") : "—",
+      total_school_underserved_pop: accessIntent ? get("total_school_underserved_pop") : "—",
+      total_park_underserved_pop: accessIntent ? get("total_park_underserved_pop") : "—",
+      avg_school_distance_m: get("avg_school_distance_m") || get("avg_gap_distance_m"),
       avg_transit_distance: get("avg_transit_distance"),
       median_transit_distance: get("median_transit_distance"),
-      meets_target_count: meetsAlone,
+      meets_target_count: housingIntent ? meetsAlone : "—",
       top_candidate: top?.label ?? "—",
-      top_candidate_capacity: topCap,
+      top_candidate_capacity: housingIntent ? topCap : "—",
+      top_school_underserved_pop: accessIntent ? topSchoolGap : "—",
+      top_park_underserved_pop: accessIntent ? topParkGap : "—",
       top_rank_score: top?.score ?? 0,
       top_3: candidates
         .slice(0, 3)

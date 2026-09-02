@@ -165,6 +165,24 @@ export function generateSyntheticCity(seed = 42): {
     );
   }
 
+  // Parks / green spaces
+  const parks: GeoJSON.Feature[] = [];
+  for (let i = 0; i < 6; i++) {
+    const lng = west + 0.03 + rand() * (east - west - 0.06);
+    const lat = south + 0.03 + rand() * (north - south - 0.06);
+    const size = 0.003 + rand() * 0.004;
+    parks.push(
+      turf.bboxPolygon([lng, lat, lng + size, lat + size * 0.8], {
+        properties: {
+          id: `park-${i}`,
+          name: `Park ${i + 1}`,
+          type: i % 2 === 0 ? "neighborhood_park" : "playground",
+          synthetic: true,
+        },
+      })
+    );
+  }
+
   // Roads / infrastructure (sample points representing access nodes)
   const infrastructure: GeoJSON.Feature[] = [];
   for (let i = 0; i < 15; i++) {
@@ -244,7 +262,7 @@ export function generateSyntheticCity(seed = 42): {
       updatedAt: now,
       synthetic: true,
       coverage: "Study area grid",
-      limitations: ["Not census-accurate", "Point representation of areal estimates"],
+      limitations: ["Not census-accurate", "Point representation of areal estimates", "May double-count near parcel boundaries"],
       featureCount: population.length,
       enabled: true,
       attributes: ["id", "population"],
@@ -258,8 +276,28 @@ export function generateSyntheticCity(seed = 42): {
       updatedAt: now,
       synthetic: true,
       coverage: "Study area",
-      limitations: ["School locations are synthetic"],
+      limitations: [
+        "School locations are synthetic",
+        "Does not distinguish school capacity or enrollment",
+      ],
       featureCount: schools.length,
+      enabled: true,
+      attributes: ["id", "name", "type"],
+    },
+    {
+      id: "ds-parks",
+      name: "Parks & green space (Synthetic)",
+      kind: "parks",
+      source: "Synthetic generator",
+      version: "syn-1.0.0",
+      updatedAt: now,
+      synthetic: true,
+      coverage: "Study area — illustrative park footprints",
+      limitations: [
+        "Park boundaries are synthetic",
+        "Does not include trail networks or informal open space",
+      ],
+      featureCount: parks.length,
       enabled: true,
       attributes: ["id", "name", "type"],
     },
@@ -287,6 +325,7 @@ export function generateSyntheticCity(seed = 42): {
       "ds-flood": { type: "FeatureCollection", features: flood },
       "ds-population": { type: "FeatureCollection", features: population },
       "ds-schools": { type: "FeatureCollection", features: schools },
+      "ds-parks": { type: "FeatureCollection", features: parks },
       "ds-infrastructure": { type: "FeatureCollection", features: infrastructure },
     },
   };

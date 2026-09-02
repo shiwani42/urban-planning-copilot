@@ -7,6 +7,7 @@ import type {
   CriterionWeight,
   PlanningIntent,
   PlanningObjective,
+  ServiceAccessType,
 } from "./types";
 
 const HOUSING_RE =
@@ -19,6 +20,10 @@ const FLOOD_RE = /flood|flood-risk|floodplain|inundation/i;
 const ZONING_RE = /zoning|residential(?:ly)?\s+zon/i;
 const SHELTER_RE = /shelter|emergency\s+response|evacuation/i;
 const SCHOOL_RE = /school|education|classroom/i;
+const PARK_RE = /\bparks?\b|green\s*space|playground|recreation(?:al)?\s+area/i;
+const NOT_HOUSING_RE =
+  /not\s+(?:a\s+)?housing|non[- ]housing|isn'?t\s+(?:a\s+)?housing|no\s+housing/i;
+const NEIGHBORHOOD_RE = /\bneighborhoods?\b/i;
 const TRANSIT_GAP_RE =
   /transit\s+(?:accessibility\s+)?gaps?|underserved.*transit|new\s+transit\s+stop/i;
 const CLIMATE_RE = /climate|resilience|heat\s+island|sea\s+level/i;
@@ -97,17 +102,36 @@ export function assessObjectiveQuality(text: string): {
 }
 
 export function detectIntent(text: string): PlanningIntent {
+  const excludesHousing = NOT_HOUSING_RE.test(text);
   if (SHELTER_RE.test(text)) return "emergency_shelter";
+  if (PARK_RE.test(text) && SCHOOL_RE.test(text)) return "service_access";
+  if (PARK_RE.test(text) && !SCHOOL_RE.test(text)) return "park_accessibility";
   if (SCHOOL_RE.test(text)) return "school_accessibility";
   if (TRANSIT_GAP_RE.test(text)) return "transit_gap";
-  if (CLIMATE_RE.test(text) && !HOUSING_RE.test(text)) return "climate_resilience";
-  if (HOUSING_RE.test(text) || /housing|homes|residential growth/i.test(text))
+  if (CLIMATE_RE.test(text) && !HOUSING_RE.test(text) && !excludesHousing)
+    return "climate_resilience";
+  if (
+    !excludesHousing &&
+    (HOUSING_RE.test(text) || /housing|homes|residential growth/i.test(text))
+  ) {
     return "housing_capacity";
+  }
   if (/explore|where are|largest|discover/i.test(text)) return "explore";
   return "generic_siting";
 }
 
-export function defaultWeightsForIntent(intent: PlanningIntent): CriterionWeight[] {
+export function serviceTypesInObjective(text: string): ServiceAccessType[] {
+  const types: ServiceAccessType[] = [];
+  if (SCHOOL_RE.test(text)) types.push("school");
+  if (PARK_RE.test(text)) types.push("park");
+  return types;
+}
+
+export function defaultWeightsForIntent(
+  intent: PlanningIntent,
+  options?: { includeFlood?: boolean }
+): CriterionWeight[] {
+  const includeFlood = options?.includeFlood ?? false;
   switch (intent) {
     case "housing_capacity":
       return [
@@ -119,65 +143,80 @@ export function defaultWeightsForIntent(intent: PlanningIntent): CriterionWeight
       return [
         { id: nanoid(), key: "population_coverage", label: "Population coverage", weight: 0.5 },
         { id: nanoid(), key: "accessibility", label: "Accessibility", weight: 0.3 },
-        { id: nanoid(), key: "flood_resilience", label: "Flood resilience", weight: 0.2 },
+        ...(includeFlood
+          ? [{ id: nanoid(), key: "flood_resilience", label: "Flood resilience", weight: 0.2 }]
+          : [{ id: nanoid(), key: "underservice", label: "Underserved population", weight: 0.2 }]),
       ];
     case "school_accessibility":
       return [
-        { id: nanoid(), key: "accessibility_gain", label: "Accessibility improvement", weight: 0.55 },
-        { id: nanoid(), key: "underservice", label: "Underserved population", weight: 0.3 },
-        { id: nanoid(), key: "flood_resilience", label: "Flood resilience", weight: 0.15 },
+        { id: nanoid(), key: "accessibility_gain", label: "School access improvement", weight: 0.55 },
+        { id: nanoid(), key: "underservice", label: "Underserved population", weight: 0.45 },
+      ];
+    case "park_accessibility":
+      return [
+        { id: nanoid(), key: "park_access_gain", label: "Park access improvement", weight: 0.55 },
+        { id: nanoid(), key: "park_underservice", label: "Park-underserved population", weight: 0.45 },
+      ];
+    case "service_access":
+      return [
+        { id: nanoid(), key: "accessibility_gain", label: "School access improvement", weight: 0.3 },
+        { id: nanoid(), key: "underservice", label: "School-underserved population", weight: 0.25 },
+        { id: nanoid(), key: "park_access_gain", label: "Park access improvement", weight: 0.25 },
+        { id: nanoid(), key: "park_underservice", label: "Park-underserved population", weight: 0.2 },
       ];
     case "transit_gap":
       return [
-        { id: nanoid(), key: "gap_severity", label: "Accessibility gap", weight: 0.55 },
-        { id: nanoid(), key: "population_coverage", label: "Population coverage", weight: 0.3 },
-        { id: nanoid(), key: "flood_resilience", label: "Flood resilience", weight: 0.15 },
+        { id: nanoid(), key: "gap_severity", label: "Transit accessibility gap", weight: 0.55 },
+        { id: nanoid(), key: "population_coverage", label: "Population in gap areas", weight: 0.45 },
       ];
     default:
       return [
         { id: nanoid(), key: "accessibility", label: "Accessibility", weight: 0.4 },
         { id: nanoid(), key: "capacity", label: "Capacity / suitability", weight: 0.35 },
-        { id: nanoid(), key: "flood_resilience", label: "Flood resilience", weight: 0.25 },
+        ...(includeFlood
+          ? [{ id: nanoid(), key: "flood_resilience", label: "Flood resilience", weight: 0.25 }]
+          : [{ id: nanoid(), key: "underservice", label: "Underserved population", weight: 0.25 }]),
       ];
   }
 }
 
 export function defaultAssumptions(intent: PlanningIntent): Assumption[] {
-  const common: Assumption[] = [
-    {
-      id: nanoid(),
-      key: "developable_fraction",
-      label: "Developable area fraction",
-      value: 0.7,
-      unit: "ratio",
-      description: "Share of parcel area assumed developable after setbacks and open space.",
-      editable: true,
-    },
-    {
-      id: nanoid(),
-      key: "units_per_hectare",
-      label: "Default residential density",
-      value: 80,
-      unit: "units/ha",
-      description: "Fallback density when parcel FAR/density is unavailable.",
-      editable: true,
-    },
-  ];
-
   if (intent === "housing_capacity") {
-    common.push({
-      id: nanoid(),
-      key: "avg_household_size",
-      label: "Average household size",
-      value: 2.3,
-      unit: "persons",
-      description: "Used only for population-derived capacity estimates.",
-      editable: true,
-    });
+    return [
+      {
+        id: nanoid(),
+        key: "developable_fraction",
+        label: "Developable area fraction",
+        value: 0.7,
+        unit: "ratio",
+        description: "Share of parcel area assumed developable after setbacks and open space.",
+        editable: true,
+      },
+      {
+        id: nanoid(),
+        key: "units_per_hectare",
+        label: "Default residential density",
+        value: 80,
+        unit: "units/ha",
+        description: "Fallback density when parcel FAR/density is unavailable.",
+        editable: true,
+      },
+      {
+        id: nanoid(),
+        key: "avg_household_size",
+        label: "Average household size",
+        value: 2.3,
+        unit: "persons",
+        description: "Used only for population-derived capacity estimates.",
+        editable: true,
+      },
+    ];
   }
 
+  const assumptions: Assumption[] = [];
+
   if (intent === "emergency_shelter") {
-    common.push({
+    assumptions.push({
       id: nanoid(),
       key: "shelter_service_radius_m",
       label: "Shelter service radius",
@@ -188,8 +227,11 @@ export function defaultAssumptions(intent: PlanningIntent): Assumption[] {
     });
   }
 
-  if (intent === "school_accessibility") {
-    common.push({
+  if (
+    intent === "school_accessibility" ||
+    intent === "service_access"
+  ) {
+    assumptions.push({
       id: nanoid(),
       key: "school_service_radius_m",
       label: "School service radius",
@@ -200,12 +242,37 @@ export function defaultAssumptions(intent: PlanningIntent): Assumption[] {
     });
   }
 
-  return common;
+  if (intent === "park_accessibility" || intent === "service_access") {
+    assumptions.push({
+      id: nanoid(),
+      key: "park_service_radius_m",
+      label: "Park service radius",
+      value: 500,
+      unit: "m",
+      description: "Distance threshold for adequate park / green-space access.",
+      editable: true,
+    });
+  }
+
+  if (intent === "transit_gap") {
+    assumptions.push({
+      id: nanoid(),
+      key: "transit_service_radius_m",
+      label: "Transit access threshold",
+      value: 800,
+      unit: "m",
+      description: "Distance beyond which transit access is considered inadequate.",
+      editable: true,
+    });
+  }
+
+  return assumptions;
 }
 
 export function parseObjective(
   rawText: string,
-  geographyLabel = "Study area"
+  geographyLabel = "Study area",
+  options?: { availableDatasetKinds?: string[] }
 ): {
   objective: PlanningObjective;
   constraints: Constraint[];
@@ -213,10 +280,30 @@ export function parseObjective(
   assumptions: Assumption[];
 } {
   const intent = detectIntent(rawText);
+  const excludesHousing = NOT_HOUSING_RE.test(rawText);
+  const serviceTypes = serviceTypesInObjective(rawText);
+  const analysisUnit: PlanningObjective["analysisUnit"] = NEIGHBORHOOD_RE.test(rawText)
+    ? "neighborhood"
+    : "parcel";
+  const dataGaps: string[] = [];
+  const available = new Set(options?.availableDatasetKinds ?? []);
+
+  if (serviceTypes.includes("park") && available.size > 0 && !available.has("parks")) {
+    dataGaps.push(
+      "Parks are referenced in the objective but no parks dataset is available — park access cannot be analyzed."
+    );
+  }
+  if (serviceTypes.includes("school") && available.size > 0 && !available.has("schools")) {
+    dataGaps.push(
+      "Schools are referenced in the objective but no schools dataset is available — school access cannot be analyzed."
+    );
+  }
+
   const requirements: string[] = [];
   const constraints: Constraint[] = [];
+  const includeFlood = FLOOD_RE.test(rawText) || /avoiding flood|outside.*flood/i.test(rawText);
 
-  const housing = rawText.match(HOUSING_RE);
+  const housing = !excludesHousing ? rawText.match(HOUSING_RE) : null;
   let targetValue: number | undefined;
   let targetUnit: string | undefined;
   if (housing) {
@@ -282,7 +369,10 @@ export function parseObjective(
     });
   }
 
-  if (ZONING_RE.test(rawText) || intent === "housing_capacity") {
+  if (
+    (ZONING_RE.test(rawText) || intent === "housing_capacity") &&
+    !excludesHousing
+  ) {
     requirements.push("Respect residential zoning compatibility");
     constraints.push({
       id: nanoid(),
@@ -314,15 +404,49 @@ export function parseObjective(
 
   if (intent === "school_accessibility") {
     requirements.push("Improve school accessibility for underserved areas");
-    requirements.push("Avoid areas already adequately served");
+    requirements.push("Prioritize population with poor school access");
+    if (excludesHousing) {
+      requirements.push("Not a housing production analysis");
+    }
+  }
+
+  if (intent === "park_accessibility") {
+    requirements.push("Improve park / green-space accessibility for underserved areas");
+    requirements.push("Prioritize population with poor park access");
+    if (excludesHousing) {
+      requirements.push("Not a housing production analysis");
+    }
+  }
+
+  if (intent === "service_access") {
+    requirements.push("Identify areas underserved by parks and schools");
+    if (serviceTypes.includes("school")) {
+      requirements.push("Measure school access gaps using service-radius threshold");
+    }
+    if (serviceTypes.includes("park")) {
+      requirements.push("Measure park access gaps using service-radius threshold");
+    }
+    if (excludesHousing) {
+      requirements.push("Not a housing production analysis");
+    }
+    if (dataGaps.length) {
+      requirements.push("Partial analysis — missing datasets disclosed in limitations");
+    }
   }
 
   if (intent === "transit_gap") {
     requirements.push("Identify neighborhoods with largest transit accessibility gaps");
   }
 
+  if (analysisUnit === "neighborhood") {
+    requirements.push(
+      "Neighborhood-level objective — results rank parcels as geographic proxies until neighborhood aggregation is applied"
+    );
+  }
+
   const quality = assessObjectiveQuality(rawText);
   const baseConfidence = requirements.length >= 2 ? 0.85 : requirements.length === 1 ? 0.65 : 0.45;
+  const gapPenalty = dataGaps.length ? 0.15 * dataGaps.length : 0;
   const objective: PlanningObjective = {
     rawText,
     intent,
@@ -331,15 +455,28 @@ export function parseObjective(
     geographyLabel,
     parsedRequirements: requirements,
     confidence: quality.interpretable
-      ? Math.min(baseConfidence, quality.confidence === 1 ? baseConfidence : quality.confidence)
+      ? Math.max(
+          0.2,
+          Math.min(
+            baseConfidence,
+            quality.confidence === 1 ? baseConfidence : quality.confidence
+          ) - gapPenalty
+        )
       : quality.confidence,
-    qualityWarning: quality.warning,
+    qualityWarning:
+      dataGaps.length > 0
+        ? dataGaps.join(" ")
+        : quality.warning,
+    excludesHousing,
+    serviceTypes: serviceTypes.length ? serviceTypes : undefined,
+    analysisUnit,
+    dataGaps: dataGaps.length ? dataGaps : undefined,
   };
 
   return {
     objective,
     constraints,
-    weights: defaultWeightsForIntent(intent),
+    weights: defaultWeightsForIntent(intent, { includeFlood }),
     assumptions: defaultAssumptions(intent),
   };
 }
@@ -406,6 +543,8 @@ export function buildAnalysisPlan(
   } else if (
     objective.intent === "transit_gap" ||
     objective.intent === "school_accessibility" ||
+    objective.intent === "park_accessibility" ||
+    objective.intent === "service_access" ||
     objective.intent === "emergency_shelter"
   ) {
     steps.push({
@@ -418,6 +557,7 @@ export function buildAnalysisPlan(
         datasetNames.transit || "transit",
         datasetNames.population || "population",
         datasetNames.schools || "schools",
+        datasetNames.parks || "parks",
       ].filter(Boolean),
       assumptions: [],
       status: "pending" as const,
@@ -446,18 +586,34 @@ export function buildAnalysisPlan(
       assumptions: ["shelter_service_radius_m"],
       status: "pending" as const,
     });
-  } else if (objective.intent === "school_accessibility") {
+  } else if (objective.intent === "school_accessibility" || objective.intent === "service_access") {
     steps.push({
       id: nanoid(),
       order: order++,
       operation: "school_gap",
       label: "Identify school accessibility gaps",
-      purpose: "Find areas poorly served by existing schools",
+      purpose: "Find areas where population lacks adequate school access",
       datasets: [
         datasetNames.schools || "schools",
         datasetNames.population || "population",
       ],
       assumptions: ["school_service_radius_m"],
+      status: "pending" as const,
+    });
+  }
+
+  if (objective.intent === "park_accessibility" || objective.intent === "service_access") {
+    steps.push({
+      id: nanoid(),
+      order: order++,
+      operation: "park_gap",
+      label: "Identify park accessibility gaps",
+      purpose: "Find areas where population lacks adequate park access",
+      datasets: [
+        datasetNames.parks || "parks",
+        datasetNames.population || "population",
+      ],
+      assumptions: ["park_service_radius_m"],
       status: "pending" as const,
     });
   } else if (objective.intent === "transit_gap") {

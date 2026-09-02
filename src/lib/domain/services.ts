@@ -14,6 +14,7 @@ import {
   topRankedCandidate,
 } from "./decision";
 import { formatReportDateTime } from "../format";
+import { isHousingIntent, isAccessIntent } from "./intent";
 import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
 import { getStore, updateStore } from "./store";
 import { STUDY_BOUNDS } from "./seed";
@@ -51,7 +52,7 @@ function defaultMapState(datasets: AppStore["datasets"]): MapState {
     },
     layers: datasets.map((d) => ({
       datasetId: d.id,
-      visible: ["parcels", "transit", "flood", "population", "schools"].includes(d.kind),
+      visible: ["parcels", "transit", "flood", "population", "schools", "parks"].includes(d.kind),
     })),
     selectedFeatureIds: [],
     highlightFeatureIds: [],
@@ -78,6 +79,12 @@ function datasetNameMap(store: AppStore): Record<string, string> {
     map[d.kind] = d.name;
   }
   return map;
+}
+
+function parseForStore(store: AppStore, text: string, geographyLabel: string) {
+  return parseObjective(text, geographyLabel, {
+    availableDatasetKinds: store.datasets.filter((d) => d.enabled).map((d) => d.kind),
+  });
 }
 
 function layersForScenario(
@@ -181,7 +188,7 @@ export async function createProject(input: {
   let projectId = "";
   await updateStore((store) => {
     const geographyLabel = input.geographyLabel ?? "Study area";
-    const parsed = parseObjective(input.objectiveText, geographyLabel);
+    const parsed = parseForStore(store, input.objectiveText, geographyLabel);
     const project: Project = {
       id: nanoid(),
       name: input.name,
@@ -250,7 +257,7 @@ export async function updateObjective(projectId: string, text: string) {
     const project = store.projects.find((p) => p.id === projectId);
     const scenario = store.scenarios.find((s) => s.id === project?.activeScenarioId);
     if (!project || !scenario) throw new Error("Project/scenario not found");
-    const parsed = parseObjective(text, project.geographyLabel);
+    const parsed = parseForStore(store, text, project.geographyLabel);
     scenario.objective = parsed.objective;
     scenario.constraints = parsed.constraints;
     scenario.weights = parsed.weights;
@@ -804,7 +811,7 @@ export async function createScenario(
           savedAt: undefined,
         }
       : (() => {
-          const parsed = parseObjective("Explore planning options", project.geographyLabel);
+          const parsed = parseForStore(store, "Explore planning options", project.geographyLabel);
           return {
             id: nanoid(),
             projectId,
@@ -935,6 +942,7 @@ export async function compareScenarios(projectId: string, scenarioIds: string[])
         scenario?.objective.intent === "housing_capacity"
           ? scenario.objective.targetValue
           : undefined,
+      intent: scenario?.objective.intent,
       result: result
         ? {
             candidates: result.candidates,
@@ -1154,6 +1162,12 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
     const housingTarget =
       sc.objective.intent === "housing_capacity" ? sc.objective.targetValue : undefined;
     const totalCapacity = result.aggregateMetrics.find((m) => m.key === "total_capacity")?.value;
+    const schoolUnderserved = result.aggregateMetrics.find(
+      (m) => m.key === "total_school_underserved_pop"
+    )?.value;
+    const parkUnderserved = result.aggregateMetrics.find(
+      (m) => m.key === "total_park_underserved_pop"
+    )?.value;
     const meetsTarget = result.aggregateMetrics.find((m) => m.key === "meets_target_count")?.value;
 
     sections.push({
@@ -1245,6 +1259,13 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
       result.summary,
       housingTarget != null && totalCapacity != null
         ? `Aggregate capacity: ${totalCapacity.toLocaleString()} homes vs ${housingTarget.toLocaleString()}-home target (${Number(meetsTarget ?? 0)} candidates meet target alone).`
+        : isAccessIntent(sc.objective.intent) && schoolUnderserved != null
+          ? `School access gap: ${schoolUnderserved.toLocaleString()} people lack adequate school access across ranked areas.`
+          : isAccessIntent(sc.objective.intent) && parkUnderserved != null
+            ? `Park access gap: ${parkUnderserved.toLocaleString()} people lack adequate park access across ranked areas.`
+            : "",
+      sc.objective.excludesHousing
+        ? "This analysis excludes housing production metrics per the stated objective."
         : "",
       `Top-ranked candidate: ${top?.label ?? "—"} (score ${top?.score?.toFixed(1) ?? "—"})`,
     ]
@@ -1658,6 +1679,7 @@ export async function exploreScratch(question: string) {
       transit: layers.transit,
       flood: layers.flood,
       schools: layers.schools,
+      parks: layers.parks,
       population: layers.population,
     },
     datasets: store.datasets.filter((d) => d.enabled),

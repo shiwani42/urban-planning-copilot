@@ -15,6 +15,7 @@ import type {
   Candidate,
   CriterionWeight,
   GeographicSelection,
+  PlanningIntent,
   WorkspaceSnapshot,
 } from "@/lib/domain/types";
 import {
@@ -22,6 +23,13 @@ import {
   ringFromPolygon,
   uniqueGeographicLabel,
 } from "@/lib/domain/geographic";
+import { isHousingIntent } from "@/lib/domain/intent";
+import {
+  evidenceMetricsForCandidate,
+  headlineMetric,
+  resultsColumnsForIntent,
+  type ResultsColumn,
+} from "@/lib/domain/results-display";
 import type { MapDrawMode } from "@/components/PlanningMap";
 
 const PlanningMap = dynamic(
@@ -214,9 +222,20 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const weightSumRounded = Math.round(weightSum);
   const canNormalizeWeights = weightSum > 0 && Math.abs(weightSum - 100) > 0.5;
 
-  const housingTarget = scenario?.objective.targetValue;
+  const housingTarget =
+    scenario?.objective.intent === "housing_capacity"
+      ? scenario.objective.targetValue
+      : undefined;
   const totalCapacity = result?.aggregateMetrics.find((m) => m.key === "total_capacity")?.value;
   const targetGap = result?.aggregateMetrics.find((m) => m.key === "housing_target_gap");
+  const accessHeadline =
+    scenario && result
+      ? headlineMetric(scenario.objective.intent, result.aggregateMetrics)
+      : null;
+  const hasParksDataset = Boolean(workspace?.datasets.some((d) => d.kind === "parks" && d.enabled));
+  const resultsColumns = scenario
+    ? resultsColumnsForIntent(scenario.objective.intent, hasParksDataset)
+    : [];
 
   function constraintFunnelDetail(constraintLabel: string): string | null {
     if (!result?.stepLogs) return null;
@@ -531,16 +550,34 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           </span>
         </div>
         <div className="flex gap-2 flex-wrap min-w-0">
-          {scenario.objective.parsedRequirements.slice(0, 4).map((r) => (
+          {scenario.constraints
+            .filter((c) => c.enabled)
+            .slice(0, 4)
+            .map((c) => (
             <span
-              key={r}
+              key={c.id}
               className="px-2 py-0.5 border border-outline rounded text-caption text-on-surface-variant whitespace-nowrap"
+              title={c.hard ? "Hard constraint (engine-enforced)" : "Soft constraint"}
             >
-              {r}
+              {c.label}
+            </span>
+          ))}
+          {scenario.objective.excludesHousing && (
+            <span className="px-2 py-0.5 border border-secondary rounded text-caption text-secondary whitespace-nowrap">
+              Not a housing analysis
+            </span>
+          )}
+          {scenario.objective.dataGaps?.map((gap) => (
+            <span
+              key={gap}
+              className="px-2 py-0.5 border border-error rounded text-caption text-error whitespace-nowrap"
+              title={gap}
+            >
+              Data gap
             </span>
           ))}
         </div>
-        {result && housingTarget && totalCapacity != null && (
+        {result && housingTarget && totalCapacity != null && isHousingIntent(scenario.objective.intent) && (
           <div
             className={`shrink-0 px-3 py-1 rounded border text-caption font-medium whitespace-nowrap ${
               totalCapacity >= housingTarget
@@ -551,6 +588,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             {totalCapacity >= housingTarget ? "Meets" : "Shortfall"}:{" "}
             {totalCapacity.toLocaleString()} / {housingTarget.toLocaleString()} homes
             {targetGap ? ` (${targetGap.method})` : ""}
+          </div>
+        )}
+        {result && accessHeadline && !isHousingIntent(scenario.objective.intent) && (
+          <div className="shrink-0 px-3 py-1 rounded border border-primary bg-primary-fixed/20 text-primary text-caption font-medium whitespace-nowrap">
+            {accessHeadline.label}: {accessHeadline.value}
           </div>
         )}
         {!result && scenario && (
@@ -1366,6 +1408,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           selected={selectedCandidate}
           housingTarget={housingTarget}
           totalCapacity={totalCapacity}
+          intent={scenario.objective.intent}
+          resultsColumns={resultsColumns}
+          accessHeadline={accessHeadline}
           selectionUpdated={selectionUpdated}
           onDismissUpdated={() => setSelectionUpdated(false)}
           focusedRowIndex={focusedRowIndex}
@@ -1478,6 +1523,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             setReportId(data.reportId);
             await refresh();
           }}
+          generating={busy}
         />
       )}
     </div>
@@ -1497,6 +1543,9 @@ function ResultsDrawer(props: {
   topCandidateId?: string;
   housingTarget?: number;
   totalCapacity?: number;
+  intent: PlanningIntent;
+  resultsColumns: ResultsColumn[];
+  accessHeadline?: { label: string; value: string } | null;
   selectionUpdated?: boolean;
   onDismissUpdated?: () => void;
   focusedRowIndex: number;
@@ -1505,29 +1554,19 @@ function ResultsDrawer(props: {
   onSelect: (c: Candidate) => void;
   onReject: (c: Candidate, reason: string) => Promise<void>;
 }) {
-  const { result, selected, panel } = props;
+  const { result, selected, panel, intent } = props;
   if (!props.open) return null;
 
   const showEvidence = panel === "evidence" || Boolean(selected);
   const visibleCandidates = result?.candidates.slice(0, 40) ?? [];
+  const housingAnalysis = isHousingIntent(intent);
+  const evidenceMetrics = selected
+    ? evidenceMetricsForCandidate(selected, intent)
+    : [];
   const limitationText =
     props.resultLimitations.length > 0
       ? props.resultLimitations.join("; ")
       : selected?.provenance.limitations.join("; ") || "None noted";
-
-  function housingChip(capacity: number | undefined) {
-    if (!props.housingTarget || capacity == null) return null;
-    const meets = capacity >= props.housingTarget;
-    return (
-      <span
-        className={`font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border whitespace-nowrap ${
-          meets ? "border-secondary text-secondary" : "border-error text-error"
-        }`}
-      >
-        {meets ? "Meets" : "Shortfall"}
-      </span>
-    );
-  }
 
   return (
     <div
@@ -1564,7 +1603,7 @@ function ResultsDrawer(props: {
             >
               Evidence
             </button>
-            {props.housingTarget != null && props.totalCapacity != null && (
+            {props.housingTarget != null && props.totalCapacity != null && housingAnalysis && (
               <span
                 className={`hidden md:inline font-mono text-[10px] uppercase px-2 py-0.5 rounded border whitespace-nowrap ${
                   props.totalCapacity >= props.housingTarget
@@ -1574,6 +1613,11 @@ function ResultsDrawer(props: {
               >
                 {props.totalCapacity >= props.housingTarget ? "Meets" : "Shortfall"}{" "}
                 {props.totalCapacity.toLocaleString()} / {props.housingTarget.toLocaleString()} homes
+              </span>
+            )}
+            {props.accessHeadline && !housingAnalysis && (
+              <span className="hidden md:inline font-mono text-[10px] uppercase px-2 py-0.5 rounded border border-primary text-primary whitespace-nowrap">
+                {props.accessHeadline.label}: {props.accessHeadline.value}
               </span>
             )}
             {props.stale && (
@@ -1621,19 +1665,15 @@ function ResultsDrawer(props: {
                 <table className="w-full text-left text-body-sm min-w-[620px]">
                   <thead>
                     <tr className="font-mono text-data-label text-on-surface-variant">
-                      <th className="py-2 pr-2">Rank</th>
-                      <th className="pr-2">Candidate</th>
-                      <th className="pr-2">Score</th>
-                      <th className="pr-2">Capacity</th>
-                      {props.housingTarget != null && <th className="pr-2">vs goal</th>}
-                      <th className="pr-2">Transit</th>
-                      <th>Status</th>
+                      {props.resultsColumns.map((col) => (
+                        <th key={col.key} className="py-2 pr-2">
+                          {col.label}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleCandidates.map((c, rowIndex) => {
-                      const capacity = c.metrics.find((m) => m.key === "capacity")?.value;
-                      return (
+                    {visibleCandidates.map((c, rowIndex) => (
                       <tr
                         key={c.id}
                         tabIndex={props.focusedRowIndex === rowIndex ? 0 : -1}
@@ -1644,6 +1684,7 @@ function ResultsDrawer(props: {
                         aria-label={`Select candidate ${c.label}, rank ${c.rank}`}
                         onClick={() => {
                           props.setFocusedRowIndex(rowIndex);
+                          props.onDismissUpdated?.();
                           props.onSelect(c);
                           props.onPanelChange("evidence");
                         }}
@@ -1654,6 +1695,7 @@ function ResultsDrawer(props: {
                             props.setFocusedRowIndex(next);
                             const nextC = visibleCandidates[next];
                             if (nextC) {
+                              props.onDismissUpdated?.();
                               props.onSelect(nextC);
                               props.onPanelChange("evidence");
                             }
@@ -1663,11 +1705,13 @@ function ResultsDrawer(props: {
                             props.setFocusedRowIndex(prev);
                             const prevC = visibleCandidates[prev];
                             if (prevC) {
+                              props.onDismissUpdated?.();
                               props.onSelect(prevC);
                               props.onPanelChange("evidence");
                             }
                           } else if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
+                            props.onDismissUpdated?.();
                             props.onSelect(c);
                             props.onPanelChange("evidence");
                           }
@@ -1676,21 +1720,13 @@ function ResultsDrawer(props: {
                           selected?.id === c.id ? "bg-primary-fixed/25" : ""
                         } ${props.stale ? "opacity-60" : ""}`}
                       >
-                        <td className="py-2 pr-2 font-mono">{c.rank}</td>
-                        <td className="pr-2">{c.label}</td>
-                        <td className="pr-2 font-mono">{c.score.toFixed(1)}</td>
-                        <td className="pr-2 font-mono">{capacity ?? "—"}</td>
-                        {props.housingTarget != null && (
-                          <td className="pr-2">{housingChip(capacity)}</td>
-                        )}
-                        <td className="pr-2 font-mono">
-                          {c.metrics.find((m) => m.key === "transit_distance_m")?.value ?? "—"}m
-                        </td>
-                        <td>
-                          <span className="text-caption whitespace-nowrap">{c.status}</span>
-                        </td>
+                        {props.resultsColumns.map((col) => (
+                          <td key={col.key} className="py-2 pr-2 font-mono">
+                            {col.format(c)}
+                          </td>
+                        ))}
                       </tr>
-                    );})}
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -1698,7 +1734,11 @@ function ResultsDrawer(props: {
             {result && (
               <div className="mt-4 grid grid-cols-2 gap-3">
                 {result.aggregateMetrics
-                  .filter((m) => m.key !== "housing_target_gap")
+                  .filter(
+                    (m) =>
+                      m.key !== "housing_target_gap" &&
+                      !(m.key === "total_capacity" && !housingAnalysis)
+                  )
                   .map((m) => (
                     <div
                       key={m.key}
@@ -1734,7 +1774,7 @@ function ResultsDrawer(props: {
                       <ProvenanceChip kind="copilot_recommendation" />
                     )}
                     <span className="font-mono text-data-label">Score {selected.score.toFixed(1)}</span>
-                    {props.housingTarget != null && (
+                    {props.housingTarget != null && housingAnalysis && (
                       <span className="text-caption text-on-surface-variant">
                         Capacity{" "}
                         {selected.metrics.find((m) => m.key === "capacity")?.value ?? "—"} vs goal{" "}
@@ -1760,11 +1800,13 @@ function ResultsDrawer(props: {
                     </li>
                   </ul>
                   <p className="text-caption text-on-surface-variant mt-2">
-                    Ranking uses weighted criteria — higher capacity alone does not guarantee rank #1.
+                    {housingAnalysis
+                      ? "Ranking uses weighted criteria — higher capacity alone does not guarantee rank #1."
+                      : "Ranking prioritizes population with poor service access, not farthest distance alone."}
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  {selected.metrics.slice(0, 6).map((m) => (
+                  {evidenceMetrics.map((m) => (
                     <div key={m.key} className="border border-outline-variant p-2">
                       <div className="font-mono text-[10px] uppercase text-on-surface-variant">
                         {m.label}
@@ -2335,7 +2377,10 @@ function ReportView(props: {
   selectedReportId: string | null;
   onSelectReport: (id: string) => void;
   onGenerate: () => Promise<void>;
+  generating?: boolean;
 }) {
+  const [localGenerating, setLocalGenerating] = useState(false);
+  const generating = props.generating || localGenerating;
   const scenarioReports = props.workspace.reports.filter((r) =>
     r.scenarioIds.includes(props.scenario.id)
   );
@@ -2395,16 +2440,26 @@ function ReportView(props: {
           )}
           <button
             type="button"
-            onClick={() => void props.onGenerate()}
-            disabled={!canGenerate}
+            onClick={async () => {
+              setLocalGenerating(true);
+              try {
+                await props.onGenerate();
+              } finally {
+                setLocalGenerating(false);
+              }
+            }}
+            disabled={!canGenerate || generating}
             title={
               canGenerate
                 ? undefined
                 : "Run analysis on the active scenario first"
             }
-            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40"
+            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40 flex items-center gap-2"
           >
-            Generate report
+            {generating && (
+              <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
+            )}
+            {generating ? "Generating…" : "Generate report"}
           </button>
         </div>
       </div>
