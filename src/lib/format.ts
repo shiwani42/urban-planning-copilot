@@ -1,17 +1,76 @@
 /** Locale-aware formatting helpers for planner-facing UI. */
 
 export function formatLocaleTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return new Date(iso).toISOString();
+  }
 }
 
 export function formatLocaleDateTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return new Date(iso).toISOString();
+  }
+}
+
+export function formatReportDateTime(iso: string): string {
+  return formatLocaleDateTime(iso);
+}
+
+type ActivityLike = {
+  actor: "human" | "agent" | "system";
+  action: string;
+  summary: string;
+};
+
+export function formatActivityActorLabel(actor: ActivityLike["actor"]): string {
+  switch (actor) {
+    case "human":
+      return "You";
+    case "agent":
+      return "Copilot";
+    default:
+      return "System";
+  }
+}
+
+export function formatActivitySummary(event: ActivityLike): string {
+  const who = formatActivityActorLabel(event.actor);
+  switch (event.action) {
+    case "approve_scenario":
+      return `${who} approved this scenario`;
+    case "reject_scenario":
+      return `${who} rejected this scenario`;
+    case "request_changes":
+      return `${who} requested changes`;
+    case "analysis_completed":
+      return `${who} completed analysis — ${event.summary}`;
+    case "analysis_started":
+      return `${who} started spatial analysis`;
+    case "propose_plan":
+      return `${who} proposed an analysis plan`;
+    case "generate_report":
+      return `${who} generated a planning report`;
+    case "prefer_scenario":
+      return `${who} selected this scenario for comparison`;
+    case "reject_candidate":
+      return `${who} rejected a candidate`;
+    case "prefer_candidate":
+      return `${who} marked a preferred candidate`;
+    default:
+      if (event.actor === "agent") return `Copilot: ${event.summary}`;
+      if (event.actor === "human") return `You: ${event.summary}`;
+      return event.summary;
+  }
 }
 
 export function greetingForHour(hour: number): string {

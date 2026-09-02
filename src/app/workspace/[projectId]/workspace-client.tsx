@@ -5,7 +5,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { ProvenanceChip, useWorkspace } from "@/components/workspace-hooks";
 import { WebMcpProvider } from "@/components/WebMcpProvider";
-import { formatLocaleTime } from "@/lib/format";
+import {
+  formatActivitySummary,
+  formatLocaleDateTime,
+  formatLocaleTime,
+  formatReportDateTime,
+} from "@/lib/format";
 import type {
   Candidate,
   CriterionWeight,
@@ -46,13 +51,17 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const { workspace, loading, error, busy, act, refresh } = useWorkspace(projectId);
   const [tab, setTab] = useState<Tab>("workspace");
   const [layerData, setLayerData] = useState<Record<string, GeoJSON.FeatureCollection>>({});
-  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerPanel, setDrawerPanel] = useState<DrawerPanel>("candidates");
   const [drawingExclusion, setDrawingExclusion] = useState(false);
   const [excludeClicks, setExcludeClicks] = useState<[number, number][]>([]);
   const [weightDraft, setWeightDraft] = useState<CriterionWeight[] | null>(null);
-  const [decisionReason, setDecisionReason] = useState("");
+  const [decisionReasonByScenario, setDecisionReasonByScenario] = useState<Record<string, string>>(
+    {}
+  );
+  const [confirmDecision, setConfirmDecision] = useState<
+    "approve_scenario" | "reject_scenario" | "request_changes" | null
+  >(null);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [comparison, setComparison] = useState<Array<Record<string, string | number>> | null>(
     null
@@ -69,7 +78,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const [focusedRowIndex, setFocusedRowIndex] = useState(0);
   const [selectionUpdated, setSelectionUpdated] = useState(false);
   const [lastResultId, setLastResultId] = useState<string | null>(null);
-  const [report, setReport] = useState<WorkspaceSnapshot["reports"][0] | null>(null);
+  const [reportId, setReportId] = useState<string | null>(null);
   const [activityId, setActivityId] = useState<string | null>(null);
   const [assumptionsOpen, setAssumptionsOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -80,6 +89,19 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   );
   const result = workspace?.analysisResults.find((r) => r.id === scenario?.latestResultId);
   const candidates = result?.candidates ?? [];
+  const topCandidate = useMemo(() => {
+    if (!result?.candidates.length) return null;
+    return (
+      result.candidates.find((c) => c.rank === 1) ??
+      [...result.candidates].sort((a, b) => a.rank - b.rank)[0]
+    );
+  }, [result]);
+  const selectedCandidate = useMemo(() => {
+    const id = workspace?.project.mapState.selectedCandidateId;
+    if (!id || !candidates.length) return null;
+    return candidates.find((x) => x.id === id || x.featureIds.includes(id)) ?? null;
+  }, [workspace?.project.mapState.selectedCandidateId, candidates]);
+  const decisionReason = scenario ? (decisionReasonByScenario[scenario.id] ?? "") : "";
   const runningJob = workspace?.analysisJobs.find(
     (j) => j.scenarioId === scenario?.id && j.status === "running"
   );
@@ -102,30 +124,16 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   }, [workspace?.datasets]);
 
   useEffect(() => {
-    if (!workspace) return;
-    const id = workspace.project.mapState.selectedCandidateId;
-    if (!id) {
-      setSelectedCandidate(null);
-      return;
+    if (!workspace?.project.mapState.selectedCandidateId) return;
+    if (selectedCandidate && result?.id && result.id !== lastResultId) {
+      setSelectionUpdated(true);
+      setLastResultId(result.id);
     }
-    const c = candidates.find((x) => x.id === id || x.featureIds.includes(id));
-    if (c) {
-      setSelectedCandidate(c);
-      if (result?.id && result.id !== lastResultId) {
-        setSelectionUpdated(true);
-        setLastResultId(result.id);
-      }
-    } else {
-      setSelectedCandidate(null);
-    }
-  }, [workspace?.project.mapState.selectedCandidateId, candidates, result?.id, lastResultId]);
+  }, [workspace?.project.mapState.selectedCandidateId, selectedCandidate, result?.id, lastResultId]);
 
   useEffect(() => {
     if (!scenario) return;
     setCompareHint(null);
-    if (!scenario.latestResultId) {
-      setSelectedCandidate(null);
-    }
   }, [scenario?.id, scenario?.latestResultId]);
 
   useEffect(() => {
@@ -156,7 +164,8 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
   const selectCandidate = useCallback(
     async (c: Candidate, panel: DrawerPanel = "evidence") => {
-      setSelectedCandidate(c);
+      const rowIndex = candidates.findIndex((x) => x.id === c.id);
+      if (rowIndex >= 0) setFocusedRowIndex(rowIndex);
       setDrawerOpen(true);
       setDrawerPanel(panel);
       setTab("results");
@@ -165,13 +174,16 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         featureIds: c.featureIds,
       });
     },
-    [act]
+    [act, candidates]
   );
 
   const weightSum = useMemo(() => {
     const draft = weightDraft ?? scenario?.weights ?? [];
-    return Math.round(draft.reduce((sum, w) => sum + w.weight, 0) * 100);
+    return draft.reduce((sum, w) => sum + w.weight, 0) * 100;
   }, [weightDraft, scenario?.weights]);
+
+  const weightSumRounded = Math.round(weightSum);
+  const canNormalizeWeights = weightSum > 0 && Math.abs(weightSum - 100) > 0.5;
 
   const housingTarget = scenario?.objective.targetValue;
   const totalCapacity = result?.aggregateMetrics.find((m) => m.key === "total_capacity")?.value;
@@ -204,7 +216,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   }
 
   async function applyWeights() {
-    if (!scenario || !weightDraft || weightSum !== 100) return;
+    if (!scenario || !weightDraft || weightSumRounded !== 100) return;
     await act("update_weights", { scenarioId: scenario.id, weights: weightDraft });
   }
 
@@ -387,10 +399,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           ))}
           <button
             onClick={() => saveScenario()}
-            className="p-2 hover:bg-surface-variant rounded"
+            className="px-2 py-1.5 hover:bg-surface-variant rounded text-caption flex items-center gap-1"
             title="Save scenario"
           >
-            <span className="material-symbols-outlined">save</span>
+            <span className="material-symbols-outlined text-[20px]">save</span>
+            <span className="hidden xl:inline">Save</span>
           </button>
         </div>
       </header>
@@ -437,6 +450,16 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         {result?.stale && (
           <span className="shrink-0 px-3 py-1 rounded border border-secondary bg-secondary-fixed/20 text-secondary text-caption font-medium whitespace-nowrap">
             Results stale — recalculate
+          </span>
+        )}
+        {scenario.decisionStatus === "approved" && scenario.decisionStale && (
+          <span className="shrink-0 px-3 py-1 rounded border border-error bg-error-container/30 text-error text-caption font-medium whitespace-nowrap">
+            Decision stale — re-approve required
+          </span>
+        )}
+        {scenario.decisionStatus === "changes_requested" && (
+          <span className="shrink-0 px-3 py-1 rounded border border-secondary bg-secondary-fixed/20 text-secondary text-caption font-medium whitespace-nowrap">
+            Changes requested — address before approving
           </span>
         )}
         {workspace.project.resumeNote && !result?.stale && (
@@ -545,21 +568,21 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                   <button
                     onClick={applyWeights}
                     className="text-caption text-primary hover:underline"
-                    disabled={busy || weightSum !== 100}
-                    title={weightSum !== 100 ? "Priorities must sum to 100% before applying" : undefined}
+                    disabled={busy || weightSumRounded !== 100}
+                    title={weightSumRounded !== 100 ? "Priorities must sum to 100% before applying" : undefined}
                   >
                     Apply priorities
                   </button>
                 </div>
-                {weightSum !== 100 && (
+                {weightSumRounded !== 100 && (
                   <p className="text-caption text-secondary mb-2" role="status">
-                    Priorities sum to {weightSum}% — adjust to 100% before applying.
+                    Priorities sum to {weightSumRounded}% — adjust to 100% before applying.
                   </p>
                 )}
                 <button
                   type="button"
                   onClick={normalizeWeightDraft}
-                  disabled={weightSum === 100}
+                  disabled={!canNormalizeWeights}
                   className="text-caption text-primary hover:underline mb-3 disabled:opacity-40"
                 >
                   Normalize to 100%
@@ -773,7 +796,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               )}
             </div>
 
-            <div className="absolute left-4 bottom-28 z-[1001] max-w-[240px] pointer-events-auto">
+            <div className="absolute left-4 top-16 z-[1001] max-w-[220px] pointer-events-auto">
               <button
                 type="button"
                 onClick={() => setLegendOpen((v) => !v)}
@@ -926,12 +949,12 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                       {result.staleReason ?? "Inputs changed since this result."}
                     </p>
                   )}
-                  {result.candidates[0] && result.candidates[0].status !== "rejected" && (
+                  {result.candidates[0] && topCandidate && topCandidate.status !== "rejected" && (
                     <div className="bg-primary-container/10 border border-primary-fixed p-2 rounded">
                       <ProvenanceChip kind="copilot_recommendation" />
                       <p className="text-body-sm mt-2">
-                        Top candidate: <strong>{result.candidates[0].label}</strong> (score{" "}
-                        {result.candidates[0].score})
+                        Top candidate: <strong>{topCandidate.label}</strong> (score{" "}
+                        {topCandidate.score.toFixed(1)})
                       </p>
                       <p className="text-caption text-on-surface-variant mt-1">
                         Recommendation only — not a planning decision.
@@ -1047,6 +1070,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           focusedRowIndex={focusedRowIndex}
           setFocusedRowIndex={setFocusedRowIndex}
           resultLimitations={result?.limitations ?? []}
+          topCandidateId={topCandidate?.id}
           onSelect={(c) => selectCandidate(c, "evidence")}
           onReject={async (c, reason) => {
             await act("record_decision", {
@@ -1104,27 +1128,30 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           workspace={workspace}
           scenario={scenario}
           result={result}
+          topCandidate={topCandidate}
           reason={decisionReason}
           setReason={(v) => {
-            setDecisionReason(v);
+            if (!scenario) return;
+            setDecisionReasonByScenario((prev) => ({ ...prev, [scenario.id]: v }));
             setDecisionError(null);
           }}
           error={decisionError}
+          confirmType={confirmDecision}
+          onRequestConfirm={setConfirmDecision}
+          onCancelConfirm={() => setConfirmDecision(null)}
           onDecide={async (type) => {
-            if (
-              (type === "approve_scenario" || type === "reject_scenario") &&
-              !decisionReason.trim()
-            ) {
-              setDecisionError("Please enter a reason — required for the audit trail.");
-              return;
-            }
             setDecisionError(null);
-            await act("record_decision", {
-              scenarioId: scenario.id,
-              type,
-              reason: decisionReason.trim() || undefined,
-            });
-            setToast(`Decision recorded: ${type.replace(/_/g, " ")}`);
+            try {
+              await act("record_decision", {
+                scenarioId: scenario.id,
+                type,
+                reason: decisionReason.trim() || undefined,
+              });
+              setConfirmDecision(null);
+              setToast(`Decision recorded: ${type.replace(/_/g, " ")}`);
+            } catch (e) {
+              setDecisionError(e instanceof Error ? e.message : String(e));
+            }
           }}
         />
       )}
@@ -1140,13 +1167,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           workspace={workspace}
           scenario={scenario}
           result={result}
-          report={report}
+          selectedReportId={reportId}
+          onSelectReport={setReportId}
           onGenerate={async () => {
             const data = await act("generate_report", {
               scenarioIds: [scenario.id],
               title: `${workspace.project.name} — ${scenario.name} Planning Report`,
             });
-            setReport(data.report);
+            setReportId(data.reportId);
             await refresh();
           }}
         />
@@ -1164,6 +1192,7 @@ function ResultsDrawer(props: {
   result: WorkspaceSnapshot["analysisResults"][0] | undefined;
   stale: boolean;
   selected: Candidate | null;
+  topCandidateId?: string;
   housingTarget?: number;
   totalCapacity?: number;
   selectionUpdated?: boolean;
@@ -1391,7 +1420,9 @@ function ResultsDrawer(props: {
                 <div>
                   <h3 className="text-headline-md mb-1">{selected.label}</h3>
                   <div className="flex gap-2 items-center flex-wrap">
-                    <ProvenanceChip kind="copilot_recommendation" />
+                    {props.topCandidateId === selected.id && (
+                      <ProvenanceChip kind="copilot_recommendation" />
+                    )}
                     <span className="font-mono text-data-label">Score {selected.score.toFixed(1)}</span>
                     {props.housingTarget != null && (
                       <span className="text-caption text-on-surface-variant">
@@ -1728,23 +1759,40 @@ function DecisionView(props: {
   workspace: WorkspaceSnapshot;
   scenario: WorkspaceSnapshot["scenarios"][0];
   result: WorkspaceSnapshot["analysisResults"][0] | undefined;
+  topCandidate: Candidate | null;
   reason: string;
   setReason: (v: string) => void;
   error: string | null;
+  confirmType: "approve_scenario" | "reject_scenario" | "request_changes" | null;
+  onRequestConfirm: (
+    type: "approve_scenario" | "reject_scenario" | "request_changes"
+  ) => void;
+  onCancelConfirm: () => void;
   onDecide: (type: "approve_scenario" | "reject_scenario" | "request_changes") => Promise<void>;
 }) {
-  const { scenario, result } = props;
+  const { scenario, result, topCandidate } = props;
+  const hasAnalysis = Boolean(result && !result.stale && result.candidates.length > 0);
+  const decisionLabel =
+    scenario.decisionStatus === "approved" && scenario.decisionStale
+      ? "approved (stale)"
+      : scenario.decisionStatus;
+
   return (
     <main className="flex-1 overflow-auto p-8 max-w-3xl">
       <h2 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">
         Review decision
       </h2>
       <h3 className="text-display mb-6">{scenario.name}</h3>
+      {!hasAnalysis && (
+        <p className="text-body-sm text-secondary mb-4" role="status">
+          Run analysis on this scenario before approving, rejecting, or requesting changes.
+        </p>
+      )}
       <div className="mb-4">
         <ProvenanceChip kind="copilot_recommendation" />
         <p className="text-body-sm mt-2">
-          {result?.candidates[0]
-            ? `Copilot recommends ${result.candidates[0].label} (score ${result.candidates[0].score}).`
+          {topCandidate
+            ? `Copilot recommends ${topCandidate.label} (score ${topCandidate.score.toFixed(1)}).`
             : "No recommendation available yet."}
         </p>
       </div>
@@ -1752,6 +1800,10 @@ function DecisionView(props: {
         <h4 className="font-mono text-data-label uppercase">Evidence summary</h4>
         <p className="text-body-sm">
           <strong>Objective:</strong> {scenario.objective.rawText}
+        </p>
+        <p className="text-body-sm">
+          <strong>Assumptions:</strong>{" "}
+          {scenario.assumptions.map((a) => `${a.label}: ${a.value}${a.unit ? ` ${a.unit}` : ""}`).join("; ")}
         </p>
         <p className="text-body-sm">
           <strong>Constraints:</strong>{" "}
@@ -1778,38 +1830,47 @@ function DecisionView(props: {
             props.error ? "border-error" : "border-outline-variant"
           }`}
           rows={3}
-          placeholder="Required for approve/reject — logged in audit trail"
+          placeholder="Required for approve/reject — substantive justification for the audit trail"
+          disabled={!hasAnalysis}
         />
         {props.error && (
-          <p className="text-caption text-error mt-1">{props.error}</p>
+          <p className="text-caption text-error mt-1" role="alert">
+            {props.error}
+          </p>
         )}
       </label>
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          onClick={() => props.onDecide("approve_scenario")}
-          className="bg-secondary text-on-secondary px-4 py-2 rounded text-body-sm"
+          disabled={!hasAnalysis}
+          onClick={() => props.onRequestConfirm("approve_scenario")}
+          className="bg-secondary text-on-secondary px-4 py-2 rounded text-body-sm disabled:opacity-40"
         >
           Approve scenario
         </button>
         <button
           type="button"
-          onClick={() => props.onDecide("request_changes")}
-          className="border border-outline px-4 py-2 rounded text-body-sm"
+          disabled={!hasAnalysis}
+          onClick={() => props.onRequestConfirm("request_changes")}
+          className="border border-outline px-4 py-2 rounded text-body-sm disabled:opacity-40"
         >
           Request changes
         </button>
         <button
           type="button"
-          onClick={() => props.onDecide("reject_scenario")}
-          className="border border-error text-error px-4 py-2 rounded text-body-sm"
+          disabled={!hasAnalysis}
+          onClick={() => props.onRequestConfirm("reject_scenario")}
+          className="border border-error text-error px-4 py-2 rounded text-body-sm disabled:opacity-40"
         >
           Reject
         </button>
       </div>
       <p className="mt-4 text-caption text-on-surface-variant">
         Current decision status:{" "}
-        <span className="font-medium text-secondary">{scenario.decisionStatus}</span>
+        <span className="font-medium text-secondary">{decisionLabel}</span>
+        {scenario.decisionStaleReason && (
+          <span className="block mt-1 text-error">{scenario.decisionStaleReason}</span>
+        )}
       </p>
       <div className="mt-8 max-h-[40vh] overflow-y-auto">
         <h4 className="font-mono text-data-label uppercase mb-3">Decision history</h4>
@@ -1819,16 +1880,63 @@ function DecisionView(props: {
             .map((d) => (
               <li key={d.id} className="text-body-sm border-b border-outline-variant pb-2">
                 <span className="font-mono text-caption text-on-surface-variant">
-                  {new Date(d.createdAt).toLocaleString()}
+                  {formatLocaleDateTime(d.createdAt)}
                 </span>
                 <div>
-                  <ProvenanceChip kind="planner_decision" /> {d.type}
+                  <ProvenanceChip kind="planner_decision" /> {d.type.replace(/_/g, " ")}
                   {d.reason ? ` — ${d.reason}` : ""}
                 </div>
               </li>
             ))}
         </ul>
       </div>
+
+      {props.confirmType && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/40 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-decision-title"
+        >
+          <div className="bg-surface max-w-lg w-full rounded-lg border border-outline-variant p-6 shadow-xl">
+            <h4 id="confirm-decision-title" className="text-headline-md mb-3">
+              Confirm {props.confirmType.replace(/_/g, " ")}
+            </h4>
+            <p className="text-body-sm text-on-surface-variant mb-4">
+              You are about to record a planner decision on <strong>{scenario.name}</strong>.
+              Review the evidence summary above, then confirm.
+            </p>
+            <div className="text-body-sm space-y-2 mb-4 border border-outline-variant p-3 rounded bg-surface-container-low">
+              <p>
+                <strong>Copilot recommendation:</strong>{" "}
+                {topCandidate ? `${topCandidate.label} (score ${topCandidate.score.toFixed(1)})` : "—"}
+              </p>
+              <p>
+                <strong>Your reason:</strong> {props.reason.trim() || "(none entered)"}
+              </p>
+              <p>
+                <strong>Limitations:</strong> {result?.limitations.slice(0, 2).join("; ") || "None"}
+              </p>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={props.onCancelConfirm}
+                className="border border-outline-variant px-4 py-2 rounded text-body-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void props.onDecide(props.confirmType!)}
+                className="bg-secondary text-on-secondary px-4 py-2 rounded text-body-sm"
+              >
+                Confirm decision
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -1855,13 +1963,13 @@ function ActivityView(props: {
                       a.actor === "human" ? "text-secondary" : "text-primary"
                     }`}
                   >
-                    {a.actor} · {a.category}
+                    {formatActivitySummary(a)}
                   </span>
-                  <span className="font-mono text-[10px] text-on-surface-variant">
-                    {new Date(a.timestamp).toLocaleString()}
+                  <span className="font-mono text-[10px] text-on-surface-variant whitespace-nowrap">
+                    {formatLocaleDateTime(a.timestamp)}
                   </span>
                 </div>
-                <div className="text-body-sm">{a.summary}</div>
+                <div className="text-body-sm text-on-surface-variant">{a.summary}</div>
               </button>
             </li>
           ))}
@@ -1908,10 +2016,15 @@ function ReportView(props: {
   workspace: WorkspaceSnapshot;
   scenario: WorkspaceSnapshot["scenarios"][0];
   result: WorkspaceSnapshot["analysisResults"][0] | undefined;
-  report: WorkspaceSnapshot["reports"][0] | null;
+  selectedReportId: string | null;
+  onSelectReport: (id: string) => void;
   onGenerate: () => Promise<void>;
 }) {
-  const latest = props.report ?? props.workspace.reports[0];
+  const scenarioReports = props.workspace.reports.filter((r) =>
+    r.scenarioIds.includes(props.scenario.id)
+  );
+  const latest =
+    scenarioReports.find((r) => r.id === props.selectedReportId) ?? scenarioReports[0];
   const canGenerate = Boolean(props.result && !props.result.stale);
 
   function downloadMarkdown() {
@@ -1919,7 +2032,7 @@ function ReportView(props: {
     const lines = [
       `# ${latest.title}`,
       ``,
-      `Generated: ${new Date(latest.createdAt).toLocaleString()}`,
+      `Generated: ${formatReportDateTime(latest.createdAt)}`,
       `Audience: ${latest.audience}`,
       ``,
     ];
@@ -1938,12 +2051,15 @@ function ReportView(props: {
         lines.push(``);
       }
     }
-    const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
+    const filename = `${latest.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.md`;
     a.href = url;
-    a.download = `${latest.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.md`;
+    a.download = filename;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
@@ -1963,7 +2079,7 @@ function ReportView(props: {
           )}
           <button
             type="button"
-            onClick={props.onGenerate}
+            onClick={() => void props.onGenerate()}
             disabled={!canGenerate}
             title={
               canGenerate
@@ -1990,6 +2106,33 @@ function ReportView(props: {
           decision history.
         </p>
       )}
+      {scenarioReports.length > 1 && (
+        <div className="mb-6">
+          <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">
+            Report history
+          </h3>
+          <ul className="space-y-1">
+            {scenarioReports.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => props.onSelectReport(r.id)}
+                  className={`text-body-sm text-left w-full px-3 py-2 rounded border ${
+                    r.id === latest?.id
+                      ? "border-primary bg-primary-fixed/20"
+                      : "border-outline-variant hover:bg-surface-container-low"
+                  }`}
+                >
+                  {r.title}
+                  <span className="block text-caption text-on-surface-variant">
+                    {formatReportDateTime(r.createdAt)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {!latest ? (
         <p className="text-body-sm text-on-surface-variant">No reports yet for this scenario.</p>
       ) : (
@@ -1997,7 +2140,7 @@ function ReportView(props: {
           <header>
             <h1 className="text-headline-md mb-1">{latest.title}</h1>
             <p className="text-caption text-on-surface-variant">
-              Generated {new Date(latest.createdAt).toLocaleString()} · Audience: {latest.audience}
+              Generated {formatReportDateTime(latest.createdAt)} · Audience: {latest.audience}
             </p>
           </header>
           {latest.sections.map((s, i) => (

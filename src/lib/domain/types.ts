@@ -256,6 +256,12 @@ export interface Scenario {
   analysisPlan?: AnalysisPlan;
   latestResultId?: string;
   decisionStatus: DecisionStatus;
+  /** True when an approval no longer matches current inputs or results. */
+  decisionStale?: boolean;
+  decisionStaleReason?: string;
+  /** Config hash + result id the approval was recorded against. */
+  approvedAgainstConfigHash?: string;
+  approvedAgainstResultId?: string;
   preferredCandidateId?: string;
   createdAt: string;
   updatedAt: string;

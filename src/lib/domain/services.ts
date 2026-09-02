@@ -7,6 +7,13 @@ import {
   parseObjective,
   sha256Receipt,
 } from "./objective";
+import {
+  canRecordScenarioDecision,
+  getLatestCompletedResult,
+  getLatestFreshResult,
+  topRankedCandidate,
+} from "./decision";
+import { formatReportDateTime } from "../format";
 import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
 import { getStore, updateStore } from "./store";
 import { STUDY_BOUNDS } from "./seed";
@@ -112,6 +119,22 @@ function markResultsStale(store: AppStore, scenarioId: string, reason: string) {
       r.stale = true;
       r.staleReason = reason;
       r.status = "stale";
+    }
+  }
+  invalidateScenarioDecision(store, scenarioId, reason);
+}
+
+function invalidateScenarioDecision(store: AppStore, scenarioId: string, reason: string) {
+  const scenario = store.scenarios.find((s) => s.id === scenarioId);
+  if (!scenario) return;
+  if (
+    scenario.decisionStatus === "approved" ||
+    scenario.decisionStatus === "changes_requested"
+  ) {
+    scenario.decisionStale = true;
+    scenario.decisionStaleReason = reason;
+    if (scenario.decisionStatus === "approved") {
+      scenario.decisionStatus = "pending";
     }
   }
 }
@@ -638,6 +661,22 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
     job.currentStep = "Complete";
     scenarioLive.latestResultId = result.id;
     scenarioLive.updatedAt = now();
+    if (
+      scenarioLive.decisionStatus === "approved" &&
+      scenarioLive.approvedAgainstResultId &&
+      scenarioLive.approvedAgainstResultId !== result.id
+    ) {
+      scenarioLive.decisionStale = true;
+      scenarioLive.decisionStaleReason = "Analysis recalculated — prior approval is stale";
+      scenarioLive.decisionStatus = "pending";
+    } else if (scenarioLive.approvedAgainstConfigHash) {
+      const hash = configHashFor(scenarioLive);
+      if (scenarioLive.approvedAgainstConfigHash !== hash) {
+        scenarioLive.decisionStale = true;
+        scenarioLive.decisionStaleReason = "Planning inputs changed since approval";
+        scenarioLive.decisionStatus = "pending";
+      }
+    }
     if (scenarioLive.analysisPlan) {
       scenarioLive.analysisPlan.steps = scenarioLive.analysisPlan.steps.map((st) => ({
         ...st,
@@ -854,8 +893,32 @@ export async function recordDecision(input: {
   reason?: string;
   actor?: string;
 }) {
-  await updateStore((store) => {
-    const scenario = requireScenario(store, input.projectId, input.scenarioId);
+  const store = await getStore();
+  const scenario = requireScenario(store, input.projectId, input.scenarioId);
+  const scenarioResults = store.analysisResults.filter((r) => r.scenarioId === input.scenarioId);
+
+  if (
+    input.type === "approve_scenario" ||
+    input.type === "reject_scenario" ||
+    input.type === "request_changes"
+  ) {
+    const err = canRecordScenarioDecision(
+      scenario,
+      scenarioResults,
+      input.type,
+      input.reason
+    );
+    if (err) throw new Error(err);
+  }
+
+  if (input.type === "prefer_scenario" && scenario.decisionStatus === "approved" && !scenario.decisionStale) {
+    throw new Error(
+      "This scenario already has a recorded human approval — Copilot cannot override your decision."
+    );
+  }
+
+  await updateStore((s) => {
+    const scenario = requireScenario(s, input.projectId, input.scenarioId);
     const decision: HumanDecision = {
       id: nanoid(),
       projectId: input.projectId,
@@ -866,20 +929,33 @@ export async function recordDecision(input: {
       actor: input.actor ?? "Planner",
       createdAt: now(),
     };
-    store.decisions.unshift(decision);
+    s.decisions.unshift(decision);
 
     if (input.type === "approve_scenario") {
+      const result = getLatestFreshResult(scenario, s.analysisResults);
       scenario.decisionStatus = "approved";
+      scenario.decisionStale = false;
+      scenario.decisionStaleReason = undefined;
+      scenario.approvedAgainstConfigHash = configHashFor(scenario);
+      scenario.approvedAgainstResultId = result?.id;
     } else if (input.type === "reject_scenario") {
       scenario.decisionStatus = "rejected";
+      scenario.decisionStale = false;
+      scenario.decisionStaleReason = undefined;
+      scenario.approvedAgainstConfigHash = undefined;
+      scenario.approvedAgainstResultId = undefined;
     } else if (input.type === "request_changes") {
       scenario.decisionStatus = "changes_requested";
+      scenario.decisionStale = true;
+      scenario.decisionStaleReason = input.reason ?? "Planner requested changes";
+      scenario.approvedAgainstConfigHash = undefined;
+      scenario.approvedAgainstResultId = undefined;
     } else if (input.type === "prefer_scenario") {
-      const project = store.projects.find((p) => p.id === input.projectId)!;
+      const project = s.projects.find((p) => p.id === input.projectId)!;
       project.activeScenarioId = input.scenarioId;
       scenario.decisionStatus = "pending";
     } else if (input.type === "reject_candidate" && input.subjectId) {
-      const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
+      const result = s.analysisResults.find((r) => r.id === scenario.latestResultId);
       const candidate = result?.candidates.find(
         (c) => c.id === input.subjectId || c.featureIds.includes(input.subjectId!)
       );
@@ -892,7 +968,7 @@ export async function recordDecision(input: {
       }
     } else if (input.type === "prefer_candidate" && input.subjectId) {
       scenario.preferredCandidateId = input.subjectId;
-      const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
+      const result = s.analysisResults.find((r) => r.id === scenario.latestResultId);
       if (result) {
         for (const c of result.candidates) {
           if (c.id === input.subjectId) c.status = "preferred";
@@ -901,7 +977,7 @@ export async function recordDecision(input: {
       }
     }
 
-    logActivity(store, {
+    logActivity(s, {
       projectId: input.projectId,
       scenarioId: input.scenarioId,
       actor: "human",
@@ -910,7 +986,7 @@ export async function recordDecision(input: {
       summary: `Human decision: ${input.type}${input.reason ? ` — ${input.reason}` : ""}`,
       inputs: { subjectId: input.subjectId, reason: input.reason },
     });
-    touchProject(store, input.projectId, `Decision recorded: ${input.type}`);
+    touchProject(s, input.projectId, `Decision recorded: ${input.type}`);
   });
   return getWorkspace(input.projectId);
 }
@@ -978,16 +1054,80 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
   const scenarios = store.scenarios.filter(
     (s) => s.projectId === projectId && scenarioIds.includes(s.id)
   );
+
+  for (const sc of scenarios) {
+    const result = getLatestFreshResult(
+      sc,
+      store.analysisResults.filter((r) => r.scenarioId === sc.id)
+    );
+    if (!result) {
+      throw new Error(`Scenario "${sc.name}" has no completed analysis — run analysis first.`);
+    }
+    if (result.stale) {
+      throw new Error(
+        `Scenario "${sc.name}" results are stale — recalculate before generating a report.`
+      );
+    }
+  }
+
   const comparison = await compareScenarios(projectId, scenarioIds);
+  const generatedAt = formatReportDateTime(now());
 
   const sections: Report["sections"] = [];
+
   for (const sc of scenarios) {
-    const result = store.analysisResults.find((r) => r.id === sc.latestResultId);
+    const result = getLatestCompletedResult(
+      sc,
+      store.analysisResults.filter((r) => r.scenarioId === sc.id)
+    )!;
+    const top = topRankedCandidate(result);
+    const decisions = store.decisions.filter((d) => d.scenarioId === sc.id);
+    const approval = decisions.find((d) => d.type === "approve_scenario");
+    const housingTarget =
+      sc.objective.intent === "housing_capacity" ? sc.objective.targetValue : undefined;
+    const totalCapacity = result.aggregateMetrics.find((m) => m.key === "total_capacity")?.value;
+    const meetsTarget = result.aggregateMetrics.find((m) => m.key === "meets_target_count")?.value;
+
     sections.push({
-      heading: `Objective — ${sc.name}`,
-      kind: "planner_decision",
+      heading: `Planning objective — ${sc.name}`,
+      kind: "calculated",
       body: sc.objective.rawText,
     });
+
+    const decisionLines: string[] = [];
+    if (approval) {
+      decisionLines.push(
+        `Status: Approved`,
+        `Recorded: ${formatReportDateTime(approval.createdAt)}`,
+        approval.reason ? `Planner rationale: ${approval.reason}` : ""
+      );
+      if (sc.decisionStale) {
+        decisionLines.push(
+          `Note: This approval is stale (${sc.decisionStaleReason ?? "inputs changed"}).`
+        );
+      }
+    } else if (sc.decisionStatus === "changes_requested") {
+      const changeReq = decisions.find((d) => d.type === "request_changes");
+      decisionLines.push(
+        `Status: Changes requested`,
+        changeReq?.reason ? `Requested changes: ${changeReq.reason}` : ""
+      );
+    } else if (sc.decisionStatus === "rejected") {
+      const rejection = decisions.find((d) => d.type === "reject_scenario");
+      decisionLines.push(
+        `Status: Rejected`,
+        rejection?.reason ? `Reason: ${rejection.reason}` : ""
+      );
+    } else {
+      decisionLines.push("Status: No human decision recorded yet.");
+    }
+
+    sections.push({
+      heading: `Planner decision — ${sc.name}`,
+      kind: "planner_decision",
+      body: decisionLines.filter(Boolean).join("\n"),
+    });
+
     sections.push({
       heading: `Methodology — ${sc.name}`,
       kind: "methodology",
@@ -995,22 +1135,30 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
         .map((st) => `${st.order}. ${st.label}: ${st.purpose}`)
         .join("\n"),
     });
+
     sections.push({
       heading: `Datasets — ${sc.name}`,
       kind: "source_data",
       body: store.datasets
         .filter((d) => sc.enabledDatasetIds.includes(d.id))
-        .map(
-          (d) =>
-            `${d.name} (${d.version}) — ${d.source}; updated ${d.updatedAt}; synthetic=${d.synthetic}`
-        )
+        .map((d) => {
+          const updated = formatReportDateTime(d.updatedAt);
+          const synth = d.synthetic ? " (synthetic seed data)" : "";
+          const limits =
+            d.limitations.length > 0 ? ` — Limitations: ${d.limitations.join("; ")}` : "";
+          return `${d.name} v${d.version} — ${d.source}; last updated ${updated}${synth}${limits}`;
+        })
         .join("\n"),
     });
+
     sections.push({
       heading: `Assumptions — ${sc.name}`,
       kind: "calculated",
-      body: sc.assumptions.map((a) => `${a.label}: ${a.value}${a.unit ? ` ${a.unit}` : ""}`).join("\n"),
+      body: sc.assumptions
+        .map((a) => `${a.label}: ${a.value}${a.unit ? ` ${a.unit}` : ""} — ${a.description}`)
+        .join("\n"),
     });
+
     sections.push({
       heading: `Constraints — ${sc.name}`,
       kind: "calculated",
@@ -1019,43 +1167,76 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
         .map((c) => `${c.label} (${c.hard ? "hard" : "soft"})`)
         .join("\n"),
     });
+
+    const resultsBody = [
+      result.summary,
+      housingTarget != null && totalCapacity != null
+        ? `Aggregate capacity: ${totalCapacity.toLocaleString()} homes vs ${housingTarget.toLocaleString()}-home target (${Number(meetsTarget ?? 0)} candidates meet target alone).`
+        : "",
+      `Top-ranked candidate: ${top?.label ?? "—"} (score ${top?.score?.toFixed(1) ?? "—"})`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
     sections.push({
       heading: `Results — ${sc.name}`,
       kind: "calculated",
-      body: result?.summary ?? "No analysis results yet.",
-      data: result?.aggregateMetrics,
+      body: resultsBody,
+      data: result.aggregateMetrics,
     });
-    if (result?.candidates[0]) {
+
+    if (top) {
       sections.push({
         heading: `Copilot recommendation — ${sc.name}`,
         kind: "copilot_recommendation",
-        body: `Recommended candidate: ${result.candidates[0].label} (score ${result.candidates[0].score}). This is an AI recommendation, not a planning decision.`,
+        body: `Copilot ranked ${top.label} highest (score ${top.score.toFixed(1)}). This is an AI recommendation, not a planning decision.`,
       });
     }
+
+    if (approval && top) {
+      const humanOverrode =
+        approval.subjectId && approval.subjectId !== top.id
+          ? true
+          : approval.reason?.toLowerCase().includes("baseline") ||
+              approval.reason?.toLowerCase().includes("override")
+            ? true
+            : false;
+      sections.push({
+        heading: `Human vs Copilot — ${sc.name}`,
+        kind: "planner_decision",
+        body: humanOverrode
+          ? `Planner approved scenario "${sc.name}" with rationale that may differ from Copilot's top pick (${top.label}). Human decision takes precedence.`
+          : approval
+            ? `Planner approved scenario "${sc.name}"${approval.reason ? `: ${approval.reason}` : ""}.`
+            : "No approval recorded.",
+      });
+    }
+
     sections.push({
       heading: `Limitations — ${sc.name}`,
       kind: "limitations",
-      body: (result?.limitations ?? sc.objective.parsedRequirements.length
-        ? result?.limitations ?? []
+      body: (result.limitations.length
+        ? result.limitations
         : ["No limitations recorded"]
       ).join("\n"),
     });
-    const decisions = store.decisions.filter((d) => d.scenarioId === sc.id);
-    sections.push({
-      heading: `Human decisions — ${sc.name}`,
-      kind: "planner_decision",
-      body: decisions.length
-        ? decisions.map((d) => `${d.createdAt}: ${d.type} — ${d.reason ?? ""}`).join("\n")
-        : "No human decision recorded yet.",
-    });
   }
 
-  sections.push({
-    heading: "Scenario comparison",
-    kind: "comparison",
-    body: "Consistent metrics across selected scenarios.",
-    data: comparison.comparison,
-  });
+  if (scenarioIds.length > 1) {
+    sections.push({
+      heading: "Scenario comparison",
+      kind: "comparison",
+      body: "Side-by-side metrics across selected scenarios. Rank scores are comparable within a scenario only.",
+      data: comparison.comparison,
+    });
+    if (comparison.insights.length) {
+      sections.push({
+        heading: "Trade-off insights",
+        kind: "comparison",
+        body: comparison.insights.map((i) => `${i.heading}: ${i.body}`).join("\n\n"),
+      });
+    }
+  }
 
   let reportId = "";
   await updateStore((s) => {
@@ -1075,8 +1256,8 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
       actor: "agent",
       category: "report",
       action: "generate_report",
-      summary: `Generated report "${report.title}"`,
-      outputs: { reportId },
+      summary: `Generated report "${report.title}" at ${generatedAt}`,
+      outputs: { reportId, generatedAt },
     });
   });
   const ws = await getWorkspace(projectId);
