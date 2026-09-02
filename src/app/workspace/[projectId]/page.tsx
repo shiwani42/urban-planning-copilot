@@ -6,5 +6,5 @@ export default async function WorkspacePage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
-  return <WorkspaceClient projectId={projectId} />;
+  return <WorkspaceClient projectId={projectId} initialTab="workspace" />;
 }

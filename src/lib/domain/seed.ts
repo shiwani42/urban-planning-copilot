@@ -211,6 +211,7 @@ export function generateSyntheticCity(seed = 42): {
       source: "Synthetic generator — not municipal authoritative data",
       version: "syn-1.0.0",
       updatedAt: now,
+      dataVintage: "2024 municipal assessor roll (synthetic)",
       synthetic: true,
       coverage: "North River study area",
       limitations: [
@@ -228,6 +229,7 @@ export function generateSyntheticCity(seed = 42): {
       source: "Synthetic generator",
       version: "syn-1.0.0",
       updatedAt: now,
+      dataVintage: "2023 GTFS snapshot (synthetic)",
       synthetic: true,
       coverage: "North River corridor",
       limitations: ["Stop locations are synthetic", "Frequencies are illustrative"],
@@ -242,6 +244,7 @@ export function generateSyntheticCity(seed = 42): {
       source: "Synthetic generator",
       version: "syn-1.0.0",
       updatedAt: now,
+      dataVintage: "2022 FEMA-style floodplain (synthetic, partial)",
       synthetic: true,
       coverage: "Partial river corridor — incomplete east side coverage",
       limitations: [
@@ -260,6 +263,7 @@ export function generateSyntheticCity(seed = 42): {
       source: "Synthetic generator",
       version: "syn-1.0.0",
       updatedAt: now,
+      dataVintage: "2021 census-style grid (synthetic)",
       synthetic: true,
       coverage: "Study area grid",
       limitations: ["Not census-accurate", "Point representation of areal estimates", "May double-count near parcel boundaries"],
@@ -274,6 +278,7 @@ export function generateSyntheticCity(seed = 42): {
       source: "Synthetic generator",
       version: "syn-1.0.0",
       updatedAt: now,
+      dataVintage: "2024 school district inventory (synthetic)",
       synthetic: true,
       coverage: "Study area",
       limitations: [
@@ -308,6 +313,7 @@ export function generateSyntheticCity(seed = 42): {
       source: "Synthetic generator",
       version: "syn-1.0.0",
       updatedAt: now,
+      dataVintage: "2023 utility node sample (synthetic)",
       synthetic: true,
       coverage: "Study area sample",
       limitations: ["Sparse sample of infrastructure access points"],

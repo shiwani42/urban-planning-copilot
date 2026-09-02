@@ -1284,9 +1284,13 @@ export function compareScenarioMetrics(
 ): Array<Record<string, string | number>> {
   return results.map((r) => {
     const ag = r.result?.aggregateMetrics ?? [];
-    const get = (k: string) => ag.find((m) => m.key === k)?.value ?? 0;
+    const get = (k: string) => ag.find((m) => m.key === k)?.value;
     const candidates = r.result?.candidates ?? [];
-    const top = candidates[0];
+    const top =
+      candidates.length > 0
+        ? candidates.find((c) => c.rank === 1) ??
+          [...candidates].sort((a, b) => a.rank - b.rank)[0]
+        : undefined;
     const topCap = top?.metrics.find((m) => m.key === "capacity")?.value ?? 0;
     const topSchoolGap =
       top?.metrics.find((m) => m.key === "school_underserved_pop")?.value ?? 0;
@@ -1308,20 +1312,22 @@ export function compareScenarioMetrics(
     return {
       scenarioId: r.scenarioId,
       name: r.name,
-      eligible_count: get("eligible_count") || get("gap_area_count"),
-      total_capacity: housingIntent ? get("total_capacity") : "—",
-      total_school_underserved_pop: accessIntent ? get("total_school_underserved_pop") : "—",
-      total_park_underserved_pop: accessIntent ? get("total_park_underserved_pop") : "—",
-      avg_school_distance_m: get("avg_school_distance_m") || get("avg_gap_distance_m"),
-      avg_transit_distance: get("avg_transit_distance"),
-      median_transit_distance: get("median_transit_distance"),
-      meets_target_count: housingIntent ? meetsAlone : "—",
+      eligible_count: get("eligible_count") || get("gap_area_count") || "—",
+      total_capacity: housingIntent ? get("total_capacity") ?? "—" : "—",
+      total_school_underserved_pop: accessIntent ? get("total_school_underserved_pop") ?? "—" : "—",
+      total_park_underserved_pop: accessIntent ? get("total_park_underserved_pop") ?? "—" : "—",
+      avg_school_distance_m: get("avg_school_distance_m") || get("avg_gap_distance_m") || "—",
+      avg_transit_distance: get("avg_transit_distance") ?? "—",
+      median_transit_distance: get("median_transit_distance") ?? "—",
+      meets_target_count: housingIntent ? meetsAlone ?? "—" : "—",
       top_candidate: top?.label ?? "—",
-      top_candidate_capacity: housingIntent ? topCap : "—",
-      top_school_underserved_pop: accessIntent ? topSchoolGap : "—",
-      top_park_underserved_pop: accessIntent ? topParkGap : "—",
-      top_rank_score: top?.score ?? 0,
+      top_candidate_capacity: housingIntent ? topCap ?? "—" : "—",
+      top_school_underserved_pop: accessIntent ? topSchoolGap ?? "—" : "—",
+      top_park_underserved_pop: accessIntent ? topParkGap ?? "—" : "—",
+      top_rank_score: top?.score ?? "—",
       top_3: candidates
+        .slice()
+        .sort((a, b) => a.rank - b.rank)
         .slice(0, 3)
         .map((c) => c.label)
         .join(", ") || "—",
