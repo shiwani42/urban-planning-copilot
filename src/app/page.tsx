@@ -14,6 +14,9 @@ import {
 } from "@/lib/project-recency";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
 import { fetchJsonWithRetry } from "@/lib/fetch-json";
+import { UrbanPlanningCopilot } from "@/components/UrbanPlanningCopilot";
+
+const DELETED_LAST_PROJECT_KEY = "upc-deleted-last-project";
 
 type Project = {
   id: string;
@@ -96,6 +99,7 @@ export default function HomePage() {
   const [recentHints, setRecentHints] = useState<RecentProjectHint[]>([]);
   const [recoverableIds, setRecoverableIds] = useState<string[]>([]);
   const [recoveryChecked, setRecoveryChecked] = useState(false);
+  const [deletedLastProject, setDeletedLastProject] = useState(false);
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -122,10 +126,26 @@ export default function HomePage() {
   useEffect(() => {
     loadProjects();
     setRecentHints(getRecentProjectHints());
+    try {
+      setDeletedLastProject(sessionStorage.getItem(DELETED_LAST_PROJECT_KEY) === "1");
+    } catch {
+      /* ignore */
+    }
     return onWorkspaceMutated(() => {
       loadProjects();
     });
   }, [loadProjects]);
+
+  useEffect(() => {
+    if (projects.length > 0) {
+      setDeletedLastProject(false);
+      try {
+        sessionStorage.removeItem(DELETED_LAST_PROJECT_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [projects.length]);
 
   useEffect(() => {
     if (loading || projects.length > 0) {
@@ -204,7 +224,18 @@ export default function HomePage() {
       const res = await fetch(`/api/projects/${project.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to delete project");
-      setProjects((prev) => prev.filter((p) => p.id !== project.id));
+      setProjects((prev) => {
+        const next = prev.filter((p) => p.id !== project.id);
+        if (next.length === 0) {
+          setDeletedLastProject(true);
+          try {
+            sessionStorage.setItem(DELETED_LAST_PROJECT_KEY, "1");
+          } catch {
+            /* ignore */
+          }
+        }
+        return next;
+      });
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e));
     } finally {
@@ -263,17 +294,37 @@ export default function HomePage() {
 
   function renderProjectActions(project: Project) {
     return (
-      <div className="relative shrink-0">
+      <div className="relative shrink-0 flex items-center gap-1">
         <button
           type="button"
-          aria-label={`Actions for ${project.name}`}
+          aria-label={`Rename ${project.name}`}
+          disabled={busyId === project.id}
+          onClick={(e) => {
+            e.stopPropagation();
+            startRename(project);
+          }}
+          className="p-1.5 rounded text-on-surface-variant hover:text-primary hover:bg-surface-container focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+        >
+          <span className="material-symbols-outlined text-[18px]">edit</span>
+        </button>
+        <button
+          type="button"
+          aria-label={`Actions menu for ${project.name}`}
+          aria-haspopup="menu"
           aria-expanded={menuId === project.id}
           disabled={busyId === project.id}
           onClick={(e) => {
             e.stopPropagation();
             setMenuId((id) => (id === project.id ? null : project.id));
           }}
-          className="p-1.5 rounded text-on-surface-variant hover:text-primary hover:bg-surface-container disabled:opacity-50"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              setMenuId((id) => (id === project.id ? null : project.id));
+            }
+          }}
+          className="p-1.5 rounded text-on-surface-variant hover:text-primary hover:bg-surface-container focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
         >
           <span className="material-symbols-outlined text-[18px]">more_vert</span>
         </button>
@@ -295,7 +346,7 @@ export default function HomePage() {
               <button
                 type="button"
                 role="menuitem"
-                className="w-full text-left px-3 py-2 text-body-sm hover:bg-surface-container"
+                className="w-full text-left px-3 py-2 text-body-sm hover:bg-surface-container focus:bg-surface-container"
                 onClick={(e) => {
                   e.stopPropagation();
                   startRename(project);
@@ -306,7 +357,7 @@ export default function HomePage() {
               <button
                 type="button"
                 role="menuitem"
-                className="w-full text-left px-3 py-2 text-body-sm text-error hover:bg-error-container/30"
+                className="w-full text-left px-3 py-2 text-body-sm text-error hover:bg-error-container/30 focus:bg-error-container/30"
                 onClick={(e) => {
                   e.stopPropagation();
                   void deleteProject(project);
@@ -388,12 +439,21 @@ export default function HomePage() {
     }
 
     return (
-      <div key={project.id} className={`group relative ${variant === "all" ? "" : ""}`}>
+      <article
+        key={project.id}
+        className="group relative focus-within:ring-2 focus-within:ring-primary/40 rounded"
+      >
         <button
           type="button"
           onClick={() => openProject(project.id)}
           disabled={busyId === project.id}
-          className={`${cardClass} w-full disabled:opacity-50`}
+          className={`${cardClass} w-full disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              openProject(project.id);
+            }
+          }}
         >
           <div className="flex justify-between items-start gap-3 mb-2">
             <h4 className="text-headline-md text-on-surface text-left">{project.name}</h4>
@@ -427,10 +487,10 @@ export default function HomePage() {
             </p>
           )}
         </button>
-        <div className="absolute top-3 right-3 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity">
+        <div className="absolute top-3 right-3 opacity-100 sm:opacity-70 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity">
           {renderProjectActions(project)}
         </div>
-      </div>
+      </article>
     );
   }
 
@@ -439,7 +499,7 @@ export default function HomePage() {
       <AppHeader active="projects" />
       <StorageBanner />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-section-padding py-10">
+      <main id="main-content" className="flex-1 max-w-7xl w-full mx-auto px-section-padding py-10">
         <div className="flex flex-col lg:flex-row lg:items-start gap-10">
           <div className="flex-1 min-w-0">
             <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
@@ -536,7 +596,24 @@ export default function HomePage() {
                   </div>
                   {sortedProjects.length === 0 ? (
                     <div className="border border-outline-variant bg-surface-container-lowest p-10 text-center">
-                      {recentHints.length > 0 && recoveryChecked && recoverableIds.length === 0 ? (
+                      {deletedLastProject ? (
+                        <>
+                          <p className="text-headline-md text-on-surface mb-2">
+                            You deleted the last project
+                          </p>
+                          <p className="text-body-sm text-on-surface-variant mb-6 max-w-lg mx-auto">
+                            Your project list is empty because you removed the final workspace.
+                            Create a new project whenever you are ready — nothing else was lost on
+                            the server from that delete.
+                          </p>
+                          <Link
+                            href="/new"
+                            className="inline-block bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium"
+                          >
+                            Create a new project
+                          </Link>
+                        </>
+                      ) : recentHints.length > 0 && recoveryChecked && recoverableIds.length === 0 ? (
                         <>
                           <p className="text-headline-md text-on-surface mb-2">
                             Projects not found on server
@@ -630,6 +707,12 @@ export default function HomePage() {
           </div>
 
           <aside className="w-full lg:w-80 shrink-0 space-y-6">
+            <UrbanPlanningCopilot
+              variant="home"
+              onToolComplete={() => void loadProjects()}
+              className="border border-outline-variant bg-surface-container-lowest min-h-[420px] max-h-[70vh]"
+            />
+
             {actionItems.length > 0 && (
               <section className="border border-secondary/40 bg-secondary-fixed/10 p-4">
                 <h3 className="font-mono text-data-label uppercase text-secondary mb-3 flex items-center gap-2">

@@ -10,6 +10,10 @@ import {
 } from "@/components/workspace-hooks";
 import { StorageBanner } from "@/components/StorageBanner";
 import { DatasetInspectPanel } from "@/components/DatasetInspectPanel";
+import {
+  CopilotActivityFeed,
+  UrbanPlanningCopilot,
+} from "@/components/UrbanPlanningCopilot";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
 import { setWebMcpBrowserContext, clearWebMcpBrowserContext } from "@/lib/webmcp/browser-context";
 import {
@@ -2007,7 +2011,10 @@ export default function WorkspaceClient({
             <div className="p-4 border-b border-outline-variant bg-surface-container-low flex justify-between items-center shrink-0">
               <div>
                 <h2 className="text-headline-md text-primary-container">Agent activity</h2>
-                <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-caption text-on-surface-variant mt-0.5">
+                  Urban Planning Copilot runs tools in-app — results below.
+                </p>
+                <div className="flex items-center gap-2 mt-1">
                   <div
                     className={`w-2 h-2 rounded-full ${
                       runningJob ? "bg-primary animate-pulse" : result ? "bg-primary-container" : "bg-outline"
@@ -2161,7 +2168,18 @@ export default function WorkspaceClient({
                   )}
                 </div>
               )}
+
+              <CopilotActivityFeed limit={5} className="pt-2" />
             </div>
+
+            <UrbanPlanningCopilot
+              projectId={projectId}
+              scenarioId={scenario.id}
+              variant="sidebar"
+              showActivityFeed={false}
+              onToolComplete={() => void refresh()}
+              className="shrink-0 max-h-[42vh] border-t border-outline-variant min-h-[220px]"
+            />
 
             {assumptionsOpen && (
               <div className="shrink-0 border-t border-outline-variant bg-surface-container-low p-4 max-h-[40vh] overflow-y-auto">

@@ -6,6 +6,7 @@ import {
   hydrateAnalysisResultsInStore,
   prepareStoreForPersistence,
 } from "./store-persistence";
+import { normalizeStoreShape } from "./store-shape";
 import { generateSyntheticCity } from "./seed";
 import {
   loadSanFranciscoCity,
@@ -108,13 +109,31 @@ async function fileExists(file: string): Promise<boolean> {
 }
 
 async function parseStoreFile(raw: string, source: string): Promise<AppStore> {
+  let parsed: unknown;
   try {
-    return JSON.parse(raw) as AppStore;
+    parsed = JSON.parse(raw);
   } catch (err) {
     throw new Error(
       `Failed to parse ${source}: ${err instanceof Error ? err.message : String(err)}`
     );
   }
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error(`Failed to parse ${source}: expected JSON object`);
+  }
+  const rawProjects = (parsed as { projects?: unknown }).projects;
+  if ("projects" in (parsed as object) && !Array.isArray(rawProjects)) {
+    throw new Error(`Refusing to load ${source}: projects field is not an array`);
+  }
+  const rawProjectCount = Array.isArray(rawProjects) ? rawProjects.length : null;
+  const normalized = normalizeStoreShape(
+    parsed as Partial<AppStore> & Record<string, unknown>
+  );
+  if (rawProjectCount !== null && rawProjectCount > 0 && normalized.projects.length === 0) {
+    throw new Error(
+      `Refusing to load ${source}: store upgrade would drop ${rawProjectCount} project(s)`
+    );
+  }
+  return normalized;
 }
 
 async function upgradeCatalog(store: AppStore): Promise<boolean> {

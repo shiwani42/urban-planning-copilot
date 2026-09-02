@@ -363,6 +363,43 @@ describe("store persistence", () => {
       "probe unlink race ok"
     );
   });
+
+  it("refuses to load store when normalization would drop projects", async () => {
+    await services.createProject({
+      name: "Must survive parse",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const storePath = getStorePath();
+    const backupPath = `${storePath}.bak`;
+    const corrupt = async () => {
+      const raw = await fs.readFile(storePath, "utf8");
+      const legacy = JSON.parse(raw) as Record<string, unknown>;
+      legacy.projects = "corrupt-not-array";
+      const payload = JSON.stringify(legacy);
+      await fs.writeFile(storePath, payload, "utf8");
+      await fs.writeFile(backupPath, payload, "utf8");
+    };
+    await corrupt();
+    await assert.rejects(() => reloadStoreFromDisk(), /projects field is not an array/);
+  });
+
+  it("upgrades store missing newer fields without clearing projects", async () => {
+    const ws = await services.createProject({
+      name: "Legacy shape",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const storePath = getStorePath();
+    const raw = await fs.readFile(storePath, "utf8");
+    const legacy = JSON.parse(raw) as Record<string, unknown>;
+    delete legacy.proposals;
+    delete legacy.confirmations;
+    await fs.writeFile(storePath, JSON.stringify(legacy), "utf8");
+    const reloaded = await reloadStoreFromDisk();
+    assert.equal(reloaded.projects.length, 1);
+    assert.equal(reloaded.projects[0]?.id, ws.project.id);
+    assert.ok(Array.isArray(reloaded.proposals));
+    assert.ok(Array.isArray(reloaded.confirmations));
+  });
 });
 
 describe("transit threshold normalization", () => {

@@ -18,6 +18,20 @@ export function AppHeader({
 
   return (
     <header className="h-16 border-b border-outline-variant bg-surface-container-high px-section-padding flex items-center justify-between shrink-0">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:bg-surface focus:text-primary focus:px-3 focus:py-2 focus:rounded focus:border focus:border-primary"
+      >
+        Skip to main content
+      </a>
+      {showNewProject && (
+        <a
+          href="#new-project-link"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-14 focus:z-[100] focus:bg-surface focus:text-primary focus:px-3 focus:py-2 focus:rounded focus:border focus:border-primary"
+        >
+          Skip to new project
+        </a>
+      )}
       <div className="flex items-center gap-8 min-w-0">
         <Link
           href="/"
@@ -43,6 +57,7 @@ export function AppHeader({
       </div>
       {showNewProject && (
         <Link
+          id="new-project-link"
           href="/new"
           className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm font-medium hover:bg-on-primary-fixed-variant transition-colors shrink-0"
         >
