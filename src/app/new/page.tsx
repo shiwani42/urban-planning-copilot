@@ -203,6 +203,12 @@ export default function NewProjectPage() {
           "Workspace was created but the server response did not include a project id. Retry from Projects or contact support."
         );
       }
+      const verify = await fetch(`/api/projects/${projectId}`, { cache: "no-store" });
+      if (!verify.ok) {
+        throw new Error(
+          `Workspace was not saved on the server (project ${projectId} not found). Retry when storage is healthy.`
+        );
+      }
       sessionStorage.removeItem(DRAFT_KEY);
       localStorage.removeItem(LOCAL_DRAFT_KEY);
       sessionStorage.removeItem(EXPLORE_CONVERT_KEY);
