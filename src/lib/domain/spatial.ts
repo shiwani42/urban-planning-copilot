@@ -7,6 +7,7 @@ import type {
   GeographicSelection,
   MetricValue,
   PlanningObjective,
+  ShortlistEntry,
 } from "./types";
 import { normalizeWeights } from "./objective";
 import {
@@ -1276,6 +1277,7 @@ export interface ScenarioComparisonInput {
   weights?: CriterionWeight[];
   housingTarget?: number;
   intent?: PlanningObjective["intent"];
+  shortlist?: ShortlistEntry[];
   result: AnalysisEngineOutput | null;
 }
 

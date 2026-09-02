@@ -1,4 +1,5 @@
 import type { AppStore, AnalysisResult, Candidate } from "./types";
+import { normalizeAnalysisResult, normalizeCandidate } from "./analysis-display";
 
 /** Disk-safe candidate row — geometry lives in featuresByDataset, not store.json */
 export type StoredCandidate = Omit<Candidate, "geometry" | "provenance" | "centroid"> & {
@@ -76,16 +77,22 @@ function hydrateCandidate(
   limitations: string[],
   byId: Map<string, GeoJSON.Feature>
 ): Candidate {
-  const geometry = lookupGeometry(stored.featureIds, byId);
+  const metrics = Array.isArray(stored.metrics) ? stored.metrics : [];
+  const geometry = lookupGeometry(stored.featureIds ?? [], byId);
   const centroid =
     stored.centroid ?? (geometry ? centroidFromGeometry(geometry) : ([0, 0] as [number, number]));
-  return {
-    ...stored,
+  const base: Candidate = {
+    id: stored.id ?? "unknown",
+    label: stored.label ?? "Unnamed candidate",
+    featureIds: Array.isArray(stored.featureIds) ? stored.featureIds : [],
     geometry: geometry ?? { type: "Point", coordinates: centroid },
     centroid,
+    score: typeof stored.score === "number" && Number.isFinite(stored.score) ? stored.score : 0,
+    rank: typeof stored.rank === "number" && Number.isFinite(stored.rank) ? stored.rank : 0,
+    metrics,
     provenance: {
       scoreBreakdown: Object.fromEntries(
-        stored.metrics.filter((m) => m.key.endsWith("_score")).map((m) => [m.key, m.value])
+        metrics.filter((m) => m.key.endsWith("_score")).map((m) => [m.key, m.value])
       ),
       calculations: [],
       datasets: [],
@@ -94,17 +101,25 @@ function hydrateCandidate(
       humanDecisions: [],
       limitations: [...limitations],
     },
+    status: stored.status ?? "eligible",
+    rejectionReason: stored.rejectionReason,
+    recommendationNote: stored.recommendationNote,
   };
+  return normalizeCandidate(base, limitations);
 }
 
 /** Reattach parcel geometries from the catalog after loading store.json */
 export function hydrateAnalysisResultsInStore(store: AppStore): void {
   const byId = parcelFeaturesById(store);
   for (const result of store.analysisResults) {
-    const limitations = result.limitations ?? [];
-    result.candidates = (result.candidates as unknown as StoredCandidate[]).map((c) =>
-      hydrateCandidate(c, limitations, byId)
-    );
+    const limitations = Array.isArray(result.limitations) ? result.limitations : [];
+    result.limitations = limitations;
+    result.aggregateMetrics = Array.isArray(result.aggregateMetrics) ? result.aggregateMetrics : [];
+    result.candidates = (Array.isArray(result.candidates)
+      ? (result.candidates as unknown as StoredCandidate[])
+      : []
+    ).map((c) => hydrateCandidate(c, limitations, byId));
+    normalizeAnalysisResult(result);
   }
 }
 
