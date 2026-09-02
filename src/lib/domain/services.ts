@@ -13,7 +13,7 @@ import {
   getLatestFreshResult,
   topRankedCandidate,
 } from "./decision";
-import { formatReportDateTime } from "../format";
+import { formatReportDateTime, dedupeLimitations } from "../format";
 import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
 import { getStore, updateStore } from "./store";
 import { STUDY_BOUNDS } from "./seed";
@@ -71,6 +71,46 @@ function logActivity(
   };
   store.activities.unshift(full);
   return full;
+}
+
+function datasetSnapshot(store: AppStore, scenario?: Scenario) {
+  const enabledIds = scenario?.enabledDatasetIds?.length
+    ? new Set(scenario.enabledDatasetIds)
+    : new Set(store.datasets.filter((d) => d.enabled).map((d) => d.id));
+  return store.datasets
+    .filter((d) => enabledIds.has(d.id))
+    .map((d) => ({
+      id: d.id,
+      name: d.name,
+      kind: d.kind,
+      version: d.version,
+      dataVintage: d.dataVintage,
+      stale: Boolean(d.stale),
+      enabled: d.enabled,
+    }));
+}
+
+function collectDatasetLimitations(store: AppStore, scenario: Scenario): string[] {
+  const enabled = new Set(scenario.enabledDatasetIds);
+  const notes: string[] = [];
+  for (const d of store.datasets) {
+    if (!d.enabled || !enabled.has(d.id)) continue;
+    for (const l of d.limitations) {
+      notes.push(`${d.name}: ${l}`);
+    }
+    if (d.incompleteCoverage) {
+      notes.push(`${d.name}: incomplete geographic coverage`);
+    }
+    if (d.stale) {
+      notes.push(`${d.name}: marked outdated in catalog`);
+    }
+  }
+  return dedupeLimitations(notes);
+}
+
+function scenarioLabel(store: AppStore, scenarioId?: string): string | undefined {
+  if (!scenarioId) return undefined;
+  return store.scenarios.find((s) => s.id === scenarioId)?.name;
 }
 
 function datasetNameMap(store: AppStore): Record<string, string> {
@@ -477,8 +517,8 @@ export async function addGeographicSelection(
       actor: selection.createdBy === "human" ? "human" : "agent",
       category: "map",
       action: "geographic_selection",
-      summary: `${selection.type} area "${selection.label}" added`,
-      inputs: { type: selection.type, label: selection.label },
+      summary: `${selection.type} area "${selection.label}" added (${full.id.slice(0, 6)})`,
+      inputs: { type: selection.type, label: selection.label, selectionId: full.id },
     });
   });
   return getWorkspace(projectId);
@@ -505,7 +545,7 @@ export async function removeGeographicSelection(
       actor: "human",
       category: "map",
       action: "remove_geographic_selection",
-      summary: `Removed ${removed.type} area "${removed.label}"`,
+      summary: `Removed ${removed.type} area "${removed.label}" (${selectionId.slice(0, 6)})`,
       inputs: { selectionId, type: removed.type, label: removed.label },
     });
   });
@@ -598,12 +638,15 @@ export async function updateMapState(projectId: string, mapState: Partial<MapSta
 export async function selectCandidate(
   projectId: string,
   candidateId: string | undefined,
-  featureIds?: string[]
+  featureIds?: string[],
+  scenarioId?: string
 ) {
   await updateStore((store) => {
     const project = store.projects.find((p) => p.id === projectId);
     if (!project) throw new Error("Project not found");
+    const activeScenarioId = scenarioId ?? project.activeScenarioId;
     project.mapState.selectedCandidateId = candidateId;
+    project.mapState.selectedCandidateScenarioId = candidateId ? activeScenarioId : undefined;
     project.mapState.selectedFeatureIds = featureIds ?? (candidateId ? [candidateId] : []);
     project.mapState.highlightFeatureIds = featureIds ?? (candidateId ? [candidateId] : []);
     project.updatedAt = now();
@@ -694,7 +737,11 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
       category: "analysis",
       action: "analysis_started",
       summary: "Started spatial analysis",
-      inputs: { configHash },
+      inputs: {
+        scenario: requireScenario(s, projectId, scenarioId).name,
+        configHash,
+        datasets: datasetSnapshot(s, requireScenario(s, projectId, scenarioId)),
+      },
     });
     touchProject(s, projectId, "Analysis running…");
   });
@@ -720,13 +767,7 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
     layers: layersForScenario(live, sc),
     datasetIds: datasetIdsByKind(live),
     rejectedCandidateFeatureIds: rejected,
-    externalLimitations: live.datasets
-      .filter((d) => d.incompleteCoverage || d.stale)
-      .flatMap((d) =>
-        d.limitations.map((l) =>
-          d.incompleteCoverage ? `${d.name}: ${l}` : `${d.name}: ${l}`
-        )
-      ),
+    externalLimitations: collectDatasetLimitations(live, sc),
   });
 
   await updateStore((s) => {
@@ -745,7 +786,14 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
         category: "analysis",
         action: step.step,
         summary: step.detail,
-        outputs: { count: step.count },
+        inputs: {
+          scenario: scenarioLive.name,
+          datasets: datasetSnapshot(s, scenarioLive),
+        },
+        outputs: {
+          count: step.count,
+          detail: step.detail,
+        },
       });
       job.activityIds.push(ev.id);
       job.progress = Math.min(95, job.progress + 12);
@@ -787,12 +835,10 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
       aggregateMetrics: output.aggregateMetrics,
       summary: output.summary,
       stepLogs: output.stepLogs,
-      limitations: [
+      limitations: dedupeLimitations([
         ...output.limitations,
-        ...s.datasets
-          .filter((d) => d.stale || d.incompleteCoverage)
-          .map((d) => `${d.name}: ${d.limitations.join("; ")}`),
-      ],
+        ...collectDatasetLimitations(s, scenarioLive),
+      ]),
       stale: false,
       configHash: job.configHash,
     };
@@ -853,9 +899,17 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
       category: "analysis",
       action: "analysis_completed",
       summary: output.summary,
+      inputs: {
+        scenario: scenarioLive.name,
+        datasets: datasetSnapshot(s, scenarioLive),
+        configHash: job.configHash,
+      },
       outputs: {
         candidateCount: output.candidates.length,
         topCandidate: output.candidates[0]?.label,
+        aggregateMetrics: Object.fromEntries(
+          result.aggregateMetrics.map((m) => [m.key, m.value])
+        ),
       },
       relatedCandidateIds: output.candidates.slice(0, 5).map((c) => c.id),
     });
@@ -969,6 +1023,15 @@ export async function setActiveScenario(projectId: string, scenarioId: string) {
     const scenario = requireScenario(store, projectId, scenarioId);
     const project = store.projects.find((p) => p.id === projectId)!;
     project.activeScenarioId = scenarioId;
+    if (
+      project.mapState.selectedCandidateScenarioId &&
+      project.mapState.selectedCandidateScenarioId !== scenarioId
+    ) {
+      project.mapState.selectedCandidateId = undefined;
+      project.mapState.selectedCandidateScenarioId = undefined;
+      project.mapState.selectedFeatureIds = [];
+      project.mapState.highlightFeatureIds = [];
+    }
     project.updatedAt = now();
     const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
     if (result) {
@@ -1304,11 +1367,12 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
       body: store.datasets
         .filter((d) => sc.enabledDatasetIds.includes(d.id))
         .map((d) => {
-          const updated = formatReportDateTime(d.updatedAt);
+          const synced = formatReportDateTime(d.updatedAt);
+          const vintage = d.dataVintage ? `; data vintage ${d.dataVintage}` : "";
           const synth = d.synthetic ? " (synthetic seed data)" : "";
           const limits =
             d.limitations.length > 0 ? ` — Limitations: ${d.limitations.join("; ")}` : "";
-          return `${d.name} v${d.version} — ${d.source}; last updated ${updated}${synth}${limits}`;
+          return `${d.name} v${d.version} — ${d.source}; catalog synced ${synced}${vintage}${synth}${limits}`;
         })
         .join("\n"),
     });
@@ -1420,10 +1484,15 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
     reportId = report.id;
     logActivity(s, {
       projectId,
+      scenarioId: scenarioIds[0],
       actor: "agent",
       category: "report",
       action: "generate_report",
       summary: `Generated report "${report.title}" at ${generatedAt}`,
+      inputs: {
+        scenarioIds,
+        scenarios: scenarioIds.map((id) => scenarioLabel(s, id)).filter(Boolean),
+      },
       outputs: { reportId, generatedAt },
     });
   });
@@ -1450,7 +1519,8 @@ export async function setDatasetEnabled(datasetId: string, enabled: boolean) {
       actor: "human",
       category: "data",
       action: enabled ? "enable_dataset" : "disable_dataset",
-      summary: `${enabled ? "Enabled" : "Disabled"} dataset ${ds.name}`,
+      summary: `${enabled ? "Enabled" : "Disabled"} dataset ${ds.name} (global catalog)`,
+      inputs: { datasetId, version: ds.version },
       relatedDatasetIds: [datasetId],
     });
   });
@@ -1462,10 +1532,34 @@ export async function markDatasetStale(datasetId: string, stale: boolean) {
     if (!ds) throw new Error("Dataset not found");
     ds.stale = stale;
     if (stale) {
-      ds.limitations = Array.from(
-        new Set([...ds.limitations, "Marked outdated — verify before relying on recommendations"])
+      ds.limitations = dedupeLimitations([
+        ...ds.limitations,
+        "Marked outdated — verify before relying on recommendations",
+      ]);
+    } else {
+      ds.limitations = ds.limitations.filter(
+        (l) => l !== "Marked outdated — verify before relying on recommendations"
       );
     }
+    for (const scenario of store.scenarios) {
+      if (scenario.enabledDatasetIds.includes(datasetId)) {
+        markResultsStale(
+          store,
+          scenario.id,
+          stale ? `Dataset ${ds.name} marked outdated` : `Dataset ${ds.name} freshness restored`
+        );
+      }
+    }
+    const projectId = store.projects[0]?.id ?? "system";
+    logActivity(store, {
+      projectId,
+      actor: "human",
+      category: "data",
+      action: stale ? "mark_dataset_stale" : "clear_dataset_stale",
+      summary: `${stale ? "Marked outdated" : "Cleared outdated flag on"} dataset ${ds.name} (global catalog)`,
+      inputs: { datasetId, version: ds.version, dataVintage: ds.dataVintage },
+      relatedDatasetIds: [datasetId],
+    });
   });
 }
 

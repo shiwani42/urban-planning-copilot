@@ -78,7 +78,10 @@ export interface DatasetMeta {
   kind: DatasetKind;
   source: string;
   version: string;
+  /** When this dataset record was last synced in the catalog (not data vintage). */
   updatedAt: string;
+  /** Observed or published vintage of the underlying data. */
+  dataVintage?: string;
   synthetic: boolean;
   coverage: string;
   limitations: string[];
@@ -355,8 +358,12 @@ export interface MapState {
   layers: LayerVisibility[];
   selectedFeatureIds: string[];
   selectedCandidateId?: string;
+  /** Scenario the selected candidate belongs to — prevents cross-scenario selection bleed. */
+  selectedCandidateScenarioId?: string;
   highlightFeatureIds: string[];
   drawingMode?: "none" | "exclude" | "include" | "select";
+  /** Evidence tab "show on map" focus for a dataset layer. */
+  focusDatasetId?: string;
 }
 
 export interface Report {

@@ -70,7 +70,12 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         );
       case "select_candidate":
         return NextResponse.json(
-          await services.selectCandidate(projectId, body.candidateId, body.featureIds)
+          await services.selectCandidate(
+            projectId,
+            body.candidateId,
+            body.featureIds,
+            body.scenarioId
+          )
         );
       case "update_map":
         return NextResponse.json(await services.updateMapState(projectId, body.mapState));
