@@ -152,7 +152,12 @@ export function applySpatialConstraints(
       }
       const before = remaining.length;
       remaining = remaining.filter((f) => !intersectsRisk(f, flood, String(c.value ?? "high")));
-      logs.push(`${c.label}: ${before} → ${remaining.length}`);
+      const excluded = before - remaining.length;
+      if (excluded === 0) {
+        logs.push(`${c.label}: ${before} → ${remaining.length} (no high-risk flood overlap in study area)`);
+      } else {
+        logs.push(`${c.label}: ${before} → ${remaining.length}`);
+      }
       continue;
     }
 
@@ -546,6 +551,27 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
     },
   ];
 
+  if (
+    input.objective.intent === "housing_capacity" &&
+    input.objective.targetValue &&
+    input.objective.targetUnit === "homes"
+  ) {
+    const target = input.objective.targetValue;
+    const gap = totalCapacity - target;
+    aggregateMetrics.push({
+      key: "housing_target_gap",
+      label: gap >= 0 ? "Meets housing target" : "Shortfall vs housing target",
+      value: Math.abs(gap),
+      unit: "homes",
+      kind: "calculated",
+      method:
+        gap >= 0
+          ? `Eligible capacity (${totalCapacity}) meets or exceeds target (${target})`
+          : `Eligible capacity (${totalCapacity}) is below target (${target})`,
+      inputs: { target_homes: target, eligible_capacity: totalCapacity, gap },
+    });
+  }
+
   let summary: string;
   if (ranked.length === 0) {
     summary =
@@ -556,6 +582,12 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
     totalCapacity < input.objective.targetValue
   ) {
     summary = `Found ${ranked.length} eligible areas totaling ~${totalCapacity} homes, below the target of ${input.objective.targetValue}.`;
+  } else if (
+    input.objective.intent === "housing_capacity" &&
+    input.objective.targetValue &&
+    totalCapacity >= input.objective.targetValue
+  ) {
+    summary = `Found ${ranked.length} eligible areas totaling ~${totalCapacity} homes, meeting the target of ${input.objective.targetValue}. Top recommendation: ${ranked[0].label} (score ${ranked[0].score}).`;
   } else {
     summary = `Found ${ranked.length} eligible candidates. Top recommendation: ${ranked[0].label} (score ${ranked[0].score}).`;
   }

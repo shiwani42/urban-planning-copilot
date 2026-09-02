@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
 import {
+  assessObjectiveQuality,
   buildAnalysisPlan,
   hashConfig,
   normalizeWeights,
@@ -150,6 +151,10 @@ export async function createProject(input: {
   geographyLabel?: string;
   mode?: "explore" | "planning";
 }): Promise<WorkspaceSnapshot> {
+  const quality = assessObjectiveQuality(input.objectiveText);
+  if (!quality.interpretable) {
+    throw new Error(quality.warning ?? "Planning objective is not interpretable.");
+  }
   let projectId = "";
   await updateStore((store) => {
     const geographyLabel = input.geographyLabel ?? "Study area";
@@ -589,6 +594,7 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
       candidates: output.candidates,
       aggregateMetrics: output.aggregateMetrics,
       summary: output.summary,
+      stepLogs: output.stepLogs,
       limitations: [
         ...output.limitations,
         ...s.datasets

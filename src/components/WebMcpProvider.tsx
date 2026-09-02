@@ -46,7 +46,7 @@ export function WebMcpProvider({
   return (
     <>
       {children}
-      {status === "on" && (
+      {status === "on" && process.env.NEXT_PUBLIC_SHOW_WEBMCP_UI === "true" && (
         <div
           className="fixed bottom-2 left-2 z-[9999] pointer-events-none font-mono text-[10px] uppercase tracking-wider text-primary-container bg-primary-fixed/80 border border-primary-fixed px-2 py-1 rounded"
           title="Browser WebMCP tools registered for co-browsing agents"

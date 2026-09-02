@@ -51,6 +51,51 @@ function parseDistanceMeters(raw: string, unit?: string): number {
   return n;
 }
 
+const PLANNING_SIGNAL_RE =
+  /\b(housing|homes?|units?|dwellings?|transit|station|bus|rail|flood|school|shelter|zoning|capacity|neighborhood|development|residential|population|accessibility|parcel|site|area|accommodat|growth|planning|locat)\b/i;
+
+/** Score how interpretable a free-text objective is for planning analysis. */
+export function assessObjectiveQuality(text: string): {
+  confidence: number;
+  warning?: string;
+  interpretable: boolean;
+} {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return {
+      confidence: 0,
+      warning: "Enter a planning objective describing what you want to analyze.",
+      interpretable: false,
+    };
+  }
+  if (trimmed.length < 8) {
+    return {
+      confidence: 0.15,
+      warning:
+        "This objective is too short to interpret. Describe the planning question, target, and constraints.",
+      interpretable: false,
+    };
+  }
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length < 3 && !/\d/.test(trimmed)) {
+    return {
+      confidence: 0.2,
+      warning:
+        "This objective does not look like a planning question. Add context such as housing targets, transit, or flood constraints.",
+      interpretable: false,
+    };
+  }
+  if (!PLANNING_SIGNAL_RE.test(trimmed) && !/\d/.test(trimmed)) {
+    return {
+      confidence: 0.2,
+      warning:
+        "Low confidence — the objective may not be interpretable as a planning analysis. Revise before running analysis.",
+      interpretable: false,
+    };
+  }
+  return { confidence: 1, interpretable: true };
+}
+
 export function detectIntent(text: string): PlanningIntent {
   if (SHELTER_RE.test(text)) return "emergency_shelter";
   if (SCHOOL_RE.test(text)) return "school_accessibility";
@@ -276,6 +321,8 @@ export function parseObjective(
     requirements.push("Identify neighborhoods with largest transit accessibility gaps");
   }
 
+  const quality = assessObjectiveQuality(rawText);
+  const baseConfidence = requirements.length >= 2 ? 0.85 : requirements.length === 1 ? 0.65 : 0.45;
   const objective: PlanningObjective = {
     rawText,
     intent,
@@ -283,7 +330,10 @@ export function parseObjective(
     targetUnit,
     geographyLabel,
     parsedRequirements: requirements,
-    confidence: requirements.length >= 2 ? 0.85 : 0.6,
+    confidence: quality.interpretable
+      ? Math.min(baseConfidence, quality.confidence === 1 ? baseConfidence : quality.confidence)
+      : quality.confidence,
+    qualityWarning: quality.warning,
   };
 
   return {

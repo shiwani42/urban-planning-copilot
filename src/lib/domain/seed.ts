@@ -63,7 +63,7 @@ export function generateSyntheticCity(seed = 42): {
       const feature = cellPolygon(w, s, e, n);
       const name =
         r > 6 && c < 4
-          ? `Riverside ${String.fromCharCode(65 + (idx % 8))}`
+          ? `Riverside ${String.fromCharCode(65 + (idx % 8))}-${r}${c}`
           : r < 3 && c > 7
             ? `Upland ${String.fromCharCode(65 + (idx % 8))}`
             : `Block ${r}-${c}`;
