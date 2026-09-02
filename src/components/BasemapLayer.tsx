@@ -14,6 +14,7 @@ export default function BasemapLayer({ style = "voyager" }: Props) {
       attribution={basemapAttribution()}
       maxZoom={20}
       subdomains="abcd"
+      crossOrigin="anonymous"
     />
   );
 }

@@ -265,6 +265,51 @@ describe("store persistence", () => {
     assert.equal(activities.length, 0);
   });
 
+  it("repairs missing activeScenarioId on getWorkspace", async () => {
+    const ws = await services.createProject({
+      name: "Scenario repair",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const baselineId = ws.project.activeScenarioId!;
+    await updateStore((store) => {
+      const project = store.projects.find((p) => p.id === ws.project.id);
+      if (project) project.activeScenarioId = "orphaned-scenario-id";
+    });
+    const repaired = await services.getWorkspace(ws.project.id);
+    assert.ok(repaired);
+    assert.equal(repaired!.project.activeScenarioId, baselineId);
+    assert.ok(repaired!.scenarios.some((s) => s.id === baselineId));
+  });
+
+  it("resolves stale scenario id for geographic exclusion add", async () => {
+    const ws = await services.createProject({
+      name: "Geo stale id",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const scenarioId = ws.project.activeScenarioId!;
+    await services.addGeographicSelection(ws.project.id, "stale-id", {
+      type: "exclusion",
+      label: "QA exclusion polygon",
+      geometry: {
+        type: "Polygon",
+        coordinates: [
+          [
+            [-122.42, 37.76],
+            [-122.41, 37.76],
+            [-122.41, 37.77],
+            [-122.42, 37.77],
+            [-122.42, 37.76],
+          ],
+        ],
+      },
+      createdBy: "human",
+    });
+    const after = await services.getWorkspace(ws.project.id);
+    const scenario = after!.scenarios.find((s) => s.id === scenarioId);
+    assert.equal(scenario?.geographicSelections.length, 1);
+    assert.equal(scenario?.geographicSelections[0]?.label, "QA exclusion polygon");
+  });
+
   it("concurrent verifyWritableDataDir calls do not throw ENOENT", async () => {
     const probeDir = path.join(tmpDir, "probe-race");
     await Promise.all([
