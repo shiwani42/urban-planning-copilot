@@ -2033,7 +2033,9 @@ function ReportView(props: {
                           <td className="p-2 text-right font-mono">
                             {row.avg_transit_distance ?? "—"}
                           </td>
-                          <td className="p-2 text-right font-mono">{row.top_score ?? "—"}</td>
+                          <td className="p-2 text-right font-mono">
+                            {row.top_rank_score ?? row.top_score ?? "—"}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
