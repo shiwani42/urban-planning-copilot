@@ -13,6 +13,11 @@ Live reference: https://urban-planning-copilot.onrender.com/
 | 3 | `exclude_map_area` applies then errors | Pre-validate label/geometry; `excludeMapArea` wrapper; no store write until validation passes |
 | 4 | Opaque tool failures | `ToolError` with `code`, `field`, `message`; `/api/mcp` returns structured `error` object |
 | 5 | `set_planning_objective` wipes requirements | Rejects empty text and destructive phrases (`delete everything`, `clear all`, …) before parsing |
+| 6 | Human-gated tools self-cancel via `window.confirm` | Removed browser confirm gate; server returns `pending_human` unless `confirmed:true`; never throws `"cancelled by planner"` |
+| 7 | `get_workspace` invents missing projects | `requireProject()` reloads from disk; `get_workspace` fails with `NOT_FOUND` when absent |
+| 8 | `run_analysis` false-negative after success | `getAnalysisRunStatus()` recovery; returns `running` / `completed` payloads instead of throwing when results persisted |
+| 9 | `start_planning_project` does not open workspace | Returns `workspaceUrl`; browser navigates via `window.location.assign` |
+| 10 | Stale banner hidden after map/constraint edits | `criteriaStale` mutation hint + immediate “Results stale — recalculate” banner before refetch completes |
 
 ## P1 — Fixed
 

@@ -2,7 +2,10 @@
  * Server-side WebMCP tool execution — same domain operations as browser tools.
  */
 import * as services from "@/lib/domain/services";
-import { ToolError } from "@/lib/domain/tool-errors";
+import {
+  pendingHumanResult,
+  requiresPlannerConfirmation,
+} from "@/lib/domain/human-gated-tools";
 import {
   assertCompareScenarioIds,
   assertExclusionLabel,
@@ -15,6 +18,7 @@ import {
 } from "@/lib/domain/webmcp-validation";
 import { getToolMeta, PLANNING_TOOL_META } from "./tool-definitions";
 import type { ToolErrorPayload } from "@/lib/domain/tool-errors";
+import { ToolError } from "@/lib/domain/tool-errors";
 
 type WorkspaceLike = NonNullable<Awaited<ReturnType<typeof services.getWorkspace>>>;
 
@@ -54,6 +58,7 @@ export async function executePlanningTool(
   switch (name) {
     case "get_workspace": {
       const projectId = assertNonEmptyProjectId(input.projectId);
+      await services.requireProject(projectId);
       const ws = await services.getWorkspace(projectId);
       if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
       const { scenario, result } = activeContext(ws);
@@ -139,9 +144,11 @@ export async function executePlanningTool(
         objectiveText: input.objectiveText as string,
         geographyLabel: input.geographyLabel as string | undefined,
       });
+      const projectId = ws.project.id;
       return {
-        projectId: ws.project.id,
+        projectId,
         scenarioId: ws.project.activeScenarioId,
+        workspaceUrl: `/workspace/${projectId}`,
         intent: ws.scenarios[0]?.objective.intent,
         next: "Review get_analysis_plan then run_analysis",
       };
@@ -161,6 +168,7 @@ export async function executePlanningTool(
     case "set_transit_threshold": {
       const meters = assertTransitThresholdMeters(input.meters);
       const projectId = assertNonEmptyProjectId(input.projectId);
+      await services.requireProject(projectId);
       const ws = await services.getWorkspace(projectId);
       if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
       const scenario = ws.scenarios.find((s) => s.id === input.scenarioId);
@@ -171,7 +179,11 @@ export async function executePlanningTool(
           : c
       );
       await services.updateConstraints(projectId, input.scenarioId as string, constraints);
-      return { meters, note: "Criteria changed — recalculate with run_analysis" };
+      return {
+        meters,
+        note: "Results stale — recalculate with run_analysis",
+        criteriaStale: true,
+      };
     }
     case "set_priority_weights": {
       const projectId = assertNonEmptyProjectId(input.projectId);
@@ -184,38 +196,47 @@ export async function executePlanningTool(
       return { weights, note: "Weights updated — run_analysis to refresh ranking" };
     }
     case "run_analysis": {
-      const ws = await services.runAnalysis(
-        input.projectId as string,
-        input.scenarioId as string
-      );
-      if (!ws) throw new Error("Analysis failed");
-      const scenario = ws.scenarios.find((s) => s.id === input.scenarioId);
-      const result = ws.analysisResults.find((r) => r.id === scenario?.latestResultId);
-      const failedJob = ws.analysisJobs.find(
-        (j) => j.scenarioId === input.scenarioId && j.status === "failed"
-      );
-      if (failedJob) {
+      const projectId = assertNonEmptyProjectId(input.projectId);
+      const scenarioId = String(input.scenarioId ?? "").trim();
+      if (!scenarioId) {
+        throw new ToolError("MISSING_FIELD", "scenarioId is required", "scenarioId");
+      }
+      await services.requireProject(projectId);
+
+      const inFlight = await services.getAnalysisRunStatus(projectId, scenarioId);
+      if (inFlight.status === "running") {
+        return {
+          status: "running",
+          message: "Analysis in progress — wait for completion before retrying",
+          jobId: inFlight.jobId,
+          progress: inFlight.progress,
+          currentStep: inFlight.currentStep,
+        };
+      }
+
+      try {
+        await services.runAnalysis(projectId, scenarioId);
+      } catch (err) {
+        const recovery = await services.getAnalysisRunStatus(projectId, scenarioId);
+        if (recovery.status === "completed") {
+          return { ...recovery, recovered: true };
+        }
+        throw err;
+      }
+
+      const status = await services.getAnalysisRunStatus(projectId, scenarioId);
+      if (status.status === "completed") {
+        return status;
+      }
+      if (status.status === "failed") {
         return {
           status: "failed",
-          error: failedJob.error,
+          error: status.error,
           summary: null,
           candidateCount: 0,
         };
       }
-      return {
-        status: "completed",
-        summary: result?.summary,
-        candidateCount: result?.candidates.length ?? 0,
-        top: result?.candidates[0]
-          ? {
-              id: result.candidates[0].id,
-              label: result.candidates[0].label,
-              score: result.candidates[0].score,
-            }
-          : null,
-        limitations: result?.limitations ?? [],
-        stale: result?.stale ?? false,
-      };
+      throw new ToolError("ANALYSIS_FAILED", "Analysis did not complete", "scenarioId");
     }
     case "create_scenario_branch": {
       const ws = await services.createScenario(
@@ -245,6 +266,7 @@ export async function executePlanningTool(
       }
       const label = assertExclusionLabel(input.label);
       const closed = validatePolygonRing(input.coordinates);
+      await services.requireProject(projectId);
       const ws = await services.excludeMapArea(projectId, scenarioId, {
         label,
         geometry: { type: "Polygon", coordinates: [closed] },
@@ -255,7 +277,8 @@ export async function executePlanningTool(
         selectionId: ws?.scenarios
           .find((s) => s.id === scenarioId)
           ?.geographicSelections.at(-1)?.id,
-        note: "Results stale — call run_analysis",
+        note: "Results stale — recalculate with run_analysis",
+        criteriaStale: true,
       };
     }
     case "set_map_view": {
@@ -330,43 +353,65 @@ export async function executePlanningTool(
         createdBy: "agent",
       });
     }
-    case "reject_candidate":
+    case "reject_candidate": {
+      const projectId = assertNonEmptyProjectId(input.projectId);
+      if (requiresPlannerConfirmation("reject_candidate", input)) {
+        return pendingHumanResult("reject_candidate", input);
+      }
+      await services.requireProject(projectId);
       await services.recordDecision({
-        projectId: input.projectId as string,
+        projectId,
         scenarioId: input.scenarioId as string,
         type: "reject_candidate",
         subjectId: input.candidateId as string,
         reason: (input.reason as string) ?? "Rejected by planner",
       });
       return { rejected: input.candidateId, kind: "planner_decision" };
-    case "prefer_scenario":
+    }
+    case "prefer_scenario": {
+      const projectId = assertNonEmptyProjectId(input.projectId);
+      if (requiresPlannerConfirmation("prefer_scenario", input)) {
+        return pendingHumanResult("prefer_scenario", input);
+      }
+      await services.requireProject(projectId);
       await services.recordDecision({
-        projectId: input.projectId as string,
+        projectId,
         scenarioId: input.scenarioId as string,
         type: "prefer_scenario",
         reason: input.reason as string | undefined,
       });
-      await services.setActiveScenario(
-        input.projectId as string,
-        input.scenarioId as string
-      );
+      await services.setActiveScenario(projectId, input.scenarioId as string);
       return { preferredScenarioId: input.scenarioId, kind: "planner_decision" };
-    case "approve_scenario":
+    }
+    case "approve_scenario": {
+      const projectId = assertNonEmptyProjectId(input.projectId);
+      if (requiresPlannerConfirmation("approve_scenario", input)) {
+        return pendingHumanResult("approve_scenario", input);
+      }
+      await services.requireProject(projectId);
       await services.recordDecision({
-        projectId: input.projectId as string,
+        projectId,
         scenarioId: input.scenarioId as string,
         type: "approve_scenario",
         reason: input.reason as string | undefined,
       });
       return { approvedScenarioId: input.scenarioId, kind: "planner_decision" };
-    case "approve_proposal":
-      return services.approveProposal(
-        input.projectId as string,
-        input.proposalId as string
-      );
+    }
+    case "approve_proposal": {
+      const projectId = assertNonEmptyProjectId(input.projectId);
+      if (requiresPlannerConfirmation("approve_proposal", input)) {
+        const ws = await services.getWorkspace(projectId);
+        const proposal = ws?.proposals.find((p) => p.id === input.proposalId);
+        return pendingHumanResult("approve_proposal", input, { title: proposal?.title });
+      }
+      await services.requireProject(projectId);
+      return services.approveProposal(projectId, input.proposalId as string);
+    }
     case "generate_report": {
+      const projectId = assertNonEmptyProjectId(input.projectId);
+      await services.requireProject(projectId);
       const data = await services.generateReport(
-        input.projectId as string,
+        projectId,
         input.scenarioIds as string[],
         input.title as string | undefined
       );

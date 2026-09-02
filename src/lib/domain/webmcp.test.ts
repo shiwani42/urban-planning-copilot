@@ -249,6 +249,88 @@ describe("WebMCP pass 10 hardening", () => {
     assert.equal(updated?.project.mapState.viewport.zoom, 15);
   });
 
+  it("returns pending_human for approve_proposal without confirmed", async () => {
+    const ws = await services.createProject({
+      name: "Approve gate",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const staged = await services.stageProposal({
+      projectId: ws.project.id,
+      scenarioId: ws.project.activeScenarioId!,
+      title: "Transit threshold",
+      description: "Raise to 700m",
+      action: "set_transit_threshold",
+      payload: { meters: 700 },
+    });
+    const result = await invokeTool("approve_proposal", {
+      projectId: ws.project.id,
+      proposalId: staged.proposalId,
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal((result.result as { status: string }).status, "pending_human");
+    }
+  });
+
+  it("start_planning_project returns workspaceUrl", async () => {
+    const result = await invokeTool("start_planning_project", {
+      name: "Navigate test",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      const payload = result.result as { projectId: string; workspaceUrl: string };
+      assert.match(payload.workspaceUrl, /^\/workspace\//);
+      assert.equal(payload.workspaceUrl, `/workspace/${payload.projectId}`);
+    }
+  });
+
+  it("get_workspace fails for missing project after reload", async () => {
+    const ws = await services.createProject({
+      name: "Ghost",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    await services.deleteProject(ws.project.id);
+    const result = await invokeTool("get_workspace", { projectId: ws.project.id });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "NOT_FOUND");
+  });
+
+  it("run_analysis returns completed status with candidate count", async () => {
+    const ws = await services.createProject({
+      name: "Analysis status",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const scenarioId = ws.project.activeScenarioId!;
+    const result = await invokeTool("run_analysis", {
+      projectId: ws.project.id,
+      scenarioId,
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      const payload = result.result as { status: string; candidateCount?: number };
+      assert.equal(payload.status, "completed");
+      assert.ok((payload.candidateCount ?? 0) > 0);
+    }
+  });
+
+  it("set_transit_threshold marks criteria stale in response", async () => {
+    const ws = await services.createProject({
+      name: "Transit stale",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    await services.runAnalysis(ws.project.id, ws.project.activeScenarioId!);
+    const result = await invokeTool("set_transit_threshold", {
+      projectId: ws.project.id,
+      scenarioId: ws.project.activeScenarioId,
+      meters: 500,
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal((result.result as { criteriaStale?: boolean }).criteriaStale, true);
+    }
+  });
+
   it("throws structured ToolError with field", () => {
     const err = new ToolError("NOT_FOUND", "Project not found", "projectId");
     assert.equal(err.toJSON().field, "projectId");

@@ -4,7 +4,11 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import { ProvenanceChip, useWorkspace } from "@/components/workspace-hooks";
+import {
+  ProvenanceChip,
+  useWorkspace,
+} from "@/components/workspace-hooks";
+import { onWorkspaceMutated } from "@/lib/workspace-sync";
 import { WebMcpProvider } from "@/components/WebMcpProvider";
 import {
   dedupeLimitations,
@@ -124,6 +128,7 @@ export default function WorkspaceClient({
   const [activityId, setActivityId] = useState<string | null>(null);
   const [assumptionsOpen, setAssumptionsOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [criteriaStaleHint, setCriteriaStaleHint] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
 
   const setTab = useCallback(
@@ -228,6 +233,18 @@ export default function WorkspaceClient({
     const t = setTimeout(() => setToast(null), 3200);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    return onWorkspaceMutated((detail) => {
+      if (detail.projectId && detail.projectId !== projectId) return;
+      if (detail.criteriaStale) setCriteriaStaleHint(true);
+      if (detail.resumeNote?.match(/stale|recalculate/i)) setCriteriaStaleHint(true);
+    });
+  }, [projectId]);
+
+  useEffect(() => {
+    if (result?.stale) setCriteriaStaleHint(false);
+  }, [result?.stale, result?.id]);
 
   const drawingActive = drawMode !== "none";
 
@@ -664,7 +681,7 @@ export default function WorkspaceClient({
             {scenarioStatusLabel()}
           </span>
         )}
-        {result?.stale && (
+        {(result?.stale || criteriaStaleHint) && (
           <span className="shrink-0 px-3 py-1 rounded border border-secondary bg-secondary-fixed/20 text-secondary text-caption font-medium whitespace-nowrap">
             Results stale — recalculate
           </span>
@@ -679,7 +696,7 @@ export default function WorkspaceClient({
             Changes requested — address before approving
           </span>
         )}
-        {workspace.project.resumeNote && !result?.stale && (
+        {workspace.project.resumeNote && !result?.stale && !criteriaStaleHint && (
           <span className="text-caption text-on-surface-variant truncate max-w-md ml-auto">
             {workspace.project.resumeNote}
           </span>

@@ -4,6 +4,8 @@ export const WORKSPACE_MUTATED_EVENT = "upc:workspace-mutated";
 export type WorkspaceMutatedDetail = {
   projectId?: string;
   tool?: string;
+  resumeNote?: string;
+  criteriaStale?: boolean;
 };
 
 export function notifyWorkspaceMutated(detail?: WorkspaceMutatedDetail): void {
@@ -42,3 +44,35 @@ export const WORKSPACE_MUTATING_TOOLS = new Set([
   "approve_proposal",
   "generate_report",
 ]);
+
+export function mutationDetailFromToolResult(
+  name: string,
+  args: Record<string, unknown>,
+  result: unknown,
+  projectId?: string
+): WorkspaceMutatedDetail | null {
+  if (!WORKSPACE_MUTATING_TOOLS.has(name)) return null;
+  if (result && typeof result === "object" && (result as { status?: string }).status === "pending_human") {
+    return null;
+  }
+  const payload = (result ?? {}) as { note?: string; criteriaStale?: boolean; workspaceUrl?: string };
+  const note = payload.note;
+  const criteriaStale =
+    payload.criteriaStale === true ||
+    (typeof note === "string" && /stale|recalculate/i.test(note));
+  return {
+    tool: name,
+    projectId:
+      projectId ??
+      (typeof args.projectId === "string" ? args.projectId : undefined) ??
+      (result &&
+      typeof result === "object" &&
+      result !== null &&
+      "projectId" in result &&
+      typeof (result as { projectId?: unknown }).projectId === "string"
+        ? (result as { projectId: string }).projectId
+        : undefined),
+    resumeNote: note,
+    criteriaStale,
+  };
+}

@@ -6,15 +6,14 @@ import { PLANNING_TOOL_META } from "./tool-definitions";
 import {
   getModelContext,
   type JsonSchema,
-  type ModelContextClient,
   type WebMcpToolDefinition,
 } from "./browser-types";
 import { formatToolErrorMessage } from "@/lib/domain/tool-errors";
 import type { ToolErrorPayload } from "@/lib/domain/tool-errors";
 import { parseToolArguments } from "@/lib/domain/webmcp-validation";
 import {
+  mutationDetailFromToolResult,
   notifyWorkspaceMutated,
-  WORKSPACE_MUTATING_TOOLS,
 } from "@/lib/workspace-sync";
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {
@@ -49,16 +48,17 @@ function ok(payload: unknown) {
   return { content: [{ type: "text" as const, text: truncate(payload) }] };
 }
 
-async function confirmSensitive(
-  client: ModelContextClient | undefined,
-  message: string
-): Promise<boolean> {
-  if (client?.requestUserInteraction) {
-    return Boolean(
-      await client.requestUserInteraction(async () => window.confirm(message))
-    );
+function navigateToWorkspace(result: unknown) {
+  if (typeof window === "undefined") return;
+  const payload = (result ?? {}) as { projectId?: string; workspaceUrl?: string };
+  const path =
+    payload.workspaceUrl ??
+    (payload.projectId ? `/workspace/${payload.projectId}` : null);
+  if (!path) return;
+  const target = path.startsWith("/") ? path : `/${path}`;
+  if (!window.location.pathname.startsWith(target)) {
+    window.location.assign(target);
   }
-  return window.confirm(message);
 }
 
 async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
@@ -82,22 +82,21 @@ async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
           : "Tool failed";
     throw new Error(message);
   }
-  if (WORKSPACE_MUTATING_TOOLS.has(name)) {
-    notifyWorkspaceMutated({
-      tool: name,
-      projectId:
-        data.projectId ??
-        (typeof args.projectId === "string" ? args.projectId : undefined) ??
-        (data.result &&
-        typeof data.result === "object" &&
-        data.result !== null &&
-        "projectId" in data.result &&
-        typeof (data.result as { projectId?: unknown }).projectId === "string"
-          ? (data.result as { projectId: string }).projectId
-          : undefined),
-    });
+  const result = data.result ?? data;
+  const mutation = mutationDetailFromToolResult(
+    name,
+    args,
+    result,
+    data.projectId ??
+      (typeof args.projectId === "string" ? args.projectId : undefined)
+  );
+  if (mutation) {
+    notifyWorkspaceMutated(mutation);
   }
-  return data.result ?? data;
+  if (name === "start_planning_project") {
+    navigateToWorkspace(result);
+  }
+  return result;
 }
 
 export type WebMcpRegistration = {
@@ -116,27 +115,6 @@ export function getPlanningToolSchemas(): Array<{
   return PLANNING_TOOL_META;
 }
 
-const SENSITIVE_TOOLS = new Set([
-  "reject_candidate",
-  "prefer_scenario",
-  "approve_scenario",
-  "approve_proposal",
-  "generate_report",
-]);
-
-const CONFIRM_MESSAGES: Record<string, (input: Record<string, unknown>) => string> = {
-  reject_candidate: (input) =>
-    `Reject candidate ${input.candidateId}?${input.reason ? `\nReason: ${input.reason}` : ""}\n\nThis is recorded as a planner decision.`,
-  prefer_scenario: (input) =>
-    `Prefer scenario ${input.scenarioId} as the planner's selection?`,
-  approve_scenario: (input) =>
-    `Approve scenario ${input.scenarioId} as a formal planning decision?\n\nThis records your human decision — not an authoritative AI fact.`,
-  approve_proposal: (input) =>
-    `Apply staged proposal ${input.proposalId}?\n\nThis commits the exact staged change. Rejects if criteria changed since staging.`,
-  generate_report: (input) =>
-    `Generate a planning report for ${Array.isArray(input.scenarioIds) ? (input.scenarioIds as string[]).length : 0} scenario(s)?`,
-};
-
 export async function registerPlanningWebMcpTools(options?: {
   projectId?: string | null;
 }): Promise<WebMcpRegistration> {
@@ -151,13 +129,8 @@ export async function registerPlanningWebMcpTools(options?: {
     description: meta.description,
     inputSchema: meta.inputSchema,
     annotations: meta.annotations,
-    execute: async (input, client) => {
+    execute: async (input) => {
       const parsedInput = parseToolArguments(input);
-      if (SENSITIVE_TOOLS.has(meta.name)) {
-        const msg = CONFIRM_MESSAGES[meta.name]?.(parsedInput) ?? `Confirm ${meta.name}?`;
-        const confirmed = await confirmSensitive(client, msg);
-        if (!confirmed) throw new Error(`${meta.name} cancelled by planner`);
-      }
       const result = await invokeMcpTool(meta.name, parsedInput);
       return ok(result);
     },

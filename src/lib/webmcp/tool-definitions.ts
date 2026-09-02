@@ -119,7 +119,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "action",
     name: "start_planning_project",
     description:
-      "Create a planning project from a natural-language objective and open its analysis plan.",
+      "Create a planning project, navigate the browser to its workspace URL, and return projectId plus workspaceUrl.",
     inputSchema: {
       type: "object",
       properties: {
@@ -325,7 +325,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "sensitive",
     name: "reject_candidate",
     description:
-      "Record a planner rejection of a candidate with reason. Requires user confirmation.",
+      "Record a planner rejection of a candidate. Without confirmed:true returns pending_human for on-screen review.",
     annotations: { destructiveHint: true },
     inputSchema: {
       type: "object",
@@ -334,6 +334,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
         scenarioId: { type: "string" },
         candidateId: { type: "string" },
         reason: { type: "string" },
+        confirmed: {
+          type: "boolean",
+          description: "Set true after the planner confirms in the workspace UI",
+        },
       },
       required: ["projectId", "scenarioId", "candidateId"],
       additionalProperties: false,
@@ -342,7 +346,8 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
   {
     layer: "sensitive",
     name: "prefer_scenario",
-    description: "Select the planner's preferred scenario among alternatives. Confirms with user.",
+    description:
+      "Select the planner's preferred scenario. Without confirmed:true returns pending_human for on-screen review.",
     annotations: { destructiveHint: true },
     inputSchema: {
       type: "object",
@@ -350,6 +355,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
         projectId: { type: "string" },
         scenarioId: { type: "string" },
         reason: { type: "string" },
+        confirmed: {
+          type: "boolean",
+          description: "Set true after the planner confirms in the workspace UI",
+        },
       },
       required: ["projectId", "scenarioId"],
       additionalProperties: false,
@@ -359,7 +368,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "sensitive",
     name: "approve_scenario",
     description:
-      "Approve a scenario as a formal planning decision. Always confirms with the human planner.",
+      "Approve a scenario as a formal planning decision. Without confirmed:true returns pending_human for on-screen review.",
     annotations: { destructiveHint: true },
     inputSchema: {
       type: "object",
@@ -367,6 +376,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
         projectId: { type: "string" },
         scenarioId: { type: "string" },
         reason: { type: "string", description: "Optional decision rationale" },
+        confirmed: {
+          type: "boolean",
+          description: "Set true after the planner confirms in the workspace UI",
+        },
       },
       required: ["projectId", "scenarioId"],
       additionalProperties: false,
@@ -376,13 +389,17 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "sensitive",
     name: "approve_proposal",
     description:
-      "Apply a staged proposal after human confirmation. Rejects stale proposals if criteria changed.",
+      "Apply a staged proposal after human confirmation. Without confirmed:true returns pending_human with proposalId.",
     annotations: { destructiveHint: true },
     inputSchema: {
       type: "object",
       properties: {
         projectId: { type: "string" },
         proposalId: { type: "string" },
+        confirmed: {
+          type: "boolean",
+          description: "Set true after the planner clicks Approve proposal in the UI",
+        },
       },
       required: ["projectId", "proposalId"],
       additionalProperties: false,
@@ -391,7 +408,8 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
   {
     layer: "sensitive",
     name: "generate_report",
-    description: "Generate a planning report from scenarios. Confirms before creating the document.",
+    description:
+      "Generate a planning report from scenarios with completed analysis (runs immediately when valid).",
     annotations: { destructiveHint: true },
     inputSchema: {
       type: "object",

@@ -443,7 +443,7 @@ export async function updateConstraints(
     scenario.updatedAt = now();
     scenario.status = "draft";
     markResultsStale(store, scenario.id, "Constraints changed");
-    touchProject(store, projectId, "Constraints changed — results may be stale.");
+    touchProject(store, projectId, "Results stale — recalculate after constraint change.");
     logActivity(store, {
       projectId,
       scenarioId,
@@ -513,10 +513,7 @@ export async function excludeMapArea(
   scenarioId: string,
   selection: Omit<GeographicSelection, "id" | "createdAt" | "type">
 ) {
-  const store = await getStore();
-  if (!store.projects.some((p) => p.id === projectId)) {
-    throw new ToolError("NOT_FOUND", "Project not found", "projectId");
-  }
+  const store = await reloadStoreFromDisk();
   requireScenario(store, projectId, scenarioId);
   return addGeographicSelection(projectId, scenarioId, {
     ...selection,
@@ -556,7 +553,7 @@ export async function addGeographicSelection(
     scenario.updatedAt = now();
     scenario.status = "draft";
     markResultsStale(store, scenario.id, "Geographic selection changed");
-    touchProject(store, projectId, "Geographic exclusion/inclusion applied.");
+    touchProject(store, projectId, "Results stale — recalculate after geographic change.");
     logActivity(store, {
       projectId,
       scenarioId,
@@ -733,8 +730,62 @@ function touchProject(store: AppStore, projectId: string, resumeNote?: string) {
   if (resumeNote) project.resumeNote = resumeNote;
 }
 
+export async function requireProject(projectId: string): Promise<Project> {
+  const store = await reloadStoreFromDisk();
+  const project = store.projects.find((p) => p.id === projectId);
+  if (!project) {
+    throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+  }
+  return project;
+}
+
+export async function getAnalysisRunStatus(projectId: string, scenarioId: string) {
+  const store = await reloadStoreFromDisk();
+  const scenario = store.scenarios.find((s) => s.id === scenarioId && s.projectId === projectId);
+  if (!scenario) {
+    return { status: "not_found" as const };
+  }
+
+  const jobs = store.analysisJobs.filter((j) => j.scenarioId === scenarioId);
+  const runningJob = [...jobs].reverse().find((j) => j.status === "running");
+  if (runningJob) {
+    return {
+      status: "running" as const,
+      jobId: runningJob.id,
+      progress: runningJob.progress,
+      currentStep: runningJob.currentStep ?? "Running analysis",
+    };
+  }
+
+  const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
+  const failedJob = [...jobs].reverse().find((j) => j.status === "failed");
+  if (
+    failedJob &&
+    (!result?.completedAt || (failedJob.completedAt ?? "") >= result.completedAt)
+  ) {
+    return { status: "failed" as const, error: failedJob.error ?? "Analysis failed" };
+  }
+
+  if (result && (result.status === "completed" || result.status === "stale")) {
+    const top = result.candidates[0];
+    return {
+      status: "completed" as const,
+      summary: result.summary,
+      candidateCount: result.candidates.length,
+      top: top
+        ? { id: top.id, label: top.label, score: top.score }
+        : null,
+      limitations: result.limitations ?? [],
+      stale: result.stale ?? false,
+    };
+  }
+
+  return { status: "none" as const };
+}
+
 export async function runAnalysis(projectId: string, scenarioId: string) {
-  const store = await getStore();
+  await requireProject(projectId);
+  const store = await reloadStoreFromDisk();
   const scenario = requireScenario(store, projectId, scenarioId);
   const missing: string[] = [];
   const layers = layersForScenario(store, scenario);
