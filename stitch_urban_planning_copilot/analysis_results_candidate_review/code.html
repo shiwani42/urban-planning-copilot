@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Urban Planning Copilot - Analysis Results</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500&amp;family=Geist:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface": "#fcf9f8",
+                        "surface-dim": "#dcd9d9",
+                        "surface-container-high": "#eae7e7",
+                        "tertiary": "#3f403f",
+                        "secondary-fixed": "#ffddb2",
+                        "background": "#fcf9f8",
+                        "on-tertiary-fixed-variant": "#464746",
+                        "on-background": "#1b1c1c",
+                        "secondary-container": "#fdc26c",
+                        "on-surface": "#1b1c1c",
+                        "surface-container": "#f0eded",
+                        "primary-container": "#005e7d",
+                        "surface-container-low": "#f6f3f2",
+                        "on-primary": "#ffffff",
+                        "on-primary-fixed": "#001e2b",
+                        "surface-container-highest": "#e4e2e1",
+                        "on-primary-container": "#92d6f9",
+                        "outline": "#70787e",
+                        "surface-bright": "#fcf9f8",
+                        "surface-variant": "#e4e2e1",
+                        "on-primary-fixed-variant": "#004d67",
+                        "on-secondary-container": "#774e00",
+                        "tertiary-fixed-dim": "#c7c6c5",
+                        "on-tertiary-container": "#cdcdcb",
+                        "surface-container-lowest": "#ffffff",
+                        "primary": "#00455d",
+                        "on-secondary-fixed": "#291800",
+                        "on-surface-variant": "#40484d",
+                        "on-tertiary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-error": "#ffffff",
+                        "on-secondary": "#ffffff",
+                        "tertiary-container": "#565756",
+                        "error": "#ba1a1a",
+                        "secondary-fixed-dim": "#f7bc67",
+                        "outline-variant": "#bfc8ce",
+                        "surface-tint": "#136685",
+                        "on-secondary-fixed-variant": "#624000",
+                        "inverse-surface": "#303030",
+                        "on-tertiary-fixed": "#1a1c1b",
+                        "inverse-on-surface": "#f3f0f0",
+                        "inverse-primary": "#8ccff3",
+                        "primary-fixed-dim": "#8ccff3",
+                        "tertiary-fixed": "#e3e2e0",
+                        "primary-fixed": "#c1e8ff",
+                        "secondary": "#815504",
+                        "error-container": "#ffdad6"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "sidebar-width": "360px",
+                        "section-padding": "1.5rem",
+                        "element-gap": "0.75rem",
+                        "inspector-width": "320px",
+                        "panel-gap": "1px"
+                    },
+                    "fontFamily": {
+                        "data-label": ["JetBrains Mono"],
+                        "body-sm": ["Geist"],
+                        "headline-md": ["Geist"],
+                        "caption": ["Geist"],
+                        "display": ["Geist"],
+                        "body-lg": ["Geist"]
+                    },
+                    "fontSize": {
+                        "data-label": ["12px", { "lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "body-sm": ["14px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "1.4", "fontWeight": "500" }],
+                        "caption": ["12px", { "lineHeight": "1.4", "fontWeight": "400" }],
+                        "display": ["32px", { "lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "1.6", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Geist', sans-serif; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .material-symbols-outlined.fill { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        
+        /* Glassmorphism for map overlays */
+        .glass-panel {
+            background: rgba(252, 249, 248, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background h-screen overflow-hidden flex flex-col">
+<!-- TopNavBar (Shared Component) -->
+<header class="bg-background border-b border-outline-variant flex justify-between items-center w-full px-section-padding max-w-full mx-auto fixed top-0 z-50 docked full-width top-0 h-[64px] flat no shadows">
+<div class="flex items-center h-full gap-8">
+<h1 class="font-display text-display font-semibold text-primary tracking-tight">Urban Planning Copilot</h1>
+<nav class="hidden md:flex h-full gap-2">
+<a class="text-on-surface-variant h-full flex items-center px-4 hover:text-primary transition-colors duration-200 font-data-label text-data-label" href="#">Projects</a>
+<a class="text-primary font-semibold border-b-2 border-primary h-full flex items-center px-4 opacity-80 transition-opacity font-data-label text-data-label" href="#">Explore</a>
+<a class="text-on-surface-variant h-full flex items-center px-4 hover:text-primary transition-colors duration-200 font-data-label text-data-label" href="#">Data</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-on-surface-variant hover:text-primary transition-colors duration-200">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors duration-200">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-surface-container-highest overflow-hidden border border-outline-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">person</span>
+</div>
+</div>
+</header>
+<!-- Main Workspace Layout -->
+<div class="flex-1 flex pt-[64px] h-full relative">
+<!-- SideNavBar (Shared Component) -->
+<aside class="bg-surface-container-low fixed left-0 top-0 h-full flex flex-col pt-[64px] border-r border-outline-variant z-40 docked left-0 w-sidebar-width flat no shadows">
+<div class="p-6 border-b border-outline-variant">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-10 h-10 rounded bg-primary-container text-on-primary-container flex items-center justify-center font-display text-headline-md">M</div>
+<div>
+<h2 class="font-headline-md text-headline-md text-primary">Metro Expansion</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Phase 2: Transit Hubs</p>
+</div>
+</div>
+<button class="w-full bg-primary text-on-primary hover:bg-on-primary-fixed-variant transition-colors duration-200 py-2 rounded font-data-label text-data-label flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">add</span> New Scenario
+                </button>
+</div>
+<nav class="flex-1 py-4 flex flex-col gap-1 px-2">
+<a class="text-on-surface-variant hover:bg-surface-container-high transition-all duration-150 px-4 py-3 rounded-none font-data-label text-data-label flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">dashboard</span> Dashboard
+                </a>
+<a class="bg-secondary-container text-on-secondary-container rounded-none border-r-4 border-secondary translate-x-1 transition-transform px-4 py-3 font-data-label text-data-label flex items-center gap-3" href="#">
+<span class="material-symbols-outlined fill">map</span> Map View
+                </a>
+<a class="text-on-surface-variant hover:bg-surface-container-high transition-all duration-150 px-4 py-3 rounded-none font-data-label text-data-label flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">alt_route</span> Scenarios
+                </a>
+<a class="text-on-surface-variant hover:bg-surface-container-high transition-all duration-150 px-4 py-3 rounded-none font-data-label text-data-label flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">psychology</span> Intelligence
+                </a>
+<a class="text-on-surface-variant hover:bg-surface-container-high transition-all duration-150 px-4 py-3 rounded-none font-data-label text-data-label flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">inventory_2</span> Archive
+                </a>
+</nav>
+<div class="mt-auto border-t border-outline-variant py-4 px-2 flex flex-col gap-1">
+<a class="text-on-surface-variant hover:bg-surface-container-high transition-all duration-150 px-4 py-2 font-data-label text-data-label flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">help_outline</span> Support
+                </a>
+<a class="text-on-surface-variant hover:bg-surface-container-high transition-all duration-150 px-4 py-2 font-data-label text-data-label flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">terminal</span> Logs
+                </a>
+</div>
+</aside>
+<!-- Main Canvas (Map Area) -->
+<main class="flex-1 ml-[360px] relative bg-surface-dim overflow-hidden flex flex-col" data-location="Seattle">
+<!-- Map Background Placeholder -->
+<div class="absolute inset-0 z-0 bg-[#e5e1db]" data-alt="A highly detailed, professional GIS map interface showing a coastal city with topographic lines. The aesthetic is clean, analog-digital, using warm neutrals like architectural vellum with precise 1px architectural vector overlays indicating transit routes and zoning blocks. High spatial clarity, professional planning instrument vibe, light mode aesthetic with subtle charcoal and intelligence blue accents." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCtWXBSG5v57VtHoztbDSF_sqO1CdT7YfsvmCfcQImUHk5AGL8W8zwXUVkL5ib3HGE4dHJN2spek7IrZC0ErQg_D23Oq_-j5LHzkjL0ROtMfA4UEIvQMUjZyMd4m69UAVb3v3EW1lnCF8-OBSYskiT0grnYrR4eYC4zKr_TEPo3YNbZw6ujjjnm7mOk6n3_KHpRtCBayC31YFVHnR3XEP1a2LavQvR-DtU6XLRZ15-yIduziXtnSAeh1g')"></div>
+<!-- Map Polygon Overlays (Simulated) -->
+<svg class="absolute inset-0 w-full h-full z-10 pointer-events-none" preserveaspectratio="xMidYMid slice" viewbox="0 0 1000 800">
+<!-- Candidate C (Inactive) -->
+<polygon fill="rgba(112, 120, 126, 0.1)" points="200,600 300,550 400,650 350,750 250,700" stroke="#70787e" stroke-dasharray="4 4" stroke-width="1"></polygon>
+<text fill="#70787e" font-family="JetBrains Mono" font-size="12" text-anchor="middle" x="300" y="650">C</text>
+<!-- Candidate B (Inactive) -->
+<polygon fill="rgba(112, 120, 126, 0.1)" points="600,200 750,150 800,250 700,350 550,300" stroke="#70787e" stroke-dasharray="4 4" stroke-width="1"></polygon>
+<text fill="#70787e" font-family="JetBrains Mono" font-size="12" text-anchor="middle" x="675" y="250">B</text>
+<!-- Candidate A (Active/Selected) -->
+<polygon fill="rgba(0, 94, 125, 0.15)" points="450,350 550,300 650,400 600,550 400,500" stroke="#005e7d" stroke-width="2"></polygon>
+<circle cx="530" cy="420" fill="#005e7d" r="4"></circle>
+<line stroke="#005e7d" stroke-width="1" x1="530" x2="680" y1="420" y2="460"></line>
+</svg>
+<!-- Map Controls -->
+<div class="absolute top-6 left-6 z-20 flex flex-col gap-2">
+<div class="glass-panel border border-outline-variant rounded flex flex-col">
+<button class="p-2 text-on-surface hover:bg-surface-container transition-colors border-b border-outline-variant"><span class="material-symbols-outlined">add</span></button>
+<button class="p-2 text-on-surface hover:bg-surface-container transition-colors"><span class="material-symbols-outlined">remove</span></button>
+</div>
+<div class="glass-panel border border-outline-variant rounded">
+<button class="p-2 text-on-surface hover:bg-surface-container transition-colors"><span class="material-symbols-outlined">layers</span></button>
+</div>
+</div>
+<!-- Floating Info Card (Candidate A) -->
+<div class="absolute top-[400px] left-[680px] z-30 w-72 glass-panel border border-outline-variant rounded flex flex-col shadow-sm">
+<!-- AI Confidence Bar -->
+<div class="h-1 bg-surface-container-highest w-full rounded-t overflow-hidden">
+<div class="h-full bg-primary-container w-[91%]"></div>
+</div>
+<div class="p-4 border-b border-outline-variant bg-[#f0eeeb] bg-opacity-50">
+<div class="flex justify-between items-center mb-1">
+<span class="font-data-label text-data-label text-primary-container">CANDIDATE A</span>
+<div class="flex items-center gap-1 bg-surface-container px-2 py-0.5 rounded border border-outline-variant">
+<span class="material-symbols-outlined text-[14px] text-tertiary">check_circle</span>
+<span class="font-data-label text-data-label text-tertiary">91/100 composite score</span>
+</div>
+</div>
+</div>
+<div class="p-4 flex flex-col gap-3">
+<div class="flex justify-between items-center border-b border-outline-variant pb-2 border-opacity-50">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Est. Housing Capacity</span>
+<span class="font-data-label text-data-label text-on-surface">640 homes</span>
+</div>
+<div class="flex justify-between items-center border-b border-outline-variant pb-2 border-opacity-50">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Median Transit Dist.</span>
+<span class="font-data-label text-data-label text-on-surface">780m</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[16px]">verified</span>
+<span class="font-body-sm text-body-sm text-on-surface">Outside high-risk flood zone</span>
+</div>
+<button class="mt-2 w-full bg-surface-container hover:bg-surface-container-high text-on-surface border border-outline-variant py-2 rounded font-data-label text-data-label transition-colors">
+                        Inspect candidate
+                    </button>
+</div>
+</div>
+<!-- Bottom Drawer (Expanded) -->
+<div class="absolute bottom-0 left-0 right-0 z-30 h-[320px] bg-surface border-t border-outline-variant flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.05)] transition-transform duration-300">
+<!-- Drawer Handle -->
+<div class="w-full h-6 flex justify-center items-center bg-[#f0eeeb] cursor-pointer border-b border-outline-variant">
+<div class="w-12 h-1 bg-outline-variant rounded-full"></div>
+</div>
+<!-- Tabs -->
+<div class="flex border-b border-outline-variant px-6 bg-surface">
+<button class="px-4 py-3 font-data-label text-data-label text-primary border-b-2 border-primary">Overview</button>
+<button class="px-4 py-3 font-data-label text-data-label text-on-surface-variant hover:text-on-surface">Candidates</button>
+<button class="px-4 py-3 font-data-label text-data-label text-on-surface-variant hover:text-on-surface">Metrics</button>
+<button class="px-4 py-3 font-data-label text-data-label text-on-surface-variant hover:text-on-surface">Evidence</button>
+</div>
+<!-- Drawer Content -->
+<div class="flex-1 p-6 overflow-y-auto flex flex-col gap-6">
+<!-- Metrics Row -->
+<div class="grid grid-cols-4 gap-4">
+<div class="border border-outline-variant p-4 rounded bg-surface-container-low">
+<div class="font-data-label text-data-label text-on-surface-variant mb-1">ELIGIBLE AREAS</div>
+<div class="font-display text-display text-on-surface">17</div>
+<div class="inline-flex items-center gap-1 bg-surface-container-highest px-2 py-0.5 rounded mt-2">
+<span class="font-data-label text-[10px] text-tertiary uppercase tracking-wider">Calculated</span>
+</div>
+</div>
+<div class="border border-outline-variant p-4 rounded bg-surface-container-low">
+<div class="font-data-label text-data-label text-on-surface-variant mb-1">EST. HOUSING CAPACITY</div>
+<div class="font-display text-display text-on-surface">4,860</div>
+<div class="inline-flex items-center gap-1 bg-surface-container-highest px-2 py-0.5 rounded mt-2">
+<span class="font-data-label text-[10px] text-tertiary uppercase tracking-wider">Calculated</span>
+</div>
+</div>
+<div class="border border-outline-variant p-4 rounded bg-surface-container-low">
+<div class="font-data-label text-data-label text-on-surface-variant mb-1">POP. WITHIN 800m TRANSIT</div>
+<div class="font-display text-display text-on-surface">91%</div>
+<div class="inline-flex items-center gap-1 bg-surface-container-highest px-2 py-0.5 rounded mt-2">
+<span class="font-data-label text-[10px] text-tertiary uppercase tracking-wider">Calculated</span>
+</div>
+</div>
+<div class="border border-outline-variant p-4 rounded bg-surface-container-low">
+<div class="font-data-label text-data-label text-on-surface-variant mb-1">AREA EXPOSED TO FLOOD RISK</div>
+<div class="font-display text-display text-on-surface">8%</div>
+<div class="inline-flex items-center gap-1 bg-surface-container-highest px-2 py-0.5 rounded mt-2">
+<span class="font-data-label text-[10px] text-tertiary uppercase tracking-wider">Calculated</span>
+</div>
+</div>
+</div>
+<!-- Horizontal Comparison Vis -->
+<div class="border border-outline-variant rounded p-4">
+<div class="flex justify-between items-center mb-4">
+<h3 class="font-data-label text-data-label text-on-surface">CANDIDATE COMPARISON (TOP 3)</h3>
+<div class="flex gap-4">
+<div class="flex items-center gap-1"><div class="w-3 h-3 bg-primary-container"></div><span class="font-caption text-caption text-on-surface-variant">Housing</span></div>
+<div class="flex items-center gap-1"><div class="w-3 h-3 bg-secondary-container"></div><span class="font-caption text-caption text-on-surface-variant">Transit</span></div>
+<div class="flex items-center gap-1"><div class="w-3 h-3 bg-tertiary-container"></div><span class="font-caption text-caption text-on-surface-variant">Resilience</span></div>
+</div>
+</div>
+<div class="flex flex-col gap-3">
+<div class="flex items-center gap-4">
+<div class="w-32 font-body-sm text-body-sm text-on-surface text-right">Riverside North</div>
+<div class="flex-1 h-4 bg-surface-container-high rounded overflow-hidden flex">
+<div class="h-full bg-primary-container w-[45%] border-r border-background"></div>
+<div class="h-full bg-secondary-container w-[25%] border-r border-background"></div>
+<div class="h-full bg-tertiary-container w-[15%]"></div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="w-32 font-body-sm text-body-sm text-on-surface text-right">East Junction</div>
+<div class="flex-1 h-4 bg-surface-container-high rounded overflow-hidden flex">
+<div class="h-full bg-primary-container w-[30%] border-r border-background"></div>
+<div class="h-full bg-secondary-container w-[50%] border-r border-background"></div>
+<div class="h-full bg-tertiary-container w-[10%]"></div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="w-32 font-body-sm text-body-sm text-on-surface text-right">Harbor Edge</div>
+<div class="flex-1 h-4 bg-surface-container-high rounded overflow-hidden flex">
+<div class="h-full bg-primary-container w-[25%] border-r border-background"></div>
+<div class="h-full bg-secondary-container w-[20%] border-r border-background"></div>
+<div class="h-full bg-tertiary-container w-[40%]"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Right Copilot Panel -->
+<aside class="w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 h-full overflow-hidden">
+<div class="p-4 border-b border-outline-variant bg-[#f0eeeb]">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-primary">analytics</span>
+<h2 class="font-headline-md text-headline-md text-on-surface">Analysis complete</h2>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">17 candidate areas meet the minimum constraints.</p>
+</div>
+<div class="flex-1 overflow-y-auto p-4 flex flex-col gap-6">
+<!-- Status Chip -->
+<div class="inline-flex items-center gap-2 bg-primary text-on-primary px-3 py-1.5 rounded w-fit">
+<span class="material-symbols-outlined text-[16px]">smart_toy</span>
+<span class="font-data-label text-data-label">AI recommendation</span>
+</div>
+<!-- Top Candidates List -->
+<div>
+<h3 class="font-data-label text-data-label text-on-surface-variant mb-3 border-b border-outline-variant pb-1">TOP CANDIDATES</h3>
+<ul class="flex flex-col gap-3">
+<li class="border border-primary bg-primary-fixed bg-opacity-10 p-3 rounded flex flex-col gap-1 relative overflow-hidden">
+<!-- AI Glow -->
+<div class="absolute top-0 left-0 w-1 h-full bg-primary"></div>
+<div class="flex justify-between items-center ml-2">
+<span class="font-body-sm text-body-sm font-medium text-on-surface">1. Riverside North</span>
+<span class="material-symbols-outlined text-primary text-[16px]">military_tech</span>
+</div>
+<span class="font-caption text-caption text-on-surface-variant ml-2">Highest housing capacity.</span>
+</li>
+<li class="border border-outline-variant bg-surface p-3 rounded flex flex-col gap-1 hover:border-outline transition-colors cursor-pointer">
+<span class="font-body-sm text-body-sm text-on-surface">2. East Junction</span>
+<span class="font-caption text-caption text-on-surface-variant">Optimal transit connectivity.</span>
+</li>
+<li class="border border-outline-variant bg-surface p-3 rounded flex flex-col gap-1 hover:border-outline transition-colors cursor-pointer">
+<span class="font-body-sm text-body-sm text-on-surface">3. Harbor Edge</span>
+<span class="font-caption text-caption text-on-surface-variant">Best climate resilience profile.</span>
+</li>
+</ul>
+</div>
+<!-- Key Finding -->
+<div class="bg-surface-container-low border border-outline-variant p-4 rounded shadow-inner">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-primary text-[18px]">lightbulb</span>
+<h4 class="font-data-label text-data-label text-on-surface">KEY FINDING</h4>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+                        Transit accessibility is the main differentiator between the top three candidates.
+                    </p>
+<button class="mt-3 text-primary font-data-label text-data-label flex items-center gap-1 hover:underline">
+                        Explain this finding <span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+</button>
+</div>
+<!-- Human Input Status -->
+<div class="inline-flex items-center gap-2 border border-secondary text-secondary px-3 py-1.5 rounded w-fit opacity-70">
+<span class="material-symbols-outlined text-[16px]">pending_actions</span>
+<span class="font-data-label text-data-label">Human input: Not yet reviewed</span>
+</div>
+</div>
+<div class="p-4 border-t border-outline-variant bg-surface">
+<button class="w-full bg-primary text-on-primary hover:bg-on-primary-fixed-variant transition-colors py-2.5 rounded font-data-label text-data-label flex items-center justify-center gap-2">
+                    Create scenarios
+                </button>
+</div>
+</aside>
+</div>
+</body></html>

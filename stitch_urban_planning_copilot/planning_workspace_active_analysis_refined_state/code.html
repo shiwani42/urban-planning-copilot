@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Urban Planning Copilot - Analysis In Progress</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary-fixed-variant": "#464746",
+                        "on-secondary": "#ffffff",
+                        "primary-fixed": "#c1e8ff",
+                        "surface-bright": "#fcf9f8",
+                        "on-surface-variant": "#40484d",
+                        "error": "#ba1a1a",
+                        "outline-variant": "#bfc8ce",
+                        "background": "#fcf9f8",
+                        "tertiary": "#3f403f",
+                        "on-tertiary-fixed": "#1a1c1b",
+                        "inverse-on-surface": "#f3f0f0",
+                        "tertiary-fixed": "#e3e2e0",
+                        "primary-fixed-dim": "#8ccff3",
+                        "surface-container-high": "#eae7e7",
+                        "error-container": "#ffdad6",
+                        "on-secondary-fixed-variant": "#624000",
+                        "surface-variant": "#e4e2e1",
+                        "on-tertiary": "#ffffff",
+                        "surface-dim": "#dcd9d9",
+                        "secondary-fixed": "#ffddb2",
+                        "secondary-fixed-dim": "#f7bc67",
+                        "surface": "#fcf9f8",
+                        "surface-tint": "#136685",
+                        "on-background": "#1b1c1c",
+                        "on-error-container": "#93000a",
+                        "on-secondary-container": "#774e00",
+                        "tertiary-container": "#565756",
+                        "on-primary-fixed-variant": "#004d67",
+                        "on-primary-container": "#92d6f9",
+                        "surface-container-low": "#f6f3f2",
+                        "on-error": "#ffffff",
+                        "secondary": "#815504",
+                        "surface-container-highest": "#e4e2e1",
+                        "inverse-surface": "#303030",
+                        "on-secondary-fixed": "#291800",
+                        "outline": "#70787e",
+                        "inverse-primary": "#8ccff3",
+                        "tertiary-fixed-dim": "#c7c6c5",
+                        "secondary-container": "#fdc26c",
+                        "on-tertiary-container": "#cdcdcb",
+                        "on-surface": "#1b1c1c",
+                        "on-primary-fixed": "#001e2b",
+                        "surface-container": "#f0eded",
+                        "primary-container": "#005e7d",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary": "#ffffff",
+                        "primary": "#00455d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "section-padding": "1.5rem",
+                        "panel-gap": "1px",
+                        "sidebar-width": "360px",
+                        "inspector-width": "320px",
+                        "element-gap": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "body-sm": ["Geist", "sans-serif"],
+                        "display": ["Geist", "sans-serif"],
+                        "body-lg": ["Geist", "sans-serif"],
+                        "caption": ["Geist", "sans-serif"],
+                        "data-label": ["JetBrains Mono", "monospace"],
+                        "headline-md": ["Geist", "sans-serif"]
+                    },
+                    "fontSize": {
+                        "body-sm": ["14px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "display": ["32px", { "lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "1.6", "fontWeight": "400" }],
+                        "caption": ["12px", { "lineHeight": "1.4", "fontWeight": "400" }],
+                        "data-label": ["12px", { "lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "headline-md": ["20px", { "lineHeight": "1.4", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .pulse-ring {
+            animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            80%, 100% { transform: scale(1.5); opacity: 0; }
+        }
+    </style>
+</head>
+<body class="h-full w-full overflow-hidden bg-background text-on-surface font-body-sm text-body-sm flex flex-col">
+<!-- TopAppBar -->
+<header class="bg-surface-container-high text-primary flex justify-between items-center w-full px-section-padding h-16 border-b border-outline-variant z-50 shrink-0">
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">architecture</span>
+<h1 class="font-display text-display text-primary">Urban Planning Copilot</h1>
+</div>
+<nav class="flex items-center gap-6">
+<a class="text-on-surface-variant hover:bg-surface-variant px-3 py-1.5 rounded transition-colors duration-200" href="#">Projects / North River</a>
+<a class="text-primary font-bold hover:bg-surface-variant px-3 py-1.5 rounded transition-colors duration-200" href="#">Scenario: Baseline</a>
+</nav>
+<div class="flex items-center gap-2">
+<button aria-label="Save" class="p-2 rounded hover:bg-surface-variant text-on-surface-variant transition-colors duration-200">
+<span class="material-symbols-outlined">save</span>
+</button>
+<button aria-label="Share" class="p-2 rounded hover:bg-surface-variant text-on-surface-variant transition-colors duration-200">
+<span class="material-symbols-outlined">share</span>
+</button>
+<button aria-label="Profile" class="p-2 rounded hover:bg-surface-variant text-on-surface-variant transition-colors duration-200">
+<span class="material-symbols-outlined">person</span>
+</button>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 flex overflow-hidden relative">
+<!-- Left Panel: Context -->
+<aside class="w-sidebar-width bg-surface border-r border-outline-variant z-40 flex flex-col shrink-0">
+<div class="p-section-padding border-b border-outline-variant bg-surface-dim shrink-0">
+<h2 class="font-headline-md text-headline-md text-primary">Planning Workspace</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">North River District</p>
+<div class="mt-4 flex items-center gap-2 px-3 py-1.5 bg-primary-fixed/20 border border-primary/30 rounded text-primary">
+<span class="material-symbols-outlined text-[16px]">sync</span>
+<span class="font-data-label text-data-label">Analysis running...</span>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto p-section-padding">
+<h3 class="font-data-label text-data-label text-on-surface-variant mb-4 uppercase">Workflow Progress</h3>
+<div class="space-y-4">
+<!-- Step 1 -->
+<div class="flex gap-3 items-start opacity-60">
+<span class="material-symbols-outlined text-primary mt-0.5">check_circle</span>
+<div>
+<div class="font-body-sm text-body-sm text-on-surface font-medium">Define Objective</div>
+<div class="font-caption text-caption text-on-surface-variant">Maximize transit-oriented density.</div>
+</div>
+</div>
+<!-- Step 2 -->
+<div class="flex gap-3 items-start opacity-60">
+<span class="material-symbols-outlined text-primary mt-0.5">check_circle</span>
+<div>
+<div class="font-body-sm text-body-sm text-on-surface font-medium">Load Datasets</div>
+<div class="font-caption text-caption text-on-surface-variant">12 sources loaded successfully.</div>
+</div>
+</div>
+<!-- Step 3 -->
+<div class="flex gap-3 items-start opacity-60">
+<span class="material-symbols-outlined text-primary mt-0.5">check_circle</span>
+<div>
+<div class="font-body-sm text-body-sm text-on-surface font-medium">Base Zoning Filter</div>
+<div class="font-caption text-caption text-on-surface-variant">Excluded industrial, kept mixed-use.</div>
+</div>
+</div>
+<!-- Step 4 (Current) -->
+<div class="flex gap-3 items-start relative pb-4">
+<div class="absolute left-[11px] top-6 bottom-0 w-[1px] bg-outline-variant"></div>
+<div class="relative flex items-center justify-center mt-0.5 w-6 h-6 shrink-0">
+<span class="material-symbols-outlined text-primary text-[20px] relative z-10">pending</span>
+<div class="absolute inset-0 bg-primary/20 rounded-full pulse-ring"></div>
+</div>
+<div>
+<div class="font-body-sm text-body-sm text-primary font-medium">Calculating transit accessibility</div>
+<div class="font-caption text-caption text-on-surface-variant mt-1">Processing geospatial proximity matrix...</div>
+</div>
+</div>
+<!-- Step 5 -->
+<div class="flex gap-3 items-start opacity-40 ml-1">
+<div class="w-4 h-4 rounded-full border border-outline-variant mt-1 bg-surface shrink-0"></div>
+<div>
+<div class="font-body-sm text-body-sm text-on-surface">Generate Scenarios</div>
+</div>
+</div>
+<!-- Step 6 -->
+<div class="flex gap-3 items-start opacity-40 ml-1">
+<div class="w-4 h-4 rounded-full border border-outline-variant mt-1 bg-surface shrink-0"></div>
+<div>
+<div class="font-body-sm text-body-sm text-on-surface">Final Report Compilation</div>
+</div>
+</div>
+</div>
+</div>
+<div class="p-section-padding border-t border-outline-variant shrink-0 bg-surface">
+<button class="w-full py-2 border border-outline-variant rounded font-data-label text-data-label text-on-surface-variant hover:bg-surface-variant transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[16px]">help</span> Help
+                </button>
+</div>
+</aside>
+<!-- Center Map -->
+<div class="flex-1 relative bg-surface-variant z-0 overflow-hidden flex flex-col" data-location="City of Seattle">
+<!-- Simulated Map Background -->
+<div class="absolute inset-0 bg-surface-container-high opacity-50" style="background-image: repeating-linear-gradient(45deg, #e4e2e1 25%, transparent 25%, transparent 75%, #e4e2e1 75%, #e4e2e1), repeating-linear-gradient(45deg, #e4e2e1 25%, #f0eded 25%, #f0eded 75%, #e4e2e1 75%, #e4e2e1); background-position: 0 0, 10px 10px; background-size: 20px 20px;"></div>
+<!-- Map Overlays -->
+<div class="absolute inset-0 z-10 pointer-events-none">
+<!-- Transit Buffer -->
+<div class="absolute top-[40%] left-[45%] w-64 h-64 border-2 border-primary rounded-[1rem] bg-primary/10 flex items-center justify-center translate-x-[-50%] translate-y-[-50%]">
+<div class="w-2 h-2 bg-primary rounded-full"></div>
+</div>
+<!-- Highlighted Parcels -->
+<div class="absolute top-[45%] left-[50%] w-24 h-16 border-2 border-[#2e7d32] bg-[#2e7d32]/30 shadow-[inset_0_0_8px_rgba(46,125,50,0.5)] backdrop-blur-[2px]"></div>
+<div class="absolute top-[35%] left-[55%] w-12 h-16 border-2 border-[#2e7d32] bg-[#2e7d32]/30 shadow-[inset_0_0_8px_rgba(46,125,50,0.5)] backdrop-blur-[2px]"></div>
+</div>
+<!-- Floating Map Status Badge -->
+<div class="absolute top-section-padding left-1/2 transform -translate-x-1/2 z-20">
+<div class="bg-surface border border-outline-variant px-4 py-2 rounded-full shadow-sm flex items-center gap-3">
+<div class="relative w-3 h-3 flex items-center justify-center">
+<div class="absolute inset-0 rounded-full border-2 border-primary border-t-transparent animate-spin"></div>
+</div>
+<span class="font-data-label text-data-label text-on-surface uppercase tracking-wider">Step 4 of 6: Calculating Accessibility</span>
+</div>
+</div>
+</div>
+<!-- Right Panel: Copilot -->
+<aside class="w-sidebar-width bg-surface border-l border-outline-variant z-40 flex flex-col shrink-0">
+<div class="p-section-padding border-b border-outline-variant bg-surface-dim shrink-0">
+<div class="flex items-center justify-between">
+<h2 class="font-headline-md text-headline-md text-primary">AI Copilot</h2>
+<span class="material-symbols-outlined text-primary">smart_toy</span>
+</div>
+<div class="mt-1 flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-[#2e7d32] animate-pulse"></div>
+<span class="font-data-label text-data-label text-[#2e7d32] uppercase tracking-wider">Running</span>
+</div>
+</div>
+<!-- Agent Activity Feed -->
+<div class="flex-1 overflow-y-auto p-section-padding bg-surface">
+<h3 class="font-data-label text-data-label text-on-surface-variant mb-6 uppercase border-b border-outline-variant pb-2">Agent Logic Feed</h3>
+<div class="relative space-y-6 before:absolute before:inset-y-0 before:left-[11px] before:w-[1px] before:bg-outline-variant">
+<!-- Feed Item 1 -->
+<div class="relative pl-6">
+<div class="absolute left-[8px] top-1.5 w-[7px] h-[7px] rounded-full bg-primary border border-surface"></div>
+<div class="font-data-label text-[10px] text-on-surface-variant mb-1">10:42:01 AM</div>
+<p class="font-body-sm text-body-sm text-on-surface mb-2">Gathering base zoning definitions for Target Area A.</p>
+<span class="inline-block px-2 py-0.5 border border-outline-variant rounded-sm font-data-label text-[10px] text-on-surface-variant bg-surface-container-low">[Zoning_DB_v2]</span>
+</div>
+<!-- Feed Item 2 -->
+<div class="relative pl-6">
+<div class="absolute left-[8px] top-1.5 w-[7px] h-[7px] rounded-full bg-primary border border-surface"></div>
+<div class="font-data-label text-[10px] text-on-surface-variant mb-1">10:42:15 AM</div>
+<p class="font-body-sm text-body-sm text-on-surface mb-2">Calculating walkability scores within 400m radius of proposed stations.</p>
+<div class="inline-block px-2 py-0.5 bg-surface-container-high rounded-sm font-data-label text-[10px] text-on-surface border border-outline-variant">
+                            [CALCULATED: SCORE 82]
+                        </div>
+</div>
+<!-- Feed Item 3 -->
+<div class="relative pl-6">
+<div class="absolute left-[8px] top-1.5 w-[7px] h-[7px] rounded-full bg-primary border border-surface"></div>
+<div class="font-data-label text-[10px] text-on-surface-variant mb-1">10:42:30 AM</div>
+<p class="font-body-sm text-body-sm text-on-surface mb-2">Cross-referencing historical flood plains dataset.</p>
+<div class="inline-block px-2 py-0.5 border border-outline text-on-surface rounded-sm font-data-label text-[10px]">
+                            [OBSERVED: NO OVERLAP]
+                        </div>
+</div>
+<!-- Feed Item 4 (Current) -->
+<div class="relative pl-6 bg-primary/5 -mx-section-padding px-section-padding py-3 border-y border-primary/20">
+<div class="absolute left-[8px] top-[18px] w-[7px] h-[7px] rounded-full bg-primary shadow-[0_0_8px_rgba(0,69,93,0.8)] border border-surface"></div>
+<div class="font-data-label text-[10px] text-primary mb-1 flex items-center justify-between">
+<span>10:42:45 AM (Current)</span>
+<span class="material-symbols-outlined text-[14px] animate-spin">autorenew</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface font-medium mb-1">Investigating transit proximity...</p>
+<p class="font-caption text-caption text-on-surface-variant mb-3">Based on 4 datasets: Bus Routes, Light Rail, Traffic Flow, Pedestrian Density.</p>
+<!-- Progress Bar -->
+<div class="w-full bg-surface-variant h-1.5 rounded-full overflow-hidden mb-1">
+<div class="bg-primary h-full rounded-full transition-all duration-500" style="width: 68%;"></div>
+</div>
+<div class="text-right font-data-label text-[10px] text-primary">68%</div>
+<!-- Peek behind the hood (Expanded Card) -->
+<div class="mt-4 bg-surface border border-outline-variant rounded p-3">
+<h4 class="font-data-label text-[10px] text-on-surface-variant mb-2 uppercase border-b border-outline-variant pb-1">Task Context</h4>
+<div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] font-data-label">
+<span class="text-on-surface-variant">Input:</span>
+<span class="text-on-surface">Parcels + Transit</span>
+<span class="text-on-surface-variant">Rule:</span>
+<span class="text-on-surface">Distance &lt; 800m</span>
+<span class="text-on-surface-variant">Source:</span>
+<span class="text-on-surface">Metro Transit GIS v4.2</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Human Controls (Bottom Action Bar) -->
+<div class="p-section-padding border-t border-outline-variant bg-surface shrink-0 flex gap-3">
+<button class="flex-1 py-2 px-4 border border-outline-variant text-on-surface-variant hover:bg-surface-variant rounded font-data-label text-data-label transition-colors">
+                    Pause
+                </button>
+<button class="flex-1 py-2 px-4 border border-outline-variant text-error hover:bg-error-container rounded font-data-label text-data-label transition-colors">
+                    Stop Agent
+                </button>
+</div>
+</aside>
+</main>
+</body></html>

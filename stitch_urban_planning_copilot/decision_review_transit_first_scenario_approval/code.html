@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Decision Review - Urban Planning Copilot</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "primary": "#00455d",
+                      "on-primary": "#ffffff",
+                      "on-tertiary-fixed-variant": "#464746",
+                      "surface-container-lowest": "#ffffff",
+                      "surface-bright": "#fcf9f8",
+                      "error-container": "#ffdad6",
+                      "primary-fixed": "#c1e8ff",
+                      "on-secondary-container": "#774e00",
+                      "on-surface": "#1b1c1c",
+                      "on-error": "#ffffff",
+                      "secondary": "#815504",
+                      "background": "#fcf9f8",
+                      "surface-tint": "#136685",
+                      "inverse-on-surface": "#f3f0f0",
+                      "outline-variant": "#bfc8ce",
+                      "tertiary-container": "#565756",
+                      "on-secondary": "#ffffff",
+                      "tertiary": "#3f403f",
+                      "surface-variant": "#e4e2e1",
+                      "on-tertiary-fixed": "#1a1c1b",
+                      "inverse-surface": "#303030",
+                      "secondary-fixed-dim": "#f7bc67",
+                      "on-tertiary-container": "#cdcdcb",
+                      "secondary-fixed": "#ffddb2",
+                      "surface-dim": "#dcd9d9",
+                      "secondary-container": "#fdc26c",
+                      "surface": "#fcf9f8",
+                      "on-primary-fixed": "#001e2b",
+                      "surface-container-highest": "#e4e2e1",
+                      "on-secondary-fixed": "#291800",
+                      "tertiary-fixed-dim": "#c7c6c5",
+                      "on-tertiary": "#ffffff",
+                      "primary-container": "#005e7d",
+                      "surface-container-high": "#eae7e7",
+                      "surface-container-low": "#f6f3f2",
+                      "primary-fixed-dim": "#8ccff3",
+                      "on-error-container": "#93000a",
+                      "outline": "#70787e",
+                      "surface-container": "#f0eded",
+                      "inverse-primary": "#8ccff3",
+                      "on-background": "#1b1c1c",
+                      "on-surface-variant": "#40484d",
+                      "on-secondary-fixed-variant": "#624000",
+                      "error": "#ba1a1a",
+                      "tertiary-fixed": "#e3e2e0",
+                      "on-primary-fixed-variant": "#004d67",
+                      "on-primary-container": "#92d6f9"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "inspector-width": "320px",
+                      "panel-gap": "1px",
+                      "section-padding": "1.5rem",
+                      "element-gap": "0.75rem",
+                      "sidebar-width": "360px"
+              },
+              "fontFamily": {
+                      "headline-md": [
+                              "Geist"
+                      ],
+                      "caption": [
+                              "Geist"
+                      ],
+                      "display": [
+                              "Geist"
+                      ],
+                      "data-label": [
+                              "JetBrains Mono"
+                      ],
+                      "body-sm": [
+                              "Geist"
+                      ],
+                      "body-lg": [
+                              "Geist"
+                      ]
+              },
+              "fontSize": {
+                      "headline-md": [
+                              "20px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "caption": [
+                              "12px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "display": [
+                              "32px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "data-label": [
+                              "12px",
+                              {
+                                      "lineHeight": "1",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body-sm": [
+                              "14px",
+                              {
+                                      "lineHeight": "1.5",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-lg": [
+                              "16px",
+                              {
+                                      "lineHeight": "1.6",
+                                      "fontWeight": "400"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+    </script>
+<style type="text/tailwindcss">
+        @layer utilities {
+            .scrollbar-hide::-webkit-scrollbar {
+                display: none;
+            }
+            .scrollbar-hide {
+                -ms-overflow-style: none;
+                scrollbar-width: none;
+            }
+            .border-subtle {
+                @apply border border-outline-variant;
+            }
+            .glass-overlay {
+                @apply bg-surface/80 backdrop-blur-[12px] border-subtle;
+            }
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body-sm h-screen overflow-hidden flex flex-col antialiased">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full px-section-padding h-16 fixed top-0 z-50 bg-surface dark:bg-inverse-surface border-b border-outline-variant dark:border-outline flat no shadows">
+<div class="flex items-center gap-8">
+<span class="font-display text-display text-primary dark:text-inverse-primary tracking-tight">Urban Planning Copilot</span>
+<nav class="hidden md:flex gap-6">
+<a class="text-on-surface-variant dark:text-on-tertiary-container hover:bg-surface-container-low dark:hover:bg-surface-variant transition-colors cursor-pointer active:opacity-80 py-2" href="#">Projects</a>
+<a class="text-on-surface-variant dark:text-on-tertiary-container hover:bg-surface-container-low dark:hover:bg-surface-variant transition-colors cursor-pointer active:opacity-80 py-2" href="#">Team</a>
+<a class="text-on-surface-variant dark:text-on-tertiary-container hover:bg-surface-container-low dark:hover:bg-surface-variant transition-colors cursor-pointer active:opacity-80 py-2" href="#">Repository</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-on-surface-variant hover:bg-surface-container-low p-2 rounded-full transition-colors cursor-pointer active:opacity-80 flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:bg-surface-container-low p-2 rounded-full transition-colors cursor-pointer active:opacity-80 flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<button class="bg-primary text-on-primary px-4 py-2 rounded-full font-medium hover:bg-primary/90 transition-colors cursor-pointer active:opacity-80">New Proposal</button>
+<img alt="User profile avatar" class="w-8 h-8 rounded-full border border-outline-variant" data-alt="A professional headshot of an urban planner in a modern office, soft lighting, neutral background, high resolution, minimalist aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAsdqu2MdB6yJ010GMpvZjQ02uTc_ZEnksxE7T_HHdVnTLBi4_z74BvSgheEMdOao7IWHtZc8ftPRVNmnMQee0gHwH77g9HMrDXeyI8BtrpqK1Ntu5A8iLoptPgq1BCx_G42WvB1s3cAeZ9HDGIrwtRQ5pgoxPVLZc1ugMMGTEJfuJTx2pJXIOjoajDFktSGLMYinOBEZZaAXox_ZywxonQvpw6Cv_H9hwy8zt79FMLRr7nrDkQnqjyeA"/>
+</div>
+</header>
+<div class="flex flex-1 pt-16">
+<!-- SideNavBar -->
+<aside class="hidden md:flex fixed left-0 top-16 h-[calc(100vh-64px)] w-sidebar-width flex-col z-40 bg-surface-container-low dark:bg-surface-container-lowest border-r border-outline-variant dark:border-outline flat no shadows">
+<div class="p-section-padding border-b border-outline-variant">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-10 h-10 rounded-DEFAULT bg-surface-container-highest flex items-center justify-center border border-outline-variant">
+<span class="material-symbols-outlined text-primary">domain</span>
+</div>
+<div>
+<h2 class="font-headline-md text-headline-md text-primary dark:text-primary-fixed">Metro Expansion Q4</h2>
+<p class="font-data-label text-data-label uppercase tracking-widest text-on-surface-variant mt-1">Active Workspace</p>
+</div>
+</div>
+<button class="w-full bg-primary text-on-primary py-2 rounded-DEFAULT font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">play_arrow</span>
+                    Run Simulation
+                </button>
+</div>
+<nav class="flex-1 py-4 flex flex-col gap-1 overflow-y-auto scrollbar-hide">
+<a class="flex items-center gap-3 px-6 py-3 text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container-high hover:bg-surface-container-high dark:hover:bg-tertiary-container transition-all active:scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body-sm text-body-sm">Overview</span>
+</a>
+<a class="flex items-center gap-3 px-6 py-3 text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container-high hover:bg-surface-container-high dark:hover:bg-tertiary-container transition-all active:scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="map">map</span>
+<span class="font-body-sm text-body-sm">Map</span>
+</a>
+<a class="flex items-center gap-3 px-6 py-3 text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container-high hover:bg-surface-container-high dark:hover:bg-tertiary-container transition-all active:scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-body-sm text-body-sm">Analysis</span>
+</a>
+<a class="flex items-center gap-3 px-6 py-3 bg-primary-container text-on-primary-container font-medium border-l-4 border-primary hover:bg-surface-container-high dark:hover:bg-tertiary-container transition-all active:scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="layers" style="font-variation-settings: 'FILL' 1;">layers</span>
+<span class="font-body-sm text-body-sm">Scenarios</span>
+</a>
+<a class="flex items-center gap-3 px-6 py-3 text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container-high hover:bg-surface-container-high dark:hover:bg-tertiary-container transition-all active:scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+<span class="font-body-sm text-body-sm">Evidence</span>
+</a>
+<a class="flex items-center gap-3 px-6 py-3 text-on-surface-variant dark:text-on-tertiary-fixed-variant hover:bg-surface-container-high hover:bg-surface-container-high dark:hover:bg-tertiary-container transition-all active:scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="font-body-sm text-body-sm">Activity</span>
+</a>
+</nav>
+<div class="border-t border-outline-variant p-4 flex flex-col gap-1">
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:bg-surface-container-high rounded-DEFAULT transition-colors" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="help">help</span>
+<span class="font-body-sm text-body-sm">Support</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:bg-surface-container-high rounded-DEFAULT transition-colors" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="menu_book">menu_book</span>
+<span class="font-body-sm text-body-sm">Documentation</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="flex-1 ml-sidebar-width bg-background overflow-y-auto h-[calc(100vh-64px)] p-8">
+<div class="max-w-[1000px] mx-auto pb-24">
+<!-- Header Section -->
+<div class="mb-12 flex justify-between items-end border-b border-outline-variant pb-6">
+<div>
+<p class="font-data-label text-data-label text-on-surface-variant uppercase tracking-widest mb-2">Review decision</p>
+<h1 class="font-display text-display text-primary">Transit-first</h1>
+</div>
+<div>
+<span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-secondary text-secondary font-data-label text-data-label bg-surface-bright">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+                            Ready for human review
+                        </span>
+</div>
+</div>
+<!-- Copilot Recommendation Card -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT mb-8 overflow-hidden">
+<div class="h-1 bg-primary w-full"></div> <!-- Confidence Indicator -->
+<div class="p-6">
+<div class="flex items-center gap-2 mb-4 text-primary">
+<span class="material-symbols-outlined" data-icon="psychology">psychology</span>
+<span class="font-data-label text-data-label uppercase tracking-widest">COPILOT RECOMMENDATION</span>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface max-w-3xl leading-relaxed">
+                            Transit-first provides the strongest balance of housing capacity and transit accessibility under the current constraints.
+                        </p>
+</div>
+</div>
+<!-- Main Analysis Grid (Bento style) -->
+<div class="grid grid-cols-12 gap-element-gap mb-8">
+<!-- Evidence Summary -->
+<div class="col-span-12 lg:col-span-7 bg-surface-container-lowest border border-outline-variant rounded-DEFAULT p-6 flex flex-col">
+<h3 class="font-data-label text-data-label text-on-surface-variant uppercase tracking-widest mb-6 border-b border-outline-variant pb-2">Evidence Summary</h3>
+<div class="space-y-4 flex-1">
+<div class="flex gap-4">
+<div class="w-8 h-8 rounded bg-surface-container-highest flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">flag</span>
+</div>
+<div>
+<p class="font-data-label text-data-label text-on-surface-variant mb-1">Objective</p>
+<p class="font-body-sm text-on-surface">Maximize residential yield within 800m of planned BRT stations while maintaining current green space ratios.</p>
+</div>
+</div>
+<div class="flex gap-4">
+<div class="w-8 h-8 rounded bg-surface-container-highest flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">block</span>
+</div>
+<div>
+<p class="font-data-label text-data-label text-on-surface-variant mb-1">Constraints</p>
+<p class="font-body-sm text-on-surface">Height limit: 45m. Heritage overlays on parcels H1-H4. Flood zone buffers intact.</p>
+</div>
+</div>
+<div class="flex gap-4">
+<div class="w-8 h-8 rounded bg-surface-container-highest flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">database</span>
+</div>
+<div>
+<p class="font-data-label text-data-label text-on-surface-variant mb-1">Datasets</p>
+<p class="font-body-sm text-on-surface">Zoning_Map_2024.shp, Transit_Node_Projections_v3.csv, Land_Value_Estimates_Q1.</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Key Trade-offs -->
+<div class="col-span-12 lg:col-span-5 bg-surface-container-lowest border border-outline-variant rounded-DEFAULT p-6 flex flex-col">
+<h3 class="font-data-label text-data-label text-on-surface-variant uppercase tracking-widest mb-6 border-b border-outline-variant pb-2">Key Trade-offs</h3>
+<ul class="space-y-4 flex-1">
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-primary mt-0.5">add_circle</span>
+<span class="font-body-sm text-on-surface">Increases transit reach by 14%</span>
+</li>
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-error mt-0.5">remove_circle</span>
+<span class="font-body-sm text-on-surface">Reduces housing yield by 9% vs max capacity</span>
+</li>
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-secondary mt-0.5">warning</span>
+<span class="font-body-sm text-on-surface">Requires higher infrastructure investment in Sector C</span>
+</li>
+</ul>
+</div>
+</div>
+<!-- Uncertainty & Limitations -->
+<div class="bg-surface-bright border border-secondary/30 rounded-DEFAULT p-5 mb-12 flex items-start gap-4">
+<span class="material-symbols-outlined text-secondary mt-0.5">info</span>
+<div>
+<h4 class="font-data-label text-data-label text-secondary uppercase tracking-widest mb-2">Uncertainty &amp; Limitations</h4>
+<ul class="list-disc list-inside font-body-sm text-on-surface-variant space-y-1">
+<li>Flood-risk dataset updated April 2026.</li>
+<li>Capacity estimates use configurable development assumptions (standard yield factor 0.85).</li>
+<li>Ownership and acquisition feasibility were not evaluated in this scenario pass.</li>
+</ul>
+</div>
+</div>
+<!-- Human Governance Section -->
+<div class="border-t-2 border-primary pt-8 mb-12">
+<h2 class="font-headline-md text-headline-md text-primary mb-6">Your Decision</h2>
+<div class="mb-6 relative">
+<label class="block font-data-label text-data-label text-on-surface-variant mb-2" for="decision-reason">Reason for decision (optional, logged in audit trail)</label>
+<textarea class="w-full bg-surface-container-lowest border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary rounded-DEFAULT p-3 font-body-sm text-on-surface resize-none transition-colors" id="decision-reason" placeholder="Enter justification or specific conditions..." rows="3"></textarea>
+</div>
+<div class="flex gap-4">
+<button class="flex-1 bg-secondary text-on-primary py-4 rounded-DEFAULT font-headline-md text-headline-md hover:bg-secondary/90 transition-colors shadow-sm flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">check_circle</span>
+                            Approve scenario
+                        </button>
+<button class="flex-1 bg-surface-container-highest border border-outline-variant text-on-surface py-4 rounded-DEFAULT font-headline-md text-headline-md hover:bg-surface-variant transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">edit_note</span>
+                            Request changes
+                        </button>
+<button class="flex-1 bg-error-container text-on-error-container border border-error/20 py-4 rounded-DEFAULT font-headline-md text-headline-md hover:bg-error-container/80 transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">cancel</span>
+                            Reject scenario
+                        </button>
+</div>
+</div>
+<!-- Decision History -->
+<div>
+<h3 class="font-data-label text-data-label text-on-surface-variant uppercase tracking-widest mb-4 border-b border-outline-variant pb-2">Decision History</h3>
+<div class="flex flex-col gap-4 relative before:absolute before:inset-y-0 before:left-[11px] before:w-px before:bg-outline-variant ml-1">
+<div class="flex gap-4 relative z-10">
+<div class="w-6 h-6 rounded-full bg-surface-container-highest border border-outline-variant flex items-center justify-center shrink-0 mt-0.5">
+<span class="w-2 h-2 rounded-full bg-error"></span>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT p-4 flex-1">
+<div class="flex justify-between items-center mb-1">
+<span class="font-data-label text-data-label text-on-surface-variant">Mar 12, 2024 - 14:30</span>
+<span class="text-xs bg-surface-container-highest px-2 py-0.5 rounded font-data-label text-data-label">A. Chen (Principal Planner)</span>
+</div>
+<p class="font-body-sm text-on-surface"><strong class="font-medium">Rejected</strong> Max Yield scenario</p>
+<p class="font-body-sm text-on-surface-variant mt-2 italic text-sm">"Does not meet minimum green space requirements in Sector B. Re-run focusing on transit corridors."</p>
+</div>
+</div>
+<div class="flex gap-4 relative z-10">
+<div class="w-6 h-6 rounded-full bg-surface-container-highest border border-outline-variant flex items-center justify-center shrink-0 mt-0.5">
+<span class="w-2 h-2 rounded-full bg-outline"></span>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT p-4 flex-1">
+<div class="flex justify-between items-center mb-1">
+<span class="font-data-label text-data-label text-on-surface-variant">Mar 10, 2024 - 09:15</span>
+<span class="text-xs bg-surface-container-highest px-2 py-0.5 rounded font-data-label text-data-label">System</span>
+</div>
+<p class="font-body-sm text-on-surface">Generated baseline scenarios (Max Yield, Status Quo, Transit-first)</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

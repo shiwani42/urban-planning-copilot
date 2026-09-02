@@ -1,0 +1,270 @@
+[
+  {
+    "name": "Start housing capacity project from natural language",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Create a project called North River Housing Strategy to identify areas for 2,000 additional homes within 800m of transit, outside high-risk flood zones, respecting residential zoning."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "start_planning_project",
+        "arguments": {
+          "name": { "$contains": "North River" },
+          "objectiveText": { "$contains": "2,000" }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Review analysis plan before running",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Show me the structured analysis plan for this project before we run anything."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "get_analysis_plan",
+        "arguments": {
+          "projectId": { "$type": "string" }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Run spatial analysis",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Run the spatial analysis for the active scenario."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "run_analysis",
+        "arguments": {
+          "projectId": { "$type": "string" },
+          "scenarioId": { "$type": "string" }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Inspect candidate evidence",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Why is the top candidate recommended? Show metrics and provenance."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "list_candidates",
+        "arguments": {
+          "projectId": { "$type": "string" }
+        }
+      },
+      {
+        "functionName": "inspect_candidate",
+        "arguments": {
+          "projectId": { "$type": "string" },
+          "candidateId": { "$type": "string" }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Tighten transit threshold to 500m",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Update the transit threshold to 500 meters and recalculate."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "set_transit_threshold",
+        "arguments": {
+          "projectId": { "$type": "string" },
+          "scenarioId": { "$type": "string" },
+          "meters": 500
+        }
+      },
+      {
+        "functionName": "run_analysis",
+        "arguments": {
+          "projectId": { "$type": "string" },
+          "scenarioId": { "$type": "string" }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Change priority weights toward flood resilience",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Change priorities to transit 20%, capacity 20%, flood resilience 60% and rerun ranking."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "set_priority_weights",
+        "arguments": {
+          "projectId": { "$type": "string" },
+          "scenarioId": { "$type": "string" },
+          "weights": { "$any": true }
+        }
+      },
+      {
+        "functionName": "run_analysis",
+        "arguments": {
+          "projectId": { "$type": "string" },
+          "scenarioId": { "$type": "string" }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Branch scenario without mutating parent",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Duplicate the current scenario into a branch named Climate-first."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "create_scenario_branch",
+        "arguments": {
+          "projectId": { "$type": "string" },
+          "name": { "$contains": "Climate" }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Emergency shelter objective",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Start a project to identify three emergency shelter locations that maximize population coverage and avoid flood-risk areas."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "start_planning_project",
+        "arguments": {
+          "objectiveText": { "$contains": "shelter" }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Approve scenario with human confirmation",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Approve the active scenario as our planning decision."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "approve_scenario",
+        "arguments": {
+          "projectId": { "$type": "string" },
+          "scenarioId": { "$type": "string" }
+        }
+      }
+    ]
+  },
+  {
+    "name": "End-to-end housing journey (ordered)",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Create a North River housing project for 2,000 homes near transit outside flood zones, review the plan, run analysis, inspect the top candidate, then tighten transit to 500m and recalculate."
+      }
+    ],
+    "expectedCall": [
+      {
+        "ordered": [
+          {
+            "functionName": "start_planning_project",
+            "arguments": {
+              "objectiveText": { "$contains": "2,000" }
+            }
+          },
+          {
+            "functionName": "get_analysis_plan",
+            "arguments": {
+              "projectId": { "$type": "string" }
+            }
+          },
+          {
+            "functionName": "run_analysis",
+            "arguments": {
+              "projectId": { "$type": "string" },
+              "scenarioId": { "$type": "string" }
+            }
+          },
+          {
+            "unordered": [
+              {
+                "functionName": "list_candidates",
+                "arguments": { "projectId": { "$type": "string" } }
+              },
+              {
+                "functionName": "inspect_candidate",
+                "arguments": {
+                  "projectId": { "$type": "string" },
+                  "candidateId": { "$type": "string" }
+                }
+              }
+            ]
+          },
+          {
+            "functionName": "set_transit_threshold",
+            "arguments": { "meters": 500 }
+          },
+          {
+            "functionName": "run_analysis",
+            "arguments": {
+              "projectId": { "$type": "string" },
+              "scenarioId": { "$type": "string" }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Check dataset freshness and limitations",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "What datasets are we using, and what are their limitations?"
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "list_datasets",
+        "arguments": {}
+      }
+    ]
+  }
+]

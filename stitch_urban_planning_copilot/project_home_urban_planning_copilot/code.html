@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Project Home - Urban Planning Copilot</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "background": "#fcf9f8",
+                      "on-secondary-container": "#774e00",
+                      "on-primary": "#ffffff",
+                      "surface": "#fcf9f8",
+                      "on-surface": "#1b1c1c",
+                      "inverse-surface": "#303030",
+                      "on-error": "#ffffff",
+                      "secondary-container": "#fdc26c",
+                      "on-tertiary-container": "#cdcdcb",
+                      "on-surface-variant": "#40484d",
+                      "inverse-on-surface": "#f3f0f0",
+                      "surface-container-lowest": "#ffffff",
+                      "tertiary-fixed": "#e3e2e0",
+                      "error-container": "#ffdad6",
+                      "inverse-primary": "#8ccff3",
+                      "surface-container-low": "#f6f3f2",
+                      "surface-dim": "#dcd9d9",
+                      "surface-bright": "#fcf9f8",
+                      "on-tertiary": "#ffffff",
+                      "surface-container": "#f0eded",
+                      "surface-container-high": "#eae7e7",
+                      "primary-container": "#005e7d",
+                      "tertiary-fixed-dim": "#c7c6c5",
+                      "on-background": "#1b1c1c",
+                      "secondary-fixed-dim": "#f7bc67",
+                      "on-tertiary-fixed-variant": "#464746",
+                      "outline-variant": "#bfc8ce",
+                      "on-primary-fixed-variant": "#004d67",
+                      "on-error-container": "#93000a",
+                      "on-tertiary-fixed": "#1a1c1b",
+                      "on-secondary-fixed-variant": "#624000",
+                      "on-primary-container": "#92d6f9",
+                      "secondary-fixed": "#ffddb2",
+                      "tertiary": "#3f403f",
+                      "on-secondary-fixed": "#291800",
+                      "error": "#ba1a1a",
+                      "primary-fixed-dim": "#8ccff3",
+                      "on-secondary": "#ffffff",
+                      "surface-variant": "#e4e2e1",
+                      "surface-tint": "#136685",
+                      "tertiary-container": "#565756",
+                      "on-primary-fixed": "#001e2b",
+                      "surface-container-highest": "#e4e2e1",
+                      "secondary": "#815504",
+                      "outline": "#70787e",
+                      "primary-fixed": "#c1e8ff",
+                      "primary": "#00455d"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "panel-gap": "1px",
+                      "sidebar-width": "360px",
+                      "element-gap": "0.75rem",
+                      "section-padding": "1.5rem",
+                      "inspector-width": "320px"
+              },
+              "fontFamily": {
+                      "data-label": [
+                              "JetBrains Mono"
+                      ],
+                      "body-lg": [
+                              "Geist"
+                      ],
+                      "display": [
+                              "Geist"
+                      ],
+                      "headline-md": [
+                              "Geist"
+                      ],
+                      "caption": [
+                              "Geist"
+                      ],
+                      "body-sm": [
+                              "Geist"
+                      ]
+              },
+              "fontSize": {
+                      "data-label": [
+                              "12px",
+                              {
+                                      "lineHeight": "1",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body-lg": [
+                              "16px",
+                              {
+                                      "lineHeight": "1.6",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "display": [
+                              "32px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-md": [
+                              "20px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "caption": [
+                              "12px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-sm": [
+                              "14px",
+                              {
+                                      "lineHeight": "1.5",
+                                      "fontWeight": "400"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            font-family: 'Geist', sans-serif;
+        }
+        .font-data-label {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Custom scrollbar for horizontal scrolling */
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface antialiased min-h-screen">
+<!-- TopNavBar (Shared Component) -->
+<header class="bg-background dark:bg-surface border-b border-outline-variant dark:border-outline docked full-width top-0 h-[64px] flex justify-between items-center w-full px-section-padding max-w-full mx-auto fixed top-0 z-50">
+<div class="flex items-center h-full gap-8">
+<div class="font-display text-display font-semibold text-primary dark:text-primary-fixed-dim tracking-tight text-xl">
+                Urban Planning Copilot
+            </div>
+<nav class="hidden md:flex h-full items-center gap-2 font-body-sm text-body-sm">
+<!-- Active Item -->
+<a class="text-primary dark:text-primary-fixed-dim font-semibold border-b-2 border-primary dark:border-primary-fixed-dim h-full flex items-center px-4 hover:text-primary dark:hover:text-primary-fixed transition-colors duration-200" href="#">
+                    Projects
+                </a>
+<a class="text-on-surface-variant dark:text-on-tertiary-fixed-variant h-full flex items-center px-4 hover:text-primary dark:hover:text-primary-fixed transition-colors duration-200" href="#">
+                    Explore
+                </a>
+<a class="text-on-surface-variant dark:text-on-tertiary-fixed-variant h-full flex items-center px-4 hover:text-primary dark:hover:text-primary-fixed transition-colors duration-200" href="#">
+                    Data
+                </a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<!-- Search placeholder -->
+<div class="relative hidden sm:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+<input class="pl-9 pr-4 py-1.5 bg-surface-container-low border-b border-outline-variant focus:outline-none focus:border-primary transition-colors text-body-sm font-body-sm w-48 focus:w-64 duration-300" placeholder="Search projects..." type="text"/>
+</div>
+<button class="text-on-surface-variant hover:text-primary transition-colors p-2">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors p-2">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-surface-variant overflow-hidden border border-outline-variant ml-2">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="A small circular avatar showing a professional looking woman, clear lighting, neutral background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBOu1JHWx65lg8L2sAdPdvWASA17fKV9Ayy7uaF66srb5DTreSN8Hlxq9BJc37pS0nWKnJ43ZalXEnXoTnDxA9Oic8VvRnKuEAnyKg2vI2L27MFricsKi_SREMDS5lSl9rt1TO2EcWZJ2C58xyjWwyFXMvGYS_dUMiRwRodXII4x130CA_AtiALM5ftrQvV02HlHQVZE26rFz49UNzD7KwnxgNllmavaYgE4mK4lOKvdX9iX88pLvLgDw"/>
+</div>
+</div>
+</header>
+<!-- Main Layout -->
+<main class="pt-[64px] px-section-padding max-w-[1600px] mx-auto pb-20">
+<!-- Header Section -->
+<section class="py-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
+<div>
+<h1 class="font-display text-display text-on-surface">Good morning, Maya</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant mt-2 max-w-2xl">Continue your planning work or start a new analysis.</p>
+</div>
+<button class="bg-primary text-on-primary font-body-sm text-body-sm px-6 py-2.5 rounded hover:bg-surface-tint transition-colors flex items-center gap-2 whitespace-nowrap h-fit shadow-sm">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                New planning project
+            </button>
+</section>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+<!-- Left Column: Primary Content -->
+<div class="lg:col-span-8 flex flex-col gap-12">
+<!-- Continue Section (Cards) -->
+<section>
+<div class="flex items-center justify-between mb-6">
+<h2 class="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-outline">history</span>
+                            Continue
+                        </h2>
+<a class="font-data-label text-data-label text-primary hover:underline" href="#">VIEW ALL PROJECTS</a>
+</div>
+<div class="flex gap-6 overflow-x-auto pb-4 hide-scrollbar -mx-section-padding px-section-padding md:mx-0 md:px-0">
+<!-- Card 1 -->
+<div class="min-w-[340px] w-[340px] flex-shrink-0 bg-surface border border-outline-variant rounded group hover:border-outline transition-colors cursor-pointer relative overflow-hidden flex flex-col">
+<div class="h-[140px] w-full bg-surface-container-low border-b border-outline-variant relative">
+<img class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" data-alt="A satellite map view of an urban area near a river, highlighted zones indicating housing development, muted colors, architectural style." data-location="North River" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBX9VyC18Qyl4Z3TcEcaQMneUCCrxOSIfczSbgUiIOcpeGwuiKfseDmhbdEPhlc22BThXYZGvHr967gNqQ39b0x08WlxPun9wl5vmfeLlC90gOZN46ma9B26-XOTiykEvZqhbfkt5BdKqVZjDS1YMVa0itJw-D7fXBPcd6cK-SmeID906tRHhev0Fpwl3Gm1sCOBXnPYuNz_zihxvMKrKqfNkxqBx3Y5e2wpw5CFsh4txOCIbY3gciFcw"/>
+<div class="absolute inset-0 bg-gradient-to-t from-surface/80 to-transparent"></div>
+<div class="absolute top-3 right-3 bg-surface border border-outline-variant px-2 py-0.5 rounded font-data-label text-[10px] text-on-surface shadow-sm">
+                                    SCENARIO B
+                                </div>
+</div>
+<div class="p-5 flex-1 flex flex-col">
+<h3 class="font-headline-md text-headline-md text-on-surface mb-1">North River Housing Strategy</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-4">2,000 additional homes · Transit-first</p>
+<div class="mt-auto">
+<div class="bg-surface-container p-3 rounded border border-outline-variant/50 relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-primary text-[16px] mt-0.5">smart_toy</span>
+<div>
+<p class="font-caption text-caption text-on-surface-variant line-clamp-2">Agent recalculated candidates after 14 parcels were excluded.</p>
+<p class="font-data-label text-[10px] text-outline mt-1 uppercase">18 min ago</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Hover Overlay -->
+<div class="absolute inset-0 bg-surface/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+<span class="bg-surface border border-outline-variant px-4 py-2 rounded shadow-sm font-data-label text-data-label text-on-surface flex items-center gap-2">
+                                    Open project <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</span>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="min-w-[340px] w-[340px] flex-shrink-0 bg-surface border border-outline-variant rounded group hover:border-outline transition-colors cursor-pointer relative overflow-hidden flex flex-col">
+<div class="h-[140px] w-full bg-surface-container-low border-b border-outline-variant relative">
+<img class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" data-alt="An abstract architectural map visualization showing commercial zoning blocks in a city grid, muted grey and beige tones, precise linework." data-location="East Side" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBApn7LkcKYg1YSjAUeaUzCaOwMTBeR07kw0o1iLmxWoVMYoQiBYW0HPvYL5CUF0mIND0z5_L6tTsApQEKzzOIRc8VoBzFk3DurIlsiTSLNNhaWRKRWYNr-6NSIcuf4yLuf_VgkoWJTJ1I1kTqa0Y98zD_LK9t28ZwTYIuZLyVgzX-3SSadLJVixPLDXDyKItzHqymzN101FxhSl_RgnmyItTxN0Y4g1x2SU38RZ_hNAQBO3IVVTY3_0A"/>
+<div class="absolute inset-0 bg-gradient-to-t from-surface/80 to-transparent"></div>
+<div class="absolute top-3 right-3 bg-surface border border-outline-variant px-2 py-0.5 rounded font-data-label text-[10px] text-on-surface shadow-sm">
+                                    SCENARIO A
+                                </div>
+</div>
+<div class="p-5 flex-1 flex flex-col">
+<h3 class="font-headline-md text-headline-md text-on-surface mb-1">East Side Commercial Zone</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-4">Rezoning for mixed-use · Density-max</p>
+<div class="mt-auto">
+<div class="bg-surface-container p-3 rounded border border-outline-variant/50 relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-outline"></div>
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-outline text-[16px] mt-0.5">database</span>
+<div>
+<p class="font-caption text-caption text-on-surface-variant line-clamp-2">Flood risk data integrated from NOAA source.</p>
+<p class="font-data-label text-[10px] text-outline mt-1 uppercase">2 hours ago</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Hover Overlay -->
+<div class="absolute inset-0 bg-surface/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+<span class="bg-surface border border-outline-variant px-4 py-2 rounded shadow-sm font-data-label text-data-label text-on-surface flex items-center gap-2">
+                                    Open project <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</span>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="min-w-[340px] w-[340px] flex-shrink-0 bg-surface border border-outline-variant rounded group hover:border-outline transition-colors cursor-pointer relative overflow-hidden flex flex-col">
+<div class="h-[140px] w-full bg-surface-container-low border-b border-outline-variant relative">
+<img class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" data-alt="A detailed map visualization of a transit hub connecting various rail lines, structural overlay, clean architectural aesthetic." data-location="Transit Center" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBMrDBQWFwVbXk57pAmThw3fEcfodOPxXKEeRMetVcueCqDQBnUub2RJWCVU5UD0vFF5ZtmnVLGVYQVCYwJhhhtPoZ_WA6uXW2lX0fZCpAgjqqRq1JIX10ze1nJhtzJDUk8jJWwGhXBC3b0EuzCdsXaaALiWiuBX7tHO-xJ_KEyP3vZBrSRXpqeIlHpMFmiDU8tBSdvZD4MNY5QKuELQfNoVNdUorBNYKRIBnNSNklnKqUcJOrQXKz9lg"/>
+<div class="absolute inset-0 bg-gradient-to-t from-surface/80 to-transparent"></div>
+<div class="absolute top-3 right-3 bg-surface border border-outline-variant px-2 py-0.5 rounded font-data-label text-[10px] text-on-surface shadow-sm">
+                                    SCENARIO C
+                                </div>
+</div>
+<div class="p-5 flex-1 flex flex-col">
+<h3 class="font-headline-md text-headline-md text-on-surface mb-1">Transit Hub Expansion</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-4">Optimize for 50k commuters · Rail-link</p>
+<div class="mt-auto">
+<div class="bg-surface-container p-3 rounded border border-outline-variant/50 relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-secondary-container"></div>
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-secondary text-[16px] mt-0.5">person</span>
+<div>
+<p class="font-caption text-caption text-on-surface-variant line-clamp-2">Human approved candidate site #4.</p>
+<p class="font-data-label text-[10px] text-outline mt-1 uppercase">Yesterday</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Hover Overlay -->
+<div class="absolute inset-0 bg-surface/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+<span class="bg-surface border border-outline-variant px-4 py-2 rounded shadow-sm font-data-label text-data-label text-on-surface flex items-center gap-2">
+                                    Open project <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Recent Analyses Section -->
+<section>
+<div class="flex items-center justify-between mb-4 border-b border-outline-variant pb-2">
+<h2 class="font-headline-md text-headline-md text-on-surface">Recent Analyses</h2>
+<div class="flex gap-2">
+<button class="p-1 hover:bg-surface-container rounded text-on-surface-variant"><span class="material-symbols-outlined text-[18px]">filter_list</span></button>
+</div>
+</div>
+<div class="bg-surface border border-outline-variant rounded overflow-hidden">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low border-b border-outline-variant font-data-label text-data-label text-on-surface-variant">
+<th class="py-3 px-4 font-normal">ANALYSIS NAME</th>
+<th class="py-3 px-4 font-normal">PROJECT</th>
+<th class="py-3 px-4 font-normal">STATUS</th>
+<th class="py-3 px-4 font-normal hidden sm:table-cell">RESULT</th>
+<th class="py-3 px-4 font-normal text-right">TIMESTAMP</th>
+</tr>
+</thead>
+<tbody class="font-body-sm text-body-sm">
+<tr class="border-b border-outline-variant hover:bg-surface-container-lowest transition-colors group">
+<td class="py-3 px-4 text-on-surface font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-outline">analytics</span>
+                                        Parcel Yield Optimization
+                                    </td>
+<td class="py-3 px-4 text-on-surface-variant">North River Housing</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-primary/20 bg-primary/5 text-primary text-[12px] font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span> Complete
+                                        </span>
+</td>
+<td class="py-3 px-4 text-on-surface-variant hidden sm:table-cell">14 viable parcels</td>
+<td class="py-3 px-4 text-on-surface-variant text-right font-data-label text-[11px]">10:42 AM</td>
+</tr>
+<tr class="border-b border-outline-variant hover:bg-surface-container-lowest transition-colors group">
+<td class="py-3 px-4 text-on-surface font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-outline">directions_car</span>
+                                        Traffic Impact Assessment
+                                    </td>
+<td class="py-3 px-4 text-on-surface-variant">East Side Commercial</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-outline/20 bg-surface-container text-on-surface-variant text-[12px] font-medium">
+<span class="w-3 h-3 border-2 border-outline-variant border-t-outline rounded-full animate-spin"></span> Running
+                                        </span>
+</td>
+<td class="py-3 px-4 text-outline hidden sm:table-cell italic">Processing...</td>
+<td class="py-3 px-4 text-on-surface-variant text-right font-data-label text-[11px]">09:15 AM</td>
+</tr>
+<tr class="hover:bg-surface-container-lowest transition-colors group">
+<td class="py-3 px-4 text-on-surface font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-outline">water_drop</span>
+                                        Flood Risk Simulation
+                                    </td>
+<td class="py-3 px-4 text-on-surface-variant">Transit Hub Expansion</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-error/20 bg-error/5 text-error text-[12px] font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span> Failed
+                                        </span>
+</td>
+<td class="py-3 px-4 text-error hidden sm:table-cell">Data missing</td>
+<td class="py-3 px-4 text-on-surface-variant text-right font-data-label text-[11px]">Yesterday</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</div>
+<!-- Right Column: Contextual & Attention -->
+<div class="lg:col-span-4 flex flex-col gap-8">
+<!-- Attention Required -->
+<section class="bg-surface border border-outline-variant rounded p-5 relative overflow-hidden">
+<!-- Top accent line -->
+<div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-secondary-container to-primary"></div>
+<h2 class="font-headline-md text-headline-md text-on-surface mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary">priority_high</span>
+                        Action Required
+                    </h2>
+<div class="flex flex-col gap-3">
+<!-- Item 1: Agent Rec -->
+<div class="group border border-outline-variant hover:border-primary/50 bg-surface-container-low p-3 rounded cursor-pointer transition-colors relative">
+<!-- Confidence Bar -->
+<div class="absolute top-0 left-0 h-1 bg-primary w-[85%] rounded-tl"></div>
+<div class="flex gap-3 mt-1">
+<div class="mt-0.5">
+<span class="material-symbols-outlined text-primary text-[20px]">smart_toy</span>
+</div>
+<div>
+<h4 class="font-body-sm font-medium text-on-surface">Review 3 candidate sites</h4>
+<p class="font-caption text-caption text-on-surface-variant mt-0.5">Agent identified optimal parcels for North River.</p>
+<div class="flex items-center gap-2 mt-2">
+<span class="bg-primary text-on-primary font-data-label text-[10px] px-1.5 py-0.5 rounded-sm">AI REC</span>
+<span class="font-data-label text-[10px] text-outline">85% CONFIDENCE</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Item 2: Data Issue -->
+<div class="group border border-outline-variant hover:border-error/50 bg-surface-container-low p-3 rounded cursor-pointer transition-colors">
+<div class="flex gap-3">
+<div class="mt-0.5">
+<span class="material-symbols-outlined text-error text-[20px]">warning</span>
+</div>
+<div>
+<h4 class="font-body-sm font-medium text-on-surface">Resolve conflicting flood dataset</h4>
+<p class="font-caption text-caption text-on-surface-variant mt-0.5">Discrepancy between local and NOAA data sources.</p>
+<div class="flex items-center gap-2 mt-2">
+<span class="border border-outline-variant text-on-surface-variant font-data-label text-[10px] px-1.5 py-0.5 rounded-sm">DATA</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Item 3: Human Decision -->
+<div class="group border border-outline-variant hover:border-secondary/50 bg-surface-container-low p-3 rounded cursor-pointer transition-colors">
+<div class="flex gap-3">
+<div class="mt-0.5">
+<span class="material-symbols-outlined text-secondary text-[20px]">how_to_reg</span>
+</div>
+<div>
+<h4 class="font-body-sm font-medium text-on-surface">Approve Scenario B for report</h4>
+<p class="font-caption text-caption text-on-surface-variant mt-0.5">Final approval needed before generation.</p>
+<div class="flex items-center gap-2 mt-2">
+<span class="bg-secondary-container text-on-secondary-container font-data-label text-[10px] px-1.5 py-0.5 rounded-sm">MANUAL</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Mini Activity Stream -->
+<section class="border border-outline-variant rounded p-5 bg-surface-container-lowest">
+<h2 class="font-data-label text-data-label text-on-surface-variant mb-4 uppercase tracking-wider border-b border-outline-variant pb-2">Recent System Activity</h2>
+<div class="relative pl-4 space-y-4 before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-[1px] before:bg-outline-variant">
+<!-- Event 1 -->
+<div class="relative">
+<div class="absolute -left-[20px] top-1 w-2 h-2 rounded-full bg-primary ring-4 ring-surface-container-lowest"></div>
+<div class="font-data-label text-[10px] text-outline mb-1">10:45 AM</div>
+<div class="font-caption text-caption text-on-surface">Agent generated density visualization for Sector 4.</div>
+</div>
+<!-- Event 2 -->
+<div class="relative">
+<div class="absolute -left-[20px] top-1 w-2 h-2 rounded-full bg-surface-dim border border-outline ring-4 ring-surface-container-lowest"></div>
+<div class="font-data-label text-[10px] text-outline mb-1">10:12 AM</div>
+<div class="font-caption text-caption text-on-surface">Workspace 'East Side Commercial' saved.</div>
+</div>
+<!-- Event 3 -->
+<div class="relative">
+<div class="absolute -left-[20px] top-1 w-2 h-2 rounded-full bg-surface-dim border border-outline ring-4 ring-surface-container-lowest"></div>
+<div class="font-data-label text-[10px] text-outline mb-1">09:30 AM</div>
+<div class="font-caption text-caption text-on-surface">Data layer 'Zoning 2023' updated globally.</div>
+</div>
+</div>
+</section>
+</div>
+</div>
+</main>
+</body></html>

@@ -1,0 +1,258 @@
+{
+  "tools": [
+    {
+      "name": "get_workspace",
+      "description": "Read the active project/scenario: objective, constraints, decision status, resume note.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string", "description": "Project id" }
+        },
+        "required": ["projectId"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_analysis_plan",
+      "description": "Return the structured analysis plan steps before or after running analysis.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "scenarioId": { "type": "string", "description": "Optional; defaults to active scenario" }
+        },
+        "required": ["projectId"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_candidates",
+      "description": "List ranked analysis candidates with scores and statuses for a scenario.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "scenarioId": { "type": "string" },
+          "limit": { "type": "number", "description": "Max candidates (default 10)" }
+        },
+        "required": ["projectId"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "inspect_candidate",
+      "description": "Inspect one candidate: metrics, score breakdown, datasets, assumptions, limitations.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "candidateId": { "type": "string" },
+          "scenarioId": { "type": "string" }
+        },
+        "required": ["projectId", "candidateId"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_datasets",
+      "description": "List datasets with version, freshness, coverage, and limitations.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "compare_scenarios",
+      "description": "Compare scenarios using consistent calculated metrics (capacity, transit, scores).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "scenarioIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "At least two scenario ids"
+          }
+        },
+        "required": ["projectId", "scenarioIds"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "start_planning_project",
+      "description": "Create a planning project from a natural-language objective and open its analysis plan.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Project name" },
+          "objectiveText": { "type": "string", "description": "Natural-language planning question" },
+          "geographyLabel": { "type": "string", "description": "Optional geography label" }
+        },
+        "required": ["name", "objectiveText"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "set_planning_objective",
+      "description": "Update the active objective from natural language; regenerates the analysis plan.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "objectiveText": { "type": "string" }
+        },
+        "required": ["projectId", "objectiveText"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "set_transit_threshold",
+      "description": "Set transit proximity threshold in meters (marks results stale).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "scenarioId": { "type": "string" },
+          "meters": { "type": "number", "description": "Distance threshold in meters", "minimum": 1 }
+        },
+        "required": ["projectId", "scenarioId", "meters"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "set_priority_weights",
+      "description": "Set ranking weights (e.g. transit, capacity, flood_resilience). Values are normalized.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "scenarioId": { "type": "string" },
+          "weights": {
+            "type": "object",
+            "description": "Map of criterion key → weight",
+            "additionalProperties": { "type": "number" }
+          }
+        },
+        "required": ["projectId", "scenarioId", "weights"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "run_analysis",
+      "description": "Run spatial analysis for a scenario; returns summary and candidate count.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "scenarioId": { "type": "string" }
+        },
+        "required": ["projectId", "scenarioId"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_scenario_branch",
+      "description": "Duplicate a scenario so edits do not mutate the parent.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "name": { "type": "string" },
+          "fromScenarioId": { "type": "string", "description": "Source scenario to duplicate" }
+        },
+        "required": ["projectId", "name"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "select_candidate",
+      "description": "Select a candidate; syncs map highlight and detail panels.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "candidateId": { "type": "string" }
+        },
+        "required": ["projectId", "candidateId"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "exclude_map_area",
+      "description": "Add a human/agent geographic exclusion polygon; marks results stale.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "scenarioId": { "type": "string" },
+          "label": { "type": "string" },
+          "coordinates": {
+            "type": "array",
+            "description": "Polygon ring as [lng,lat] pairs (min 3)",
+            "items": { "type": "array", "items": { "type": "number" } }
+          }
+        },
+        "required": ["projectId", "scenarioId", "label", "coordinates"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "reject_candidate",
+      "description": "Record a planner rejection of a candidate with reason. Requires user confirmation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "scenarioId": { "type": "string" },
+          "candidateId": { "type": "string" },
+          "reason": { "type": "string" }
+        },
+        "required": ["projectId", "scenarioId", "candidateId"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "prefer_scenario",
+      "description": "Select the planner's preferred scenario among alternatives. Confirms with user.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "scenarioId": { "type": "string" },
+          "reason": { "type": "string" }
+        },
+        "required": ["projectId", "scenarioId"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "approve_scenario",
+      "description": "Approve a scenario as a formal planning decision. Always confirms with the human planner.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "scenarioId": { "type": "string" },
+          "reason": { "type": "string", "description": "Optional decision rationale" }
+        },
+        "required": ["projectId", "scenarioId"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "generate_report",
+      "description": "Generate a planning report from scenarios. Confirms before creating the document.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "scenarioIds": { "type": "array", "items": { "type": "string" } },
+          "title": { "type": "string" }
+        },
+        "required": ["projectId", "scenarioIds"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

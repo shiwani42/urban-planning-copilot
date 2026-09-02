@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Candidate Detail &amp; Evidence - Urban Planning Copilot</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                            "outline": "#70787e",
+                            "on-primary": "#ffffff",
+                            "inverse-on-surface": "#f3f0f0",
+                            "secondary-fixed-dim": "#f7bc67",
+                            "primary-fixed": "#c1e8ff",
+                            "primary-container": "#005e7d",
+                            "on-tertiary-fixed": "#1a1c1b",
+                            "surface-dim": "#dcd9d9",
+                            "secondary-fixed": "#ffddb2",
+                            "surface-container-high": "#eae7e7",
+                            "on-secondary": "#ffffff",
+                            "on-surface-variant": "#40484d",
+                            "on-primary-fixed": "#001e2b",
+                            "primary-fixed-dim": "#8ccff3",
+                            "surface-variant": "#e4e2e1",
+                            "on-primary-container": "#92d6f9",
+                            "tertiary": "#3f403f",
+                            "tertiary-container": "#565756",
+                            "tertiary-fixed": "#e3e2e0",
+                            "surface-bright": "#fcf9f8",
+                            "on-tertiary-container": "#cdcdcb",
+                            "on-secondary-container": "#774e00",
+                            "on-tertiary": "#ffffff",
+                            "surface-container-low": "#f6f3f2",
+                            "on-error-container": "#93000a",
+                            "outline-variant": "#bfc8ce",
+                            "surface-container-lowest": "#ffffff",
+                            "on-surface": "#1b1c1c",
+                            "surface-container": "#f0eded",
+                            "surface": "#fcf9f8",
+                            "secondary-container": "#fdc26c",
+                            "on-secondary-fixed": "#291800",
+                            "on-tertiary-fixed-variant": "#464746",
+                            "inverse-surface": "#303030",
+                            "error-container": "#ffdad6",
+                            "error": "#ba1a1a",
+                            "on-primary-fixed-variant": "#004d67",
+                            "surface-container-highest": "#e4e2e1",
+                            "primary": "#00455d",
+                            "tertiary-fixed-dim": "#c7c6c5",
+                            "on-error": "#ffffff",
+                            "background": "#fcf9f8",
+                            "on-background": "#1b1c1c",
+                            "secondary": "#815504",
+                            "inverse-primary": "#8ccff3",
+                            "on-secondary-fixed-variant": "#624000",
+                            "surface-tint": "#136685"
+                    },
+                    "borderRadius": {
+                            "DEFAULT": "0.125rem",
+                            "lg": "0.25rem",
+                            "xl": "0.5rem",
+                            "full": "0.75rem"
+                    },
+                    "spacing": {
+                            "section-padding": "1.5rem",
+                            "inspector-width": "320px",
+                            "panel-gap": "1px",
+                            "sidebar-width": "360px",
+                            "element-gap": "0.75rem",
+                            "drawer-width": "450px"
+                    },
+                    "fontFamily": {
+                            "body-lg": ["Geist", "sans-serif"],
+                            "caption": ["Geist", "sans-serif"],
+                            "headline-md": ["Geist", "sans-serif"],
+                            "display": ["Geist", "sans-serif"],
+                            "body-sm": ["Geist", "sans-serif"],
+                            "data-label": ["JetBrains Mono", "monospace"]
+                    },
+                    "fontSize": {
+                            "body-lg": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                            "caption": ["12px", {"lineHeight": "1.4", "fontWeight": "400"}],
+                            "headline-md": ["20px", {"lineHeight": "1.4", "fontWeight": "500"}],
+                            "display": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                            "body-sm": ["14px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                            "data-label": ["12px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "500"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .ai-glow {
+            box-shadow: inset 0 0 10px rgba(0, 94, 125, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-lg h-screen overflow-hidden flex flex-col">
+<!-- Top Navigation Bar -->
+<header class="bg-surface border-b border-outline-variant flex justify-between items-center h-16 px-6 w-full z-50 shrink-0">
+<div class="flex items-center gap-8">
+<div class="font-display text-display text-primary tracking-tight">Urban Planning Copilot</div>
+<nav class="hidden md:flex gap-6">
+<a class="text-on-surface-variant hover:text-primary transition-colors cursor-pointer duration-200" href="#">Projects</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors cursor-pointer duration-200" href="#">Explore</a>
+<a class="text-primary font-bold border-b-2 border-primary pb-1" href="#">Scenarios</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors cursor-pointer duration-200" href="#">Data</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors cursor-pointer duration-200" href="#">Reports</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative hidden lg:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+<input class="pl-10 pr-4 py-1.5 bg-surface-container-highest border-none rounded focus:ring-1 focus:ring-primary text-body-sm w-48" placeholder="Search..." type="text"/>
+</div>
+<button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">notifications</span></button>
+<button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">settings</span></button>
+<img alt="Planner Profile" class="w-8 h-8 rounded-full object-cover border border-outline-variant" data-alt="A professional headshot of an urban planner in a modern light-filled office, consistent with the clean, analog-digital aesthetic of the interface. Warm neutral tones, slight glassmorphism effect in the background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQZdBvH49mw7rpbwHau6I95_qSe3yGDzrGoZMxPgJsoAdRkHqLl4EHl-Pduuu8HgPRJRhODFIMjARyw3BXq58rK6HuSKLPHP9DMoIiyHI2kdnsGagl4GaadxfuaYLEPQiGJDTDWljaN6tqxfOLXIh5FvmIIXTN4ZSF62ec-7e1-sGTBalpz9OcGtgyz5Rnz1Ly85GlFjNyPmp8SKYOUzS7Cgpk0Ht6oROeEwaurhpvXh6fPcDNlaYANg"/>
+</div>
+</header>
+<div class="flex-1 flex overflow-hidden relative">
+<!-- Map Canvas (Background) -->
+<div class="absolute inset-0 bg-surface-container-low flex items-center justify-center z-0">
+<!-- Simulated Map Area -->
+<div class="bg-cover bg-center w-full h-full opacity-60" data-alt="A high-fidelity top-down aerial map of a modern urban riverside district. The style should be clean and professional, resembling an architectural site plan with subtle digital overlays indicating transit lines and zoning areas. The color palette is predominantly warm neutrals (vellum, light greys) with selective vibrant accents representing data layers. Consistent with a modern, map-first civic intelligence system." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDr9YPnc96jTR0vI5cXdhca3vdlxIuxS1GSDE74iH94XJFwezyq15GyC33YznamWIDaLWzQ48nGbjWejUuyXyiXt1Y4bvGPKmjdgDtXpOZcXCfrYjJskklXyl7igup7bt1P9I53lFl5N_3UidGO8IlUcxFkmy4UMFMZ_P3OlS70yyGxPLBG9ris6j29YDDquviinCVZlHqShSB4_MJNTxJ76V-UP2OV_z1XrY0OXCdJGf1FLrIIJRpfAQ')"></div>
+<!-- Map Overlay UI (Bottom Left) -->
+<div class="absolute bottom-20 left-sidebar-width ml-6 flex flex-col gap-2 z-10 backdrop-blur-md bg-surface/80 p-2 rounded border border-outline-variant">
+<button class="p-1 hover:bg-surface-container rounded"><span class="material-symbols-outlined text-on-surface-variant">add</span></button>
+<div class="h-px bg-outline-variant w-full"></div>
+<button class="p-1 hover:bg-surface-container rounded"><span class="material-symbols-outlined text-on-surface-variant">remove</span></button>
+</div>
+<div class="absolute bottom-20 left-[calc(var(--sidebar-width)+4rem)] z-10 backdrop-blur-md bg-surface/80 px-3 py-1.5 rounded border border-outline-variant flex gap-4">
+<button class="flex items-center gap-1 text-caption text-on-surface"><span class="material-symbols-outlined text-[16px]">layers</span> Base Map</button>
+<button class="flex items-center gap-1 text-caption text-primary"><span class="material-symbols-outlined text-[16px]">domain</span> Zoning</button>
+<button class="flex items-center gap-1 text-caption text-on-surface"><span class="material-symbols-outlined text-[16px]">directions_bus</span> Transit</button>
+</div>
+</div>
+<!-- Left SideNav (Context) -->
+<aside class="bg-surface-container-low border-r border-outline-variant w-sidebar-width h-full flex flex-col py-4 gap-element-gap z-20 shrink-0 relative">
+<div class="px-6 pb-4 border-b border-outline-variant">
+<div class="w-10 h-10 bg-primary-container text-on-primary-container rounded flex items-center justify-center mb-3">
+<span class="material-symbols-outlined">account_balance</span>
+</div>
+<h2 class="font-headline-md text-headline-md text-on-surface">Metro Expansion</h2>
+<p class="font-data-label text-data-label text-on-surface-variant mt-1">Phase 2 Analysis</p>
+<button class="mt-4 w-full bg-primary text-on-primary py-2 px-4 rounded hover:bg-primary-container transition-colors font-data-label text-data-label flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[16px]">play_arrow</span> Run AI Scenario
+                </button>
+</div>
+<nav class="flex-1 px-4 overflow-y-auto flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-high transition-all rounded" href="#">
+<span class="material-symbols-outlined text-[18px]">dashboard</span> <span class="font-data-label text-data-label">Overview</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-high transition-all rounded" href="#">
+<span class="material-symbols-outlined text-[18px]">map</span> <span class="font-data-label text-data-label">Map</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 bg-secondary-container text-on-secondary-container font-medium rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">analytics</span> <span class="font-data-label text-data-label">Analysis</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-high transition-all rounded" href="#">
+<span class="material-symbols-outlined text-[18px]">layers</span> <span class="font-data-label text-data-label">Scenarios</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-high transition-all rounded" href="#">
+<span class="material-symbols-outlined text-[18px]">fact_check</span> <span class="font-data-label text-data-label">Evidence</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-high transition-all rounded" href="#">
+<span class="material-symbols-outlined text-[18px]">history</span> <span class="font-data-label text-data-label">Activity</span>
+</a>
+</nav>
+<div class="px-4 mt-auto border-t border-outline-variant pt-4 flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-high transition-all rounded" href="#">
+<span class="material-symbols-outlined text-[18px]">help</span> <span class="font-data-label text-data-label">Help</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-high transition-all rounded" href="#">
+<span class="material-symbols-outlined text-[18px]">forum</span> <span class="font-data-label text-data-label">Feedback</span>
+</a>
+</div>
+</aside>
+<!-- Right Drawer: Candidate Detail & Evidence -->
+<aside class="absolute right-0 top-0 h-full w-drawer-width bg-surface-container border-l border-outline-variant shadow-xl z-30 flex flex-col ai-glow transform transition-transform duration-300">
+<!-- AI Confidence Indicator Bar -->
+<div class="h-1 w-full bg-surface-variant flex">
+<div class="h-full bg-primary" style="width: 91%;"></div>
+</div>
+<!-- Drawer Header -->
+<div class="px-6 py-5 bg-[#F0EEEB] border-b border-outline-variant shrink-0">
+<div class="flex justify-between items-start mb-2">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="bg-primary text-on-primary px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider inline-flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">auto_awesome</span> Recommended
+                            </span>
+<span class="font-caption text-caption text-on-surface-variant flex items-center gap-1">
+                                AI recommendation · awaiting human review
+                            </span>
+</div>
+<h3 class="font-headline-md text-headline-md text-on-surface">Candidate A: Riverside North</h3>
+</div>
+<button class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined">close</span></button>
+</div>
+<!-- Action Row -->
+<div class="flex items-center justify-between mt-4">
+<div class="flex gap-2">
+<button class="w-8 h-8 rounded border border-outline-variant flex items-center justify-center text-on-surface-variant hover:bg-surface-variant transition-colors" title="Exclude">
+<span class="material-symbols-outlined text-[18px]">block</span>
+</button>
+<button class="w-8 h-8 rounded border border-outline-variant flex items-center justify-center text-on-surface-variant hover:bg-surface-variant transition-colors" title="Add note">
+<span class="material-symbols-outlined text-[18px]">edit_note</span>
+</button>
+<button class="w-8 h-8 rounded border border-outline-variant flex items-center justify-center text-on-surface-variant hover:bg-surface-variant transition-colors" title="Compare">
+<span class="material-symbols-outlined text-[18px]">compare_arrows</span>
+</button>
+</div>
+<button class="bg-secondary text-on-secondary px-4 py-1.5 rounded font-data-label text-data-label hover:bg-opacity-90 transition-opacity">
+                        Approve
+                    </button>
+</div>
+</div>
+<!-- Drawer Content (Scrollable) -->
+<div class="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+<!-- Summary Metrics Grid -->
+<section>
+<div class="grid grid-cols-2 gap-px bg-outline-variant border border-outline-variant rounded overflow-hidden">
+<div class="bg-surface p-3">
+<div class="font-data-label text-data-label text-on-surface-variant mb-1 uppercase text-[10px]">Estimated Capacity</div>
+<div class="font-headline-md text-headline-md text-on-surface">640 <span class="text-body-sm text-on-surface-variant">homes</span></div>
+</div>
+<div class="bg-surface p-3">
+<div class="font-data-label text-data-label text-on-surface-variant mb-1 uppercase text-[10px]">Transit Accessibility</div>
+<div class="font-headline-md text-headline-md text-primary">91%</div>
+</div>
+<div class="bg-surface p-3">
+<div class="font-data-label text-data-label text-on-surface-variant mb-1 uppercase text-[10px]">Flood Exposure</div>
+<div class="font-headline-md text-headline-md text-on-surface">0%</div>
+</div>
+<div class="bg-surface p-3 flex items-center justify-between">
+<div>
+<div class="font-data-label text-data-label text-on-surface-variant mb-1 uppercase text-[10px]">Composite Score</div>
+<div class="font-headline-md text-headline-md text-on-surface">91<span class="text-body-sm text-on-surface-variant">/100</span></div>
+</div>
+<div class="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin flex items-center justify-center" style="animation-duration: 3s; border-right-color: transparent;">
+<span class="w-2 h-2 bg-primary rounded-full"></span>
+</div>
+</div>
+</div>
+</section>
+<!-- Why this candidate? -->
+<section>
+<h4 class="font-data-label text-data-label text-on-surface-variant uppercase mb-3 flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">psychology</span> Why this candidate?
+                    </h4>
+<ul class="space-y-3">
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-primary mt-0.5 text-[18px]">check_circle</span>
+<div>
+<div class="font-body-sm text-body-sm font-medium text-on-surface">High transit proximity</div>
+<div class="font-caption text-caption text-on-surface-variant">Within 800m of major transit hub.</div>
+</div>
+</li>
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-primary mt-0.5 text-[18px]">check_circle</span>
+<div>
+<div class="font-body-sm text-body-sm font-medium text-on-surface">Zoning compatible</div>
+<div class="font-caption text-caption text-on-surface-variant">Current zoning allows mixed-use residential.</div>
+</div>
+</li>
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-primary mt-0.5 text-[18px]">check_circle</span>
+<div>
+<div class="font-body-sm text-body-sm font-medium text-on-surface">Optimal capacity</div>
+<div class="font-caption text-caption text-on-surface-variant">Meets 85% of Phase 2 housing goals.</div>
+</div>
+</li>
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-primary mt-0.5 text-[18px]">check_circle</span>
+<div>
+<div class="font-body-sm text-body-sm font-medium text-on-surface">Low flood risk</div>
+<div class="font-caption text-caption text-on-surface-variant">Outside 100-year and 500-year floodplains.</div>
+</div>
+</li>
+</ul>
+</section>
+<!-- How was this calculated? (Expandable) -->
+<section class="border border-outline-variant rounded bg-surface">
+<details class="group">
+<summary class="flex justify-between items-center p-3 cursor-pointer select-none font-body-sm text-body-sm font-medium text-on-surface">
+                            How was this calculated?
+                            <span class="material-symbols-outlined text-on-surface-variant group-open:rotate-180 transition-transform">expand_more</span>
+</summary>
+<div class="p-4 border-t border-outline-variant bg-surface-container-lowest">
+<div class="mb-4">
+<div class="flex justify-between items-end mb-1">
+<span class="font-data-label text-data-label text-on-surface">Transit Score</span>
+<span class="font-data-label text-data-label text-primary">91/100</span>
+</div>
+<div class="w-full bg-surface-variant h-1 rounded">
+<div class="bg-primary h-1 rounded" style="width: 91%"></div>
+</div>
+</div>
+<div class="relative pl-4 border-l-2 border-primary-fixed-dim space-y-3">
+<div class="relative">
+<div class="absolute -left-[21px] top-1 w-2 h-2 bg-surface-container-lowest border-2 border-primary rounded-full"></div>
+<div class="font-caption text-caption text-on-surface-variant font-data-label">STEP 1</div>
+<div class="font-body-sm text-body-sm text-on-surface">Identified <span class="font-medium">14</span> active transit stops within <span class="font-medium">800m</span> radius of parcel centroid.</div>
+</div>
+<div class="relative">
+<div class="absolute -left-[21px] top-1 w-2 h-2 bg-surface-container-lowest border-2 border-primary rounded-full"></div>
+<div class="font-caption text-caption text-on-surface-variant font-data-label">STEP 2</div>
+<div class="font-body-sm text-body-sm text-on-surface">Applied distance decay function (Beta=0.5) to stop frequencies.</div>
+</div>
+</div>
+</div>
+</details>
+</section>
+<!-- Assumptions (Editable) -->
+<section>
+<h4 class="font-data-label text-data-label text-on-surface-variant uppercase mb-3 flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">tune</span> Assumptions
+                    </h4>
+<div class="space-y-4 bg-surface p-4 rounded border border-outline-variant inset-shadow-sm">
+<div class="flex flex-col">
+<label class="font-data-label text-data-label text-on-surface-variant mb-1">Maximum density (FAR)</label>
+<input class="bg-transparent border-0 border-b border-outline-variant focus:ring-0 focus:border-primary px-0 py-1 font-body-sm text-body-sm text-on-surface" type="text" value="4.0"/>
+</div>
+<div class="flex flex-col">
+<label class="font-data-label text-data-label text-on-surface-variant mb-1">Developable area (%)</label>
+<input class="bg-transparent border-0 border-b border-outline-variant focus:ring-0 focus:border-primary px-0 py-1 font-body-sm text-body-sm text-on-surface" type="text" value="80"/>
+</div>
+<div class="flex flex-col">
+<label class="font-data-label text-data-label text-on-surface-variant mb-1">Residential allocation (%)</label>
+<input class="bg-transparent border-0 border-b border-outline-variant focus:ring-0 focus:border-primary px-0 py-1 font-body-sm text-body-sm text-on-surface" type="text" value="70"/>
+</div>
+</div>
+</section>
+<!-- Evidence & Sources -->
+<section>
+<h4 class="font-data-label text-data-label text-on-surface-variant uppercase mb-3 flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">source</span> Evidence &amp; Sources
+                    </h4>
+<div class="grid grid-cols-2 gap-2">
+<div class="p-2 border border-outline-variant rounded bg-surface flex flex-col">
+<span class="font-caption text-caption font-medium text-on-surface">Parcel data</span>
+<span class="font-data-label text-[9px] text-on-surface-variant mt-1">Updated 2d ago</span>
+</div>
+<div class="p-2 border border-outline-variant rounded bg-surface flex flex-col">
+<span class="font-caption text-caption font-medium text-on-surface">Zoning (Current)</span>
+<span class="font-data-label text-[9px] text-on-surface-variant mt-1">Updated 1w ago</span>
+</div>
+<div class="p-2 border border-outline-variant rounded bg-surface flex flex-col">
+<span class="font-caption text-caption font-medium text-on-surface">Transit Schedule</span>
+<span class="font-data-label text-[9px] text-on-surface-variant mt-1">Updated 4h ago</span>
+</div>
+<div class="p-2 border border-outline-variant rounded bg-surface flex flex-col">
+<span class="font-caption text-caption font-medium text-on-surface">FEMA Flood Risk</span>
+<span class="font-data-label text-[9px] text-on-surface-variant mt-1">Updated 1m ago</span>
+</div>
+</div>
+</section>
+<!-- Sensitivity Analysis -->
+<section class="bg-surface-container-low p-4 rounded border border-primary-fixed-dim/30">
+<h4 class="font-data-label text-data-label text-primary uppercase mb-2 flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">insights</span> Sensitivity Analysis
+                    </h4>
+<p class="font-caption text-caption text-on-surface-variant mb-3">
+                        If the transit threshold is reduced to <strong class="text-on-surface">500m</strong>, the transit score falls to <strong class="text-on-error-container">42/100</strong>, lowering the overall rank below Candidate C.
+                    </p>
+<button class="text-primary border border-primary px-3 py-1.5 rounded font-data-label text-data-label text-[10px] hover:bg-primary-container hover:text-on-primary-container transition-colors">
+                        Test this assumption
+                    </button>
+</section>
+</div>
+<!-- Drawer Footer -->
+<div class="p-4 border-t border-outline-variant bg-surface shrink-0 flex gap-3 justify-end">
+<button class="px-4 py-2 border border-error text-error rounded font-data-label text-data-label hover:bg-error-container transition-colors">
+                    Reject candidate
+                </button>
+<button class="px-4 py-2 bg-primary text-on-primary rounded font-data-label text-data-label hover:bg-primary-container transition-colors">
+                    Keep candidate
+                </button>
+</div>
+</aside>
+</div>
+<!-- Top App Bar (Scenario Decision) -->
+<div class="fixed bottom-0 left-0 w-full h-14 flex items-center justify-between px-8 z-40 bg-surface-bright border-t border-outline-variant shadow-lg transition-transform duration-300">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">gavel</span>
+<span class="font-headline-md text-headline-md text-primary font-bold">Scenario Decision Bar</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex gap-2 mr-4 border-r border-outline-variant pr-4">
+<button class="text-outline hover:bg-primary-container p-1 rounded transition-colors"><span class="material-symbols-outlined">share</span></button>
+<button class="text-outline hover:bg-primary-container p-1 rounded transition-colors"><span class="material-symbols-outlined">archive</span></button>
+</div>
+<button class="px-4 py-1.5 border border-outline-variant text-on-surface-variant rounded font-data-label text-data-label hover:bg-surface-variant transition-colors">
+                Modify
+            </button>
+<button class="px-4 py-1.5 bg-secondary text-on-secondary rounded font-data-label text-data-label hover:bg-opacity-90 transition-opacity shadow-sm">
+                Approve Plan
+            </button>
+</div>
+</div>
+<style>
+        /* Custom scrollbar for webkit to keep it subtle */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: var(--tw-colors-outline-variant);
+            border-radius: 10px;
+        }
+        .inset-shadow-sm {
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+        }
+    </style>
+</body></html>

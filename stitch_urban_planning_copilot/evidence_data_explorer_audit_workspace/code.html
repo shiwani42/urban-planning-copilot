@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Evidence &amp; Data Explorer - Urban Planning Copilot</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=JetBrains+Mono:wght@400..700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed-dim": "#c7c6c5",
+                        "on-secondary-container": "#774e00",
+                        "on-primary": "#ffffff",
+                        "on-surface-variant": "#40484d",
+                        "secondary-fixed": "#ffddb2",
+                        "primary-container": "#005e7d",
+                        "surface-bright": "#fcf9f8",
+                        "surface-tint": "#136685",
+                        "outline-variant": "#bfc8ce",
+                        "secondary": "#815504",
+                        "on-secondary-fixed": "#291800",
+                        "on-tertiary": "#ffffff",
+                        "background": "#fcf9f8",
+                        "surface-dim": "#dcd9d9",
+                        "inverse-surface": "#303030",
+                        "surface-container-high": "#eae7e7",
+                        "error-container": "#ffdad6",
+                        "tertiary-fixed": "#e3e2e0",
+                        "surface": "#fcf9f8",
+                        "primary-fixed-dim": "#8ccff3",
+                        "primary-fixed": "#c1e8ff",
+                        "inverse-on-surface": "#f3f0f0",
+                        "tertiary": "#3f403f",
+                        "surface-variant": "#e4e2e1",
+                        "on-tertiary-fixed-variant": "#464746",
+                        "on-tertiary-fixed": "#1a1c1b",
+                        "outline": "#70787e",
+                        "primary": "#00455d",
+                        "on-primary-fixed-variant": "#004d67",
+                        "secondary-fixed-dim": "#f7bc67",
+                        "on-primary-fixed": "#001e2b",
+                        "tertiary-container": "#565756",
+                        "on-tertiary-container": "#cdcdcb",
+                        "surface-container-highest": "#e4e2e1",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-container": "#92d6f9",
+                        "on-error": "#ffffff",
+                        "surface-container-low": "#f6f3f2",
+                        "on-secondary-fixed-variant": "#624000",
+                        "secondary-container": "#fdc26c",
+                        "on-surface": "#1b1c1c",
+                        "surface-container": "#f0eded",
+                        "on-secondary": "#ffffff",
+                        "inverse-primary": "#8ccff3",
+                        "error": "#ba1a1a",
+                        "on-error-container": "#93000a",
+                        "on-background": "#1b1c1c"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "section-padding": "1.5rem",
+                        "sidebar-width": "360px",
+                        "element-gap": "0.75rem",
+                        "inspector-width": "320px",
+                        "panel-gap": "1px"
+                    },
+                    "fontFamily": {
+                        "display": ["Geist"],
+                        "body-lg": ["Geist"],
+                        "body-sm": ["Geist"],
+                        "headline-md": ["Geist"],
+                        "caption": ["Geist"],
+                        "data-label": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "display": ["32px", { "lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "1.6", "fontWeight": "400" }],
+                        "body-sm": ["14px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "1.4", "fontWeight": "500" }],
+                        "caption": ["12px", { "lineHeight": "1.4", "fontWeight": "400" }],
+                        "data-label": ["12px", { "lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background font-body-sm h-screen flex flex-col overflow-hidden selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar -->
+<header class="bg-surface dark:bg-surface-container flex justify-between items-center w-full px-section-padding h-16 sticky top-0 z-50 border-b border-outline-variant dark:border-outline">
+<div class="flex items-center gap-8">
+<span class="font-display text-headline-md font-bold text-primary dark:text-primary-fixed-dim">Urban Planning Copilot</span>
+<nav class="hidden md:flex gap-6">
+<a class="text-on-surface-variant dark:text-tertiary-fixed-dim hover:text-primary dark:hover:text-primary-fixed-dim transition-colors" href="#">Projects</a>
+<a class="text-on-surface-variant dark:text-tertiary-fixed-dim hover:text-primary dark:hover:text-primary-fixed-dim transition-colors" href="#">Explore</a>
+<a class="text-on-surface-variant dark:text-tertiary-fixed-dim hover:text-primary dark:hover:text-primary-fixed-dim transition-colors" href="#">Scenarios</a>
+<a class="text-primary dark:text-primary-fixed-dim border-b-2 border-primary dark:border-primary-fixed-dim pb-1 opacity-80 transition-opacity" href="#">Data</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-surface-variant border border-outline-variant overflow-hidden">
+<img alt="Planner Profile" class="w-full h-full object-cover" data-alt="Professional headshot of an urban planner in a bright, modern office space. Soft natural lighting, neutral colors." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA0rnpJAdWqDlZYg9HyDVHyxukPG1CcKQEA6Plt7wfNt_E3PlgOTx9Q4cZ1NTZlKqck5QsyJuL7qg394aPuBBlRgdxqKE2gK4TBdnBM0jny2udeIMsHKJtCFFkeptzVxGdKTnWeO2YJDa1y7qqckPoLqer8bxwZVVrSh8-PpAl92UQ4x3ZVeqDtYcYF2LWbBMd2842_QnfEPb4bXh9Ji6tGyJMn-SMJIwGLYSSX2ttBHAHDaZLy2AVBpA"/>
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- SideNavBar -->
+<aside class="bg-surface-container-low dark:bg-surface-container-high flex flex-col w-sidebar-width h-[calc(100vh-64px)] p-element-gap sticky left-0 border-r border-outline-variant dark:border-outline flex-shrink-0 z-40">
+<div class="mb-6 px-3">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-10 h-10 rounded bg-primary-container text-on-primary-container flex items-center justify-center font-bold font-data-label">PA</div>
+<div>
+<h2 class="font-display text-headline-md font-semibold text-on-surface">Project Alpha</h2>
+<p class="text-on-surface-variant text-caption">City Core Development</p>
+</div>
+</div>
+<button class="w-full bg-primary text-on-primary py-2 rounded-lg font-medium hover:bg-on-primary-fixed-variant transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                    New Scenario
+                </button>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant dark:text-tertiary-fixed-dim hover:bg-surface-variant dark:hover:bg-tertiary-container rounded-lg transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Overview</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant dark:text-tertiary-fixed-dim hover:bg-surface-variant dark:hover:bg-tertiary-container rounded-lg transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="map">map</span>
+<span>Map</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant dark:text-tertiary-fixed-dim hover:bg-surface-variant dark:hover:bg-tertiary-container rounded-lg transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span>Analysis</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant dark:text-tertiary-fixed-dim hover:bg-surface-variant dark:hover:bg-tertiary-container rounded-lg transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="layers">layers</span>
+<span>Scenarios</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 bg-secondary-container dark:bg-secondary text-on-secondary-container dark:text-on-secondary font-medium rounded-lg scale-[0.98] transition-transform duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="description" data-weight="fill" style="font-variation-settings: 'FILL' 1;">description</span>
+<span>Evidence</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant dark:text-tertiary-fixed-dim hover:bg-surface-variant dark:hover:bg-tertiary-container rounded-lg transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span>Activity</span>
+</a>
+</nav>
+<div class="mt-auto space-y-1 pt-4 border-t border-outline-variant">
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-all text-caption" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="help_outline">help_outline</span>
+<span>Help</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-all text-caption" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="chat_bubble_outline">chat_bubble_outline</span>
+<span>Feedback</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col h-full bg-background overflow-hidden">
+<!-- Header area -->
+<div class="px-section-padding pt-section-padding pb-4 border-b border-outline-variant bg-surface-container-lowest">
+<h1 class="font-display text-display mb-1 text-on-surface">Evidence</h1>
+<p class="text-on-surface-variant text-body-lg">Everything used to produce the current analysis.</p>
+<div class="flex gap-6 mt-6 border-b border-outline-variant">
+<button class="pb-2 border-b-2 border-primary text-primary font-medium text-body-sm">Datasets</button>
+<button class="pb-2 border-b-2 border-transparent text-on-surface-variant hover:text-on-surface transition-colors text-body-sm">Assumptions</button>
+<button class="pb-2 border-b-2 border-transparent text-on-surface-variant hover:text-on-surface transition-colors text-body-sm">Methods</button>
+<button class="pb-2 border-b-2 border-transparent text-on-surface-variant hover:text-on-surface transition-colors text-body-sm">Sources</button>
+<button class="pb-2 border-b-2 border-transparent text-on-surface-variant hover:text-on-surface transition-colors text-body-sm">Changes</button>
+</div>
+</div>
+<!-- Workspace -->
+<div class="flex-1 flex overflow-hidden">
+<!-- Datasets Table List -->
+<div class="flex-1 overflow-y-auto p-section-padding border-r border-outline-variant">
+<div class="border border-outline-variant rounded-lg overflow-hidden bg-surface-container-lowest">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low border-b border-outline-variant text-caption text-on-surface-variant uppercase font-data-label">
+<th class="py-3 px-4 font-medium">Dataset</th>
+<th class="py-3 px-4 font-medium">Version</th>
+<th class="py-3 px-4 font-medium">Updated</th>
+<th class="py-3 px-4 font-medium">Coverage</th>
+<th class="py-3 px-4 font-medium">Used in</th>
+</tr>
+</thead>
+<tbody class="text-body-sm divide-y divide-outline-variant">
+<tr class="hover:bg-surface-container-low transition-colors cursor-pointer group">
+<td class="py-3 px-4 flex items-center gap-2 text-on-surface font-medium">
+<span class="material-symbols-outlined text-outline text-[18px]">table_rows</span>
+                                        Parcels
+                                    </td>
+<td class="py-3 px-4 font-data-label text-on-surface-variant">2026.04</td>
+<td class="py-3 px-4 text-on-surface-variant">Apr 12</td>
+<td class="py-3 px-4 text-on-surface-variant">98% geography</td>
+<td class="py-3 px-4">
+<div class="flex gap-1 flex-wrap">
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface-variant rounded text-caption border border-outline-variant">Capacity</span>
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface-variant rounded text-caption border border-outline-variant">zoning</span>
+</div>
+</td>
+</tr>
+<tr class="bg-primary-fixed bg-opacity-20 border-l-4 border-l-primary hover:bg-primary-fixed hover:bg-opacity-30 transition-colors cursor-pointer">
+<td class="py-3 px-4 flex items-center gap-2 text-primary font-medium pl-3"> <!-- Adjust padding for border -->
+<span class="material-symbols-outlined text-primary text-[18px]">directions_bus</span>
+                                        Transit
+                                    </td>
+<td class="py-3 px-4 font-data-label text-on-surface-variant">2026.05</td>
+<td class="py-3 px-4 text-on-surface-variant">May 03</td>
+<td class="py-3 px-4 text-on-surface-variant">100%</td>
+<td class="py-3 px-4">
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface-variant rounded text-caption border border-outline-variant">Accessibility</span>
+</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors cursor-pointer group">
+<td class="py-3 px-4 flex items-center gap-2 text-on-surface font-medium">
+<span class="material-symbols-outlined text-outline text-[18px]">water</span>
+                                        Flood Risk
+                                    </td>
+<td class="py-3 px-4 font-data-label text-on-surface-variant">2026.04</td>
+<td class="py-3 px-4 text-on-surface-variant">Apr 18</td>
+<td class="py-3 px-4 text-on-surface-variant">100%</td>
+<td class="py-3 px-4">
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface-variant rounded text-caption border border-outline-variant">Constraints</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Activity Feed Preview -->
+<div class="mt-8 border border-outline-variant rounded-lg bg-surface-container-lowest p-4">
+<h3 class="font-headline-md text-on-surface mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px]">history</span>
+                            Recent Changes
+                        </h3>
+<div class="space-y-4 pl-2 relative before:absolute before:inset-y-0 before:left-3.5 before:w-px before:bg-outline-variant">
+<!-- Feed Item -->
+<div class="relative pl-6">
+<div class="absolute left-[-2px] top-1.5 w-2 h-2 rounded-full bg-primary ring-4 ring-surface-container-lowest"></div>
+<div class="font-data-label text-caption text-on-surface-variant mb-1">10:45</div>
+<div class="text-on-surface text-body-sm">Candidate ranking updated.</div>
+</div>
+<!-- Feed Item -->
+<div class="relative pl-6">
+<div class="absolute left-[-2px] top-1.5 w-2 h-2 rounded-full bg-secondary ring-4 ring-surface-container-lowest"></div>
+<div class="font-data-label text-caption text-on-surface-variant mb-1">10:45</div>
+<div class="text-on-surface text-body-sm">Planner excluded <span class="font-medium">Riverside South</span>.</div>
+</div>
+<!-- Feed Item -->
+<div class="relative pl-6">
+<div class="absolute left-[-2px] top-1.5 w-2 h-2 rounded-full bg-primary-container ring-4 ring-surface-container-lowest"></div>
+<div class="font-data-label text-caption text-on-surface-variant mb-1">10:44</div>
+<div class="text-on-surface text-body-sm">Copilot recalculated accessibility.</div>
+</div>
+<!-- Feed Item -->
+<div class="relative pl-6">
+<div class="absolute left-[-2px] top-1.5 w-2 h-2 rounded-full bg-secondary ring-4 ring-surface-container-lowest"></div>
+<div class="font-data-label text-caption text-on-surface-variant mb-1">10:43</div>
+<div class="text-on-surface text-body-sm">Planner changed transit threshold from <span class="line-through text-outline">1km</span> to <span class="font-medium">800m</span>.</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Inspector Panel -->
+<aside class="w-inspector-width bg-surface-container-low flex flex-col h-full overflow-y-auto border-l border-outline-variant">
+<div class="p-4 bg-surface-container-highest border-b border-outline-variant sticky top-0 z-10 flex justify-between items-start">
+<div>
+<div class="font-data-label text-caption text-on-surface-variant mb-1 uppercase tracking-wider">Dataset Detail</div>
+<h2 class="font-headline-md text-on-surface font-semibold flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">directions_bus</span>
+                                Transit GIS Layer
+                            </h2>
+</div>
+<button class="text-on-surface-variant hover:text-on-surface">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<div class="p-4 space-y-6">
+<div class="grid grid-cols-2 gap-y-4 gap-x-2">
+<div>
+<div class="font-data-label text-caption text-on-surface-variant mb-1">Source</div>
+<div class="text-body-sm text-on-surface">City DOT</div>
+</div>
+<div>
+<div class="font-data-label text-caption text-on-surface-variant mb-1">Version</div>
+<div class="text-body-sm text-on-surface font-data-label">2026.05</div>
+</div>
+<div>
+<div class="font-data-label text-caption text-on-surface-variant mb-1">Last Updated</div>
+<div class="text-body-sm text-on-surface">May 03, 2026</div>
+</div>
+<div>
+<div class="font-data-label text-caption text-on-surface-variant mb-1">Coverage</div>
+<div class="text-body-sm text-on-surface">100% Metro</div>
+</div>
+</div>
+<div class="border-t border-outline-variant pt-4">
+<div class="font-data-label text-caption text-on-surface-variant mb-2">Quality Indicator</div>
+<div class="flex items-center gap-2 bg-surface p-2 border border-outline-variant rounded">
+<span class="material-symbols-outlined text-primary text-[18px]">verified</span>
+<span class="text-body-sm font-medium">High</span>
+<span class="text-caption text-on-surface-variant ml-auto">(GTFS audit)</span>
+</div>
+</div>
+<div class="border-t border-outline-variant pt-4">
+<div class="font-data-label text-caption text-on-surface-variant mb-2">Known Limitations</div>
+<p class="text-body-sm text-on-surface-variant bg-surface p-3 rounded border border-error-container">
+                                Real-time delays not factored in to accessibility calculations.
+                            </p>
+</div>
+<div class="border-t border-outline-variant pt-4">
+<div class="font-data-label text-caption text-on-surface-variant mb-2">Used by analyses</div>
+<div class="flex flex-wrap gap-2">
+<span class="px-2 py-1 bg-surface border border-outline-variant rounded text-caption flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">analytics</span>
+                                    Transit accessibility
+                                </span>
+<span class="px-2 py-1 bg-surface border border-outline-variant rounded text-caption flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">format_list_numbered</span>
+                                    Candidate ranking
+                                </span>
+</div>
+</div>
+<!-- Related Assumptions Preview -->
+<div class="border-t border-outline-variant pt-4">
+<div class="flex justify-between items-end mb-2">
+<div class="font-data-label text-caption text-on-surface-variant">Linked Assumption</div>
+</div>
+<div class="bg-surface border border-outline-variant rounded p-3">
+<div class="flex justify-between mb-1">
+<span class="text-body-sm font-medium">Transit Threshold</span>
+<span class="text-body-sm font-data-label bg-secondary-container text-on-secondary-container px-1.5 rounded">800m</span>
+</div>
+<div class="text-caption text-on-surface-variant flex items-center gap-1 mb-3">
+<span class="material-symbols-outlined text-[14px]">person</span> User-defined · Changed 10:41
+                                </div>
+<button class="w-full text-center text-primary text-body-sm font-medium py-1.5 border border-primary rounded hover:bg-primary hover:text-on-primary transition-colors">
+                                    Test alternative
+                                </button>
+</div>
+</div>
+<button class="w-full mt-4 bg-primary text-on-primary py-2.5 rounded-lg font-medium hover:bg-on-primary-fixed-variant transition-colors flex items-center justify-center gap-2 shadow-sm">
+<span class="material-symbols-outlined">map</span>
+                            View on map
+                        </button>
+</div>
+</aside>
+</div>
+</main>
+</div>
+</body></html>

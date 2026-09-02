@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>New Planning Workspace - Urban Planning Copilot</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-secondary": "#ffffff",
+                      "on-tertiary-fixed": "#1a1c1b",
+                      "outline-variant": "#bfc8ce",
+                      "error": "#ba1a1a",
+                      "surface": "#fcf9f8",
+                      "secondary-container": "#fdc26c",
+                      "primary-fixed-dim": "#8ccff3",
+                      "tertiary": "#3f403f",
+                      "error-container": "#ffdad6",
+                      "on-tertiary": "#ffffff",
+                      "on-tertiary-fixed-variant": "#464746",
+                      "surface-variant": "#e4e2e1",
+                      "on-primary-fixed-variant": "#004d67",
+                      "on-tertiary-container": "#cdcdcb",
+                      "primary-fixed": "#c1e8ff",
+                      "on-primary-fixed": "#001e2b",
+                      "primary-container": "#005e7d",
+                      "on-secondary-fixed-variant": "#624000",
+                      "tertiary-fixed-dim": "#c7c6c5",
+                      "outline": "#70787e",
+                      "primary": "#00455d",
+                      "surface-tint": "#136685",
+                      "inverse-on-surface": "#f3f0f0",
+                      "tertiary-container": "#565756",
+                      "tertiary-fixed": "#e3e2e0",
+                      "surface-container-lowest": "#ffffff",
+                      "inverse-surface": "#303030",
+                      "inverse-primary": "#8ccff3",
+                      "surface-container": "#f0eded",
+                      "secondary-fixed-dim": "#f7bc67",
+                      "surface-container-high": "#eae7e7",
+                      "on-error-container": "#93000a",
+                      "surface-bright": "#fcf9f8",
+                      "surface-container-low": "#f6f3f2",
+                      "secondary": "#815504",
+                      "on-background": "#1b1c1c",
+                      "on-secondary-container": "#774e00",
+                      "on-surface-variant": "#40484d",
+                      "surface-dim": "#dcd9d9",
+                      "secondary-fixed": "#ffddb2",
+                      "on-primary-container": "#92d6f9",
+                      "on-primary": "#ffffff",
+                      "on-error": "#ffffff",
+                      "surface-container-highest": "#e4e2e1",
+                      "on-secondary-fixed": "#291800",
+                      "background": "#fcf9f8",
+                      "on-surface": "#1b1c1c"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "section-padding": "1.5rem",
+                      "element-gap": "0.75rem",
+                      "panel-gap": "1px",
+                      "sidebar-width": "360px",
+                      "inspector-width": "320px"
+              },
+              "fontFamily": {
+                      "display": [
+                              "Geist"
+                      ],
+                      "body-sm": [
+                              "Geist"
+                      ],
+                      "data-label": [
+                              "JetBrains Mono"
+                      ],
+                      "headline-md": [
+                              "Geist"
+                      ],
+                      "body-lg": [
+                              "Geist"
+                      ],
+                      "caption": [
+                              "Geist"
+                      ]
+              },
+              "fontSize": {
+                      "display": [
+                              "32px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-sm": [
+                              "14px",
+                              {
+                                      "lineHeight": "1.5",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "data-label": [
+                              "12px",
+                              {
+                                      "lineHeight": "1",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-md": [
+                              "20px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body-lg": [
+                              "16px",
+                              {
+                                      "lineHeight": "1.6",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "caption": [
+                              "12px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "fontWeight": "400"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+    </script>
+<style>
+        body { font-family: 'Geist', sans-serif; }
+        .bg-grid-pattern {
+            background-image: linear-gradient(to right, #e4e2e1 1px, transparent 1px),
+                              linear-gradient(to bottom, #e4e2e1 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        
+        @media (prefers-reduced-motion: no-preference) {
+            .bg-grid-pattern {
+                animation: bg-pulse 10s ease-in-out infinite alternate;
+            }
+            .fade-in-up {
+                animation: fadeInUp 0.6s ease-out forwards;
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            .stagger-1 { animation-delay: 0.1s; }
+            .stagger-2 { animation-delay: 0.2s; }
+            .stagger-3 { animation-delay: 0.3s; }
+            .stagger-4 { animation-delay: 0.4s; }
+            .stagger-panel { animation-delay: 0.2s; }
+            
+            .shimmer-text {
+                background: linear-gradient(90deg, #1b1c1c 0%, #70787e 50%, #1b1c1c 100%);
+                background-size: 200% auto;
+                color: transparent;
+                -webkit-background-clip: text;
+                background-clip: text;
+                animation: shimmer 2s linear infinite;
+            }
+            
+            .highlight-sync {
+                transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.3s ease;
+            }
+            .highlight-active {
+                background-color: #f0eded; /* surface-container */
+                border-color: #00455d; /* primary */
+                transform: translateX(4px);
+            }
+        }
+
+        @keyframes bg-pulse {
+            0% { opacity: 0.8; }
+            100% { opacity: 1; }
+        }
+
+        @keyframes fadeInUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes shimmer {
+            to {
+                background-position: 200% center;
+            }
+        }
+
+        .ai-glow {
+            box-shadow: inset 0 0 8px rgba(0, 69, 93, 0.1);
+        }
+        .ai-processing {
+            position: relative;
+            overflow: hidden;
+        }
+        .ai-processing::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 50%;
+            height: 100%;
+            background: linear-gradient(to right, transparent, rgba(0, 69, 93, 0.05), transparent);
+            animation: loading 2s infinite ease-in-out;
+        }
+        @keyframes loading {
+            0% { left: -100%; }
+            100% { left: 200%; }
+        }
+        
+        /* Hover lift for cards */
+        .card-hover {
+            transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-2px);
+            border-color: #00455d;
+            box-shadow: 0 4px 12px rgba(0, 69, 93, 0.05);
+        }
+        
+        /* Scale for create button */
+        .btn-scale {
+            transition: transform 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+        }
+        .btn-scale:hover {
+            transform: scale(1.02);
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface h-screen flex flex-col overflow-hidden">
+<!-- Header -->
+<header class="h-16 px-6 border-b border-outline-variant bg-surface-bright flex items-center justify-between shrink-0">
+<button class="flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors font-body-sm text-body-sm">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">arrow_back</span>
+            Back to Projects
+        </button>
+<h1 class="font-headline-md text-headline-md text-on-surface absolute left-1/2 transform -translate-x-1/2">New planning workspace</h1>
+<button class="font-body-sm text-body-sm text-on-surface-variant hover:text-primary border border-outline-variant px-4 py-2 rounded transition-colors">
+            Save draft
+        </button>
+</header>
+<!-- Main Layout -->
+<div class="flex-1 flex overflow-hidden">
+<!-- Center Canvas -->
+<main class="flex-1 bg-surface-container-lowest bg-grid-pattern overflow-y-auto relative flex flex-col">
+<div class="max-w-4xl mx-auto w-full px-12 py-16 flex-1 flex flex-col justify-center fade-in-up">
+<h2 class="font-display text-display text-on-surface mb-8">What are you trying to plan?</h2>
+<div class="relative w-full mb-4 group">
+<label class="font-data-label text-data-label text-on-surface-variant block mb-2 uppercase tracking-wider">Planning Objective</label>
+<textarea class="w-full bg-surface border-b-2 border-outline-variant focus:border-primary focus:outline-none focus:ring-0 font-body-lg text-body-lg text-on-surface placeholder-on-surface-variant/50 resize-none pb-4 transition-colors bg-transparent" id="planning-input" placeholder="Example: Identify areas where we could accommodate 2,000 additional homes while improving transit access and avoiding flood-risk areas." rows="3"></textarea>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-12 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" style="font-size: 16px;">info</span>
+                    Start with a question. You can refine the criteria with the Copilot.
+                </p>
+<div>
+<h3 class="font-data-label text-data-label text-on-surface-variant uppercase tracking-wider mb-4">Example Questions</h3>
+<div class="grid grid-cols-2 gap-4">
+<button class="text-left p-4 border border-outline-variant rounded bg-surface transition-all group card-hover fade-in-up stagger-1" data-sync="housing">
+<h4 class="font-headline-md text-body-lg text-on-surface mb-1">Housing growth</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Where could we add 2,000 homes?</p>
+</button>
+<button class="text-left p-4 border border-outline-variant rounded bg-surface transition-all group card-hover fade-in-up stagger-2" data-sync="transit">
+<h4 class="font-headline-md text-body-lg text-on-surface mb-1">Transit</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Which neighborhoods have the largest transit accessibility gaps?</p>
+</button>
+<button class="text-left p-4 border border-outline-variant rounded bg-surface transition-all group card-hover fade-in-up stagger-3" data-sync="schools">
+<h4 class="font-headline-md text-body-lg text-on-surface mb-1">Schools</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Where would new schools improve access?</p>
+</button>
+<button class="text-left p-4 border border-outline-variant rounded bg-surface transition-all group card-hover fade-in-up stagger-4" data-sync="climate">
+<h4 class="font-headline-md text-body-lg text-on-surface mb-1">Climate resilience</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Which areas are most exposed to future flood risk?</p>
+</button>
+</div>
+</div>
+</div>
+<!-- Bottom Actions -->
+<div class="mt-auto border-t border-outline-variant bg-surface-bright/80 backdrop-blur px-12 py-6 flex items-center justify-between shrink-0 fade-in-up stagger-4">
+<div class="flex flex-col">
+<div class="flex items-center gap-4 mb-2">
+<button class="bg-primary text-on-primary px-6 py-2.5 rounded font-body-sm text-body-sm hover:bg-primary-container hover:text-on-primary-container btn-scale">
+                            Create workspace
+                        </button>
+<button class="text-on-surface-variant px-4 py-2.5 rounded font-body-sm text-body-sm hover:text-primary transition-colors">
+                            Review assumptions first
+                        </button>
+</div>
+<p class="font-caption text-caption text-outline flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">shield_person</span>
+                        The Copilot will propose an analysis plan before running consequential analyses. You remain in control.
+                    </p>
+</div>
+</div>
+</main>
+<!-- Right Panel: Inspector/Preview -->
+<aside class="w-[400px] border-l border-outline-variant bg-surface-container-low flex flex-col shrink-0 fade-in-up stagger-panel">
+<div class="p-4 border-b border-outline-variant bg-[#F0EEEB] flex items-center justify-between">
+<h2 class="font-headline-md text-headline-md text-on-surface">What I'll prepare</h2>
+<span class="material-symbols-outlined text-outline">analytics</span>
+</div>
+<div class="flex-1 p-6 overflow-y-auto space-y-8" id="ai-preview-panel">
+<!-- State: Empty/Waiting -->
+<div class="text-center mt-12 opacity-50" id="empty-state">
+<span class="material-symbols-outlined text-[48px] mb-4">edit_document</span>
+<p class="font-body-sm text-body-sm text-on-surface-variant shimmer-text">Start typing to see AI parsing.</p>
+</div>
+<!-- State: Populated (Simulated via JS later, shown for design) -->
+<div class="hidden" id="populated-state">
+<!-- Objective -->
+<div class="mb-6">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-primary text-[16px]">flag</span>
+<h3 class="font-data-label text-data-label text-on-surface uppercase">Objective</h3>
+</div>
+<div class="p-3 bg-surface border border-outline-variant rounded font-body-sm text-body-sm text-on-surface ai-glow ai-processing" id="detected-objective">
+                            Detecting intent...
+                        </div>
+</div>
+<!-- Geography -->
+<div class="mb-6">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-primary text-[16px]">map</span>
+<h3 class="font-data-label text-data-label text-on-surface uppercase">Geography</h3>
+</div>
+<div class="flex gap-2">
+<span class="px-2 py-1 bg-surface-container-high border border-outline rounded font-data-label text-data-label text-on-surface ai-processing highlight-sync" id="sync-geo">Citywide</span>
+</div>
+</div>
+<!-- Datasets -->
+<div class="mb-6">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-primary text-[16px]">database</span>
+<h3 class="font-data-label text-data-label text-on-surface uppercase">Potential Datasets</h3>
+</div>
+<ul class="space-y-2">
+<li class="flex items-center gap-3 p-2 bg-surface border border-outline-variant rounded ai-processing highlight-sync" id="sync-dataset-1">
+<span class="material-symbols-outlined text-outline text-[18px]">real_estate_agent</span>
+<span class="font-body-sm text-body-sm text-on-surface">Parcel Boundaries</span>
+</li>
+<li class="flex items-center gap-3 p-2 bg-surface border border-outline-variant rounded ai-processing highlight-sync" id="sync-dataset-2" style="animation-delay: 0.2s">
+<span class="material-symbols-outlined text-outline text-[18px]">architecture</span>
+<span class="font-body-sm text-body-sm text-on-surface">Current Zoning</span>
+</li>
+<li class="flex items-center gap-3 p-2 bg-surface border border-outline-variant rounded ai-processing highlight-sync" id="sync-dataset-3" style="animation-delay: 0.4s">
+<span class="material-symbols-outlined text-outline text-[18px]">directions_bus</span>
+<span class="font-body-sm text-body-sm text-on-surface">Transit Network</span>
+</li>
+</ul>
+</div>
+<!-- Analyses -->
+<div>
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-primary text-[16px]">model_training</span>
+<h3 class="font-data-label text-data-label text-on-surface uppercase">Potential Analyses</h3>
+</div>
+<div class="space-y-3 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[1px] before:bg-primary-fixed-dim">
+<div class="flex items-start gap-3 relative z-10 pl-6 highlight-sync p-2 rounded" id="sync-analysis-1">
+<div class="absolute left-[7px] top-[12px] w-2 h-2 rounded-full bg-primary ring-4 ring-surface-container-low transition-transform duration-300" id="sync-dot-1"></div>
+<div>
+<h4 class="font-data-label text-data-label text-on-surface mb-1">Capacity Calculation</h4>
+<p class="font-caption text-caption text-on-surface-variant">Estimate theoretical max units based on zoning.</p>
+</div>
+</div>
+<div class="flex items-start gap-3 relative z-10 pl-6 highlight-sync p-2 rounded" id="sync-analysis-2">
+<div class="absolute left-[7px] top-[12px] w-2 h-2 rounded-full bg-primary ring-4 ring-surface-container-low transition-transform duration-300" id="sync-dot-2"></div>
+<div>
+<h4 class="font-data-label text-data-label text-on-surface mb-1">Isochrone Generation</h4>
+<p class="font-caption text-caption text-on-surface-variant">15-min walk shed to transit stops.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</aside>
+</div>
+<script>
+        // Minimal interaction to show "AI Detection" feeling
+        const input = document.getElementById('planning-input');
+        const emptyState = document.getElementById('empty-state');
+        const populatedState = document.getElementById('populated-state');
+        const detectedObjective = document.getElementById('detected-objective');
+
+        let timeout = null;
+
+        input.addEventListener('input', (e) => {
+            clearTimeout(timeout);
+            if (e.target.value.trim().length > 5) {
+                emptyState.classList.add('hidden');
+                populatedState.classList.remove('hidden');
+                
+                // Simulate processing
+                detectedObjective.textContent = 'Analyzing syntax...';
+                detectedObjective.classList.add('ai-processing');
+                detectedObjective.classList.add('shimmer-text');
+                
+                timeout = setTimeout(() => {
+                    detectedObjective.textContent = `Identify sites for ${e.target.value.substring(0, 30)}...`;
+                    detectedObjective.classList.remove('ai-processing');
+                    detectedObjective.classList.remove('shimmer-text');
+                    
+                    // Remove processing from lists
+                    document.querySelectorAll('.ai-processing').forEach(el => {
+                        if(el !== detectedObjective) el.classList.remove('ai-processing');
+                    });
+                }, 1500);
+
+            } else if (e.target.value.trim().length === 0) {
+                emptyState.classList.remove('hidden');
+                populatedState.classList.add('hidden');
+            }
+        });
+        
+        // Example card hover sync effects (only works when panel is populated, but logic is here)
+        const exampleCards = document.querySelectorAll('.card-hover');
+        exampleCards.forEach(card => {
+            card.addEventListener('mouseenter', () => {
+                const syncType = card.dataset.sync;
+                // Just a basic visual demo of syncing for the populated state
+                if(populatedState.classList.contains('hidden')) return;
+                
+                document.querySelectorAll('.highlight-sync').forEach(el => el.classList.remove('highlight-active'));
+                
+                if (syncType === 'housing') {
+                    document.getElementById('sync-dataset-1')?.classList.add('highlight-active');
+                    document.getElementById('sync-dataset-2')?.classList.add('highlight-active');
+                    document.getElementById('sync-analysis-1')?.classList.add('highlight-active');
+                    if(document.getElementById('sync-dot-1')) document.getElementById('sync-dot-1').style.transform = 'scale(1.5)';
+                } else if (syncType === 'transit') {
+                    document.getElementById('sync-dataset-3')?.classList.add('highlight-active');
+                    document.getElementById('sync-analysis-2')?.classList.add('highlight-active');
+                    if(document.getElementById('sync-dot-2')) document.getElementById('sync-dot-2').style.transform = 'scale(1.5)';
+                }
+            });
+            
+            card.addEventListener('mouseleave', () => {
+                document.querySelectorAll('.highlight-sync').forEach(el => el.classList.remove('highlight-active'));
+                if(document.getElementById('sync-dot-1')) document.getElementById('sync-dot-1').style.transform = 'scale(1)';
+                if(document.getElementById('sync-dot-2')) document.getElementById('sync-dot-2').style.transform = 'scale(1)';
+            });
+            
+            // Allow clicking example to populate input
+            card.addEventListener('click', () => {
+                const text = card.querySelector('p').textContent;
+                input.value = text;
+                // Dispatch input event to trigger the simulation
+                input.dispatchEvent(new Event('input'));
+            });
+        });
+    </script>
+</body></html>

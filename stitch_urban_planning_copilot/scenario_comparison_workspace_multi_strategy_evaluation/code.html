@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Scenario Comparison - Urban Planning Copilot</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-variant": "#e4e2e1",
+                        "on-tertiary-fixed": "#1a1c1b",
+                        "on-surface": "#1b1c1c",
+                        "inverse-on-surface": "#f3f0f0",
+                        "on-background": "#1b1c1c",
+                        "surface-container-high": "#eae7e7",
+                        "on-tertiary-fixed-variant": "#464746",
+                        "tertiary": "#3f403f",
+                        "outline": "#70787e",
+                        "secondary-fixed-dim": "#f7bc67",
+                        "on-secondary-container": "#774e00",
+                        "outline-variant": "#bfc8ce",
+                        "on-surface-variant": "#40484d",
+                        "on-error-container": "#93000a",
+                        "primary": "#00455d",
+                        "on-primary": "#ffffff",
+                        "surface-container": "#f0eded",
+                        "surface-dim": "#dcd9d9",
+                        "on-tertiary": "#ffffff",
+                        "error": "#ba1a1a",
+                        "on-primary-fixed-variant": "#004d67",
+                        "on-secondary-fixed": "#291800",
+                        "on-error": "#ffffff",
+                        "surface-container-low": "#f6f3f2",
+                        "tertiary-fixed": "#e3e2e0",
+                        "on-secondary-fixed-variant": "#624000",
+                        "primary-container": "#005e7d",
+                        "secondary": "#815504",
+                        "primary-fixed-dim": "#8ccff3",
+                        "on-tertiary-container": "#cdcdcb",
+                        "secondary-fixed": "#ffddb2",
+                        "on-primary-fixed": "#001e2b",
+                        "tertiary-container": "#565756",
+                        "background": "#fcf9f8",
+                        "secondary-container": "#fdc26c",
+                        "tertiary-fixed-dim": "#c7c6c5",
+                        "error-container": "#ffdad6",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-highest": "#e4e2e1",
+                        "primary-fixed": "#c1e8ff",
+                        "inverse-primary": "#8ccff3",
+                        "surface-tint": "#136685",
+                        "inverse-surface": "#303030",
+                        "on-primary-container": "#92d6f9",
+                        "surface": "#fcf9f8",
+                        "on-secondary": "#ffffff",
+                        "surface-bright": "#fcf9f8"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "inspector-width": "320px",
+                        "element-gap": "0.75rem",
+                        "sidebar-width": "360px",
+                        "section-padding": "1.5rem",
+                        "panel-gap": "1px"
+                    },
+                    "fontFamily": {
+                        "caption": ["Geist"],
+                        "data-label": ["JetBrains Mono"],
+                        "body-lg": ["Geist"],
+                        "headline-md": ["Geist"],
+                        "display": ["Geist"],
+                        "body-sm": ["Geist"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-family: 'Material Symbols Outlined';
+            font-weight: normal;
+            font-style: normal;
+            font-size: 24px;
+            line-height: 1;
+            letter-spacing: normal;
+            text-transform: none;
+            display: inline-block;
+            white-space: nowrap;
+            word-wrap: normal;
+            direction: ltr;
+            -webkit-font-feature-settings: 'liga';
+            -webkit-font-smoothing: antialiased;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body-lg h-screen flex flex-col overflow-hidden">
+<!-- TopNavBar -->
+<header class="flex justify-between items-center h-16 px-section-padding w-full sticky top-0 z-50 bg-background border-b border-outline-variant flat no shadows">
+<div class="flex items-center gap-6">
+<span class="font-display text-display text-primary">Urban Planning Copilot</span>
+<nav class="hidden md:flex gap-6">
+<a class="text-on-surface-variant font-headline-md text-headline-md hover:text-primary transition-colors cursor-pointer active:opacity-80" href="#">Projects</a>
+<a class="text-on-surface-variant font-headline-md text-headline-md hover:text-primary transition-colors cursor-pointer active:opacity-80" href="#">Team</a>
+<a class="text-on-surface-variant font-headline-md text-headline-md hover:text-primary transition-colors cursor-pointer active:opacity-80" href="#">Library</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="bg-primary text-on-primary px-4 py-2 rounded font-headline-md text-headline-md hover:opacity-90 transition-opacity">New Scenario</button>
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-primary transition-colors" data-icon="notifications">notifications</span>
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-primary transition-colors" data-icon="settings">settings</span>
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center overflow-hidden border border-outline-variant cursor-pointer">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="A professional headshot of an urban planner in a bright, modern office setting. The lighting is soft and natural, casting subtle shadows that highlight a minimalist, light-mode aesthetic. The individual looks confident and approachable, wearing smart-casual attire. The background is slightly blurred, emphasizing the subject while maintaining a clean, architectural vibe." src="https://lh3.googleusercontent.com/aida-public/AB6AXuANJNQsnE3b7iGSlEUgZARwFZG_3dqKZAXLRiUGhfiewDSzX9-dDjEDWUufKnNgtzj-lNoRVWDPkc8nYd46RsqqJj5eRfzxvq5BWPc0MDx2pgtHRBfOof9CBIZJiBgz88jmxEE2Oq-RWcvGz2smUyXA_HefiiUrycCxw1ak0xp0zx5LbtyHxBWirjQI5OdMVUnjQbzVBKdcJM342r244AU_67aLM1L5HgGdxYxiXxJM-vRY3tBUBPxCRw"/>
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] z-40 flex flex-col bg-surface-container-low w-sidebar-width border-r border-outline-variant flat no shadows">
+<div class="p-6 border-b border-outline-variant">
+<div class="flex items-center gap-4 mb-4">
+<div class="w-12 h-12 bg-surface-variant rounded border border-outline-variant overflow-hidden">
+<img alt="Project Context" class="w-full h-full object-cover" data-alt="An abstract aerial view of a futuristic city district plan, rendered in a minimalist architectural style. The map features precise geometric blocks and thin, elegant lines over a warm, neutral background. Subtle accents of intelligence blue highlight key transit corridors. The overall mood is structured, calm, and analytical, fitting for a professional planning context." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBaa7RmC4x8y6ZNIhoMNZENHK8dmU1yvpcQ1T9OPtnbLs_Q5TXMd-jZlujwFpoC_Jvs-N-3SLYT7O9NxQSivX4SeZvLbKBWXfG5A8uIIx8BkoiJwkPSV3AdszhQ7CIyWSbdfCY5mFnmDQEh2wiYBEJRiDfT6ZHYh2vq7FqRH3vWMd1yakImavdheXdpsSB_TjkVgM5gkBB-B2oZqFEWHmLugMIA0KZT7BiPTPcMG6YeafAV5oB-vLyGAg"/>
+</div>
+<div>
+<h2 class="font-headline-md text-headline-md font-bold text-primary">Metropolis 2030</h2>
+<p class="font-caption text-caption text-on-surface-variant">Central District Expansion</p>
+</div>
+</div>
+</div>
+<nav class="flex-1 py-4 flex flex-col gap-1">
+<a class="flex items-center gap-element-gap p-4 text-on-surface-variant hover:bg-surface-container-high transition-all font-data-label text-data-label cursor-pointer" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+                    Dashboard
+                </a>
+<a class="flex items-center gap-element-gap p-4 text-on-surface-variant hover:bg-surface-container-high transition-all font-data-label text-data-label cursor-pointer" href="#">
+<span class="material-symbols-outlined" data-icon="map">map</span>
+                    Map View
+                </a>
+<a class="flex items-center gap-element-gap p-4 text-primary font-bold border-r-2 border-primary bg-surface-container-high font-data-label text-data-label cursor-pointer" href="#">
+<span class="material-symbols-outlined" data-icon="layers">layers</span>
+                    Scenarios
+                </a>
+<a class="flex items-center gap-element-gap p-4 text-on-surface-variant hover:bg-surface-container-high transition-all font-data-label text-data-label cursor-pointer" href="#">
+<span class="material-symbols-outlined" data-icon="psychology">psychology</span>
+                    Intelligence
+                </a>
+</nav>
+<div class="p-4 border-t border-outline-variant">
+<a class="flex items-center gap-element-gap p-3 text-on-surface-variant hover:bg-surface-container-high transition-all font-data-label text-data-label cursor-pointer rounded" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+                    Support
+                </a>
+<a class="flex items-center gap-element-gap p-3 text-on-surface-variant hover:bg-surface-container-high transition-all font-data-label text-data-label cursor-pointer rounded" href="#">
+<span class="material-symbols-outlined" data-icon="archive">archive</span>
+                    Archive
+                </a>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="flex-1 ml-[360px] flex flex-col h-[calc(100vh-64px)] overflow-y-auto bg-surface-bright">
+<!-- Header -->
+<div class="px-section-padding py-6 border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-30">
+<h1 class="font-display text-display text-on-surface">Compare Scenarios</h1>
+<div class="flex items-center gap-4">
+<div class="flex bg-surface-container-low rounded border border-outline-variant overflow-hidden">
+<button class="px-4 py-2 font-data-label text-data-label border-r border-outline-variant bg-surface-container text-on-surface hover:bg-surface-container-high transition-colors">Transit-first</button>
+<button class="px-4 py-2 font-data-label text-data-label border-r border-outline-variant bg-surface-container text-on-surface hover:bg-surface-container-high transition-colors">Climate-first</button>
+<button class="px-4 py-2 font-data-label text-data-label bg-surface-container text-on-surface hover:bg-surface-container-high transition-colors">Capacity-first</button>
+</div>
+<button class="flex items-center gap-2 px-4 py-2 rounded font-data-label text-data-label border border-outline text-on-surface hover:bg-surface-container-low transition-colors">
+<span class="material-symbols-outlined text-[18px]" data-icon="add">add</span>
+                        Add scenario
+                    </button>
+</div>
+</div>
+<div class="p-section-padding flex flex-col gap-8">
+<!-- KPI Matrix -->
+<section class="border border-outline-variant rounded bg-surface overflow-hidden">
+<div class="bg-surface-container-low px-4 py-3 border-b border-outline-variant flex justify-between items-center">
+<h3 class="font-headline-md text-headline-md text-on-surface">Calculated Comparison</h3>
+<span class="font-data-label text-data-label text-outline uppercase tracking-wider text-[10px]">Data matrix</span>
+</div>
+<div class="w-full overflow-x-auto">
+<table class="w-full text-left font-body-sm text-body-sm">
+<thead>
+<tr class="border-b border-outline-variant bg-surface-container-lowest">
+<th class="p-4 font-data-label text-data-label text-on-surface-variant font-normal">Metric</th>
+<th class="p-4 font-data-label text-data-label text-on-surface-variant font-normal border-l border-outline-variant bg-[#f0eedb]/20">Transit-first</th>
+<th class="p-4 font-data-label text-data-label text-on-surface-variant font-normal border-l border-outline-variant bg-[#e8f4f8]/20">Climate-first</th>
+<th class="p-4 font-data-label text-data-label text-on-surface-variant font-normal border-l border-outline-variant bg-[#f6ebdd]/20">Capacity-first</th>
+</tr>
+</thead>
+<tbody class="font-data-label text-data-label">
+<tr class="border-b border-outline-variant hover:bg-surface-container-lowest transition-colors">
+<td class="p-4 text-on-surface">Housing capacity</td>
+<td class="p-4 border-l border-outline-variant">4,420</td>
+<td class="p-4 border-l border-outline-variant">3,850</td>
+<td class="p-4 border-l border-outline-variant font-bold">5,100</td>
+</tr>
+<tr class="border-b border-outline-variant hover:bg-surface-container-lowest transition-colors">
+<td class="p-4 text-on-surface">Transit accessibility</td>
+<td class="p-4 border-l border-outline-variant font-bold">95%</td>
+<td class="p-4 border-l border-outline-variant">88%</td>
+<td class="p-4 border-l border-outline-variant">82%</td>
+</tr>
+<tr class="border-b border-outline-variant hover:bg-surface-container-lowest transition-colors">
+<td class="p-4 text-on-surface">Flood exposure</td>
+<td class="p-4 border-l border-outline-variant">3%</td>
+<td class="p-4 border-l border-outline-variant font-bold">0%</td>
+<td class="p-4 border-l border-outline-variant text-error">12%</td>
+</tr>
+<tr class="border-b border-outline-variant hover:bg-surface-container-lowest transition-colors">
+<td class="p-4 text-on-surface">Infrastructure burden</td>
+<td class="p-4 border-l border-outline-variant">Low</td>
+<td class="p-4 border-l border-outline-variant">Low</td>
+<td class="p-4 border-l border-outline-variant text-on-secondary-container">Moderate</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Middle Section - Synchronized Triple-Map View -->
+<section class="flex flex-col gap-4">
+<div class="flex justify-between items-center">
+<h3 class="font-headline-md text-headline-md text-on-surface">Spatial Assessment</h3>
+<div class="flex items-center gap-2 px-3 py-1 bg-surface-container-low rounded border border-outline-variant">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="sync">sync</span>
+<span class="font-data-label text-data-label text-on-surface-variant">Synchronized View Active</span>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-[1px] bg-outline-variant border border-outline-variant rounded overflow-hidden h-[400px]">
+<!-- Map 1 -->
+<div class="relative bg-surface w-full h-full">
+<div class="absolute inset-0 bg-cover bg-center opacity-80" data-alt="A detailed, stylized topographical map focusing on urban transit networks. The map uses a very light grey and beige color palette, resembling high-end architectural drawings. Subtle, glowing blue lines highlight major transit arteries and subway lines, creating a sense of connectivity and flow. The aesthetic is clean, analytical, and professional, avoiding cluttered details." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCoomuF4xH6OUaB-fAGApGvB1Ql56y-l_TKJj2K_2f5U0KwOECFQv8cfOi66rOoJ1zlU8bqthOPa2x2KRh49j_1BM6vB8kDojJjHKwTRkVJC1gLFWobGl89xtyuh9nw_4qmT26TnA9C35gCgMA2IkTgLSbRd9o1IAbLG17E-aWqZF51kDVCldiinzVD_2zFl4HQua8V1fL44jAy6A2gzx2FBccPRcSIDKdQBzpcff6eszFguLjL8j95Kg')"></div>
+<div class="absolute top-2 left-2 bg-surface/90 backdrop-blur px-2 py-1 border border-outline-variant rounded font-data-label text-data-label">Transit-first</div>
+</div>
+<!-- Map 2 -->
+<div class="relative bg-surface w-full h-full">
+<div class="absolute inset-0 bg-cover bg-center opacity-80" data-alt="A sophisticated urban map overlay emphasizing green spaces and environmental factors. Rendered in a minimalist style with a warm white background, the map highlights parks, riverbanks, and flood plains using muted, elegant shades of green and soft teal. The visual language conveys sustainability and climate resilience in a highly technical, architectural manner." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuB1wdaNIRtFYuZoVi_KTyzxkNWyE4PdrIGLRsyHeKYTRXz-mHarSlmNZA9Ujc3vQoKUX-inIS_fRsdR3585zwuNDzMHnZXAX0unC6BdKHl5fd50ffxS9I_au3qyuWBr2u5IV4R5iW1e3r2yqZjThypejjStC_krUIZlWCm-QaVC9Unw9CwzemEXgpAIE6WBXOHN_a0_74WcsimzrYmUlSDtRojTprF32WI-xIa2IDwKeoQHSc3dr9bcTQ')"></div>
+<div class="absolute top-2 left-2 bg-surface/90 backdrop-blur px-2 py-1 border border-outline-variant rounded font-data-label text-data-label">Climate-first</div>
+</div>
+<!-- Map 3 -->
+<div class="relative bg-surface w-full h-full">
+<div class="absolute inset-0 bg-cover bg-center opacity-80" data-alt="An analytical city map illustrating high-density zoning and capacity planning. The base map is a crisp, light-mode grid structure. Specific city blocks are highlighted with subtle geometric fills in varying shades of grey and muted amber, representing differing levels of structural density. The overall look is structured, data-driven, and highly precise." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDj5D2gwcvBHAGSHg29Ee2MW5Kooaf42DRIrbwwAoxcNuaZjqfoCtduZdd8W5r8zMOYQH_N5VizYIXv5u36wgal2sGXNQuxUZpJ3FWeHRCtn222vs577ePrFeZKo4QsS7wnJY_y7Fn1BovaSy_AbeRU398hXHkU5rOb6vJmN4l1abjwMPd53iNwdu4X_hiQLDfQeRDZnPce4-PY6RqxzLfj-AZQJ4Q_FoJpY93j_Gi_PT2zYPCToJngoA')"></div>
+<div class="absolute top-2 left-2 bg-surface/90 backdrop-blur px-2 py-1 border border-outline-variant rounded font-data-label text-data-label">Capacity-first</div>
+</div>
+</div>
+</section>
+<!-- Bottom Section - Trade-off Analysis & Human Decision -->
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-outline-variant pt-8 mb-12">
+<div class="flex flex-col gap-4">
+<h3 class="font-headline-md text-headline-md text-on-surface">Where the scenarios differ</h3>
+<ul class="list-none space-y-3 font-body-sm text-body-sm text-on-surface-variant">
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-[18px] text-outline mt-0.5" data-icon="compare_arrows">compare_arrows</span>
+<span><strong>Capacity vs Risk:</strong> Capacity-first yields 15% more housing but increases flood risk exposure significantly compared to Climate-first.</span>
+</li>
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-[18px] text-outline mt-0.5" data-icon="compare_arrows">compare_arrows</span>
+<span><strong>Infrastructure strain:</strong> The higher density in Capacity-first requires substantial upgrades to local water and power grids not present in other models.</span>
+</li>
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-[18px] text-outline mt-0.5" data-icon="compare_arrows">compare_arrows</span>
+<span><strong>Footprint efficiency:</strong> Transit-first achieves near-optimal accessibility while maintaining a moderate land footprint (42ha).</span>
+</li>
+</ul>
+</div>
+<div class="border border-outline-variant rounded bg-surface p-5 flex flex-col gap-4 relative overflow-hidden">
+<!-- AI Confidence Indicator Bar -->
+<div class="absolute top-0 left-0 h-1 bg-surface-variant w-full">
+<div class="h-full bg-primary w-[85%]"></div>
+</div>
+<div class="flex justify-between items-center mt-1">
+<h3 class="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" data-icon="auto_awesome">auto_awesome</span>
+                                Copilot interpretation
+                            </h3>
+<span class="inline-flex items-center justify-center px-2 py-1 bg-primary text-on-primary rounded font-data-label text-[10px] tracking-wide uppercase">AI Recommendation</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+                            The <strong>Transit-first</strong> scenario presents the most balanced approach for the Central District Expansion. It optimizes access to public infrastructure while maintaining acceptable risk parameters. While <em>Capacity-first</em> maximizes immediate housing goals, the long-term infrastructure burden and flood risk mitigation costs outweigh the initial density benefits.
+                        </p>
+<div class="mt-2">
+<button class="flex items-center gap-2 text-primary font-data-label text-data-label hover:underline">
+                                Inspect evidence
+                                <span class="material-symbols-outlined text-[16px]" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Action Footer -->
+<div class="sticky bottom-0 bg-surface/95 backdrop-blur py-4 border-t border-outline-variant flex justify-between items-center -mx-section-padding px-section-padding z-20">
+<span class="font-headline-md text-headline-md text-on-surface">Select Preferred Scenario</span>
+<div class="flex gap-4">
+<button class="px-6 py-2 rounded font-data-label text-data-label bg-tertiary text-on-tertiary hover:opacity-90 transition-opacity">Select Transit-first</button>
+<button class="px-6 py-2 rounded font-data-label text-data-label border border-outline text-on-surface hover:bg-surface-container-low transition-colors">Select Climate-first</button>
+<button class="px-6 py-2 rounded font-data-label text-data-label border border-outline text-on-surface hover:bg-surface-container-low transition-colors">Select Capacity-first</button>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

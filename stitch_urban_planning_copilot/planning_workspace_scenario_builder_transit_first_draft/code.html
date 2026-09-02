@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Urban Planning Copilot - Scenario Builder</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .fill-icon {
+            font-variation-settings: 'FILL' 1;
+        }
+        
+        /* Custom ranges for sliders */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #00455d;
+            cursor: pointer;
+            margin-top: -6px;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #e4e2e1;
+            border-radius: 2px;
+        }
+    </style>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-container-low": "#f6f3f2",
+                    "tertiary-fixed-dim": "#c7c6c5",
+                    "on-secondary-fixed": "#291800",
+                    "on-secondary-fixed-variant": "#624000",
+                    "on-secondary": "#ffffff",
+                    "surface-container-high": "#eae7e7",
+                    "error-container": "#ffdad6",
+                    "on-tertiary-container": "#cdcdcb",
+                    "secondary-container": "#fdc26c",
+                    "inverse-surface": "#303030",
+                    "on-primary": "#ffffff",
+                    "on-tertiary": "#ffffff",
+                    "on-error": "#ffffff",
+                    "surface-tint": "#136685",
+                    "outline": "#70787e",
+                    "on-tertiary-fixed-variant": "#464746",
+                    "on-primary-container": "#92d6f9",
+                    "on-primary-fixed": "#001e2b",
+                    "surface-container-highest": "#e4e2e1",
+                    "primary": "#00455d",
+                    "secondary": "#815504",
+                    "primary-fixed-dim": "#8ccff3",
+                    "primary-container": "#005e7d",
+                    "on-background": "#1b1c1c",
+                    "secondary-fixed-dim": "#f7bc67",
+                    "tertiary-fixed": "#e3e2e0",
+                    "primary-fixed": "#c1e8ff",
+                    "tertiary": "#3f403f",
+                    "surface-container-lowest": "#ffffff",
+                    "inverse-primary": "#8ccff3",
+                    "surface-dim": "#dcd9d9",
+                    "secondary-fixed": "#ffddb2",
+                    "inverse-on-surface": "#f3f0f0",
+                    "surface": "#fcf9f8",
+                    "on-surface": "#1b1c1c",
+                    "on-surface-variant": "#40484d",
+                    "on-secondary-container": "#774e00",
+                    "on-primary-fixed-variant": "#004d67",
+                    "surface-container": "#f0eded",
+                    "error": "#ba1a1a",
+                    "tertiary-container": "#565756",
+                    "surface-variant": "#e4e2e1",
+                    "on-error-container": "#93000a",
+                    "surface-bright": "#fcf9f8",
+                    "on-tertiary-fixed": "#1a1c1b",
+                    "outline-variant": "#bfc8ce",
+                    "background": "#fcf9f8"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "element-gap": "0.75rem",
+                    "inspector-width": "320px",
+                    "section-padding": "1.5rem",
+                    "sidebar-width": "360px",
+                    "panel-gap": "1px"
+            },
+            "fontFamily": {
+                    "caption": [
+                            "Geist"
+                    ],
+                    "body-sm": [
+                            "Geist"
+                    ],
+                    "display": [
+                            "Geist"
+                    ],
+                    "body-lg": [
+                            "Geist"
+                    ],
+                    "headline-md": [
+                            "Geist"
+                    ],
+                    "data-label": [
+                            "JetBrains Mono"
+                    ]
+            },
+            "fontSize": {
+                    "caption": [
+                            "12px",
+                            {
+                                    "lineHeight": "1.4",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "body-sm": [
+                            "14px",
+                            {
+                                    "lineHeight": "1.5",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "display": [
+                            "32px",
+                            {
+                                    "lineHeight": "1.2",
+                                    "letterSpacing": "-0.02em",
+                                    "fontWeight": "600"
+                            }
+                    ],
+                    "body-lg": [
+                            "16px",
+                            {
+                                    "lineHeight": "1.6",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "headline-md": [
+                            "20px",
+                            {
+                                    "lineHeight": "1.4",
+                                    "fontWeight": "500"
+                            }
+                    ],
+                    "data-label": [
+                            "12px",
+                            {
+                                    "lineHeight": "1",
+                                    "letterSpacing": "0.05em",
+                                    "fontWeight": "500"
+                            }
+                    ]
+            }
+    },
+        },
+      }
+    </script>
+</head>
+<body class="bg-background text-on-background font-body-lg h-full overflow-hidden flex flex-col">
+<!-- Top App Bar -->
+<header class="bg-surface-container-high text-primary font-body-lg flex justify-between items-center w-full px-section-padding h-16 border-b border-outline-variant transition-colors duration-200 z-50 shrink-0">
+<div class="flex items-center gap-4">
+<h1 class="font-display text-display text-primary tracking-tight">Scenario Builder</h1>
+<div class="h-6 w-px bg-outline-variant mx-2"></div>
+<div class="flex flex-col">
+<span class="font-caption text-caption text-on-surface-variant">Project: North River Housing Strategy</span>
+<div class="flex items-center gap-2">
+<span class="font-body-sm text-body-sm font-medium">Scenario: Transit-first</span>
+<span class="inline-flex items-center gap-1 rounded bg-secondary-container px-1.5 py-0.5 font-data-label text-data-label text-on-secondary-container">
+<span class="w-1.5 h-1.5 rounded-full bg-on-secondary-container animate-pulse"></span>
+                        Unsaved Changes
+                    </span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-element-gap">
+<button class="flex items-center gap-2 px-3 py-1.5 text-on-surface-variant hover:bg-surface-variant rounded transition-colors">
+<span class="material-symbols-outlined text-xl">compare</span>
+<span class="font-body-sm text-body-sm">Compare</span>
+</button>
+<button class="flex items-center gap-2 px-3 py-1.5 text-on-surface-variant hover:bg-surface-variant rounded transition-colors">
+<span class="material-symbols-outlined text-xl">content_copy</span>
+<span class="font-body-sm text-body-sm">Duplicate</span>
+</button>
+<button class="flex items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded hover:bg-primary-container transition-colors">
+<span class="material-symbols-outlined text-xl">save</span>
+<span class="font-body-sm text-body-sm font-medium">Save</span>
+</button>
+<div class="w-px h-6 bg-outline-variant mx-2"></div>
+<button class="text-on-surface-variant hover:bg-surface-variant p-2 rounded-full transition-colors">
+<span class="material-symbols-outlined">person</span>
+</button>
+</div>
+</header>
+<!-- Main Workspace -->
+<main class="flex-1 flex overflow-hidden relative">
+<!-- Left Panel: Scenario Configuration -->
+<aside class="w-inspector-width bg-surface border-r border-outline-variant flex flex-col h-full z-40 shrink-0">
+<div class="p-4 border-b border-outline-variant bg-[#F0EEEB]">
+<h2 class="font-headline-md text-headline-md text-primary">Configuration</h2>
+<p class="font-caption text-caption text-on-surface-variant mt-1">Adjust parameters to generate scenarios</p>
+</div>
+<div class="flex-1 overflow-y-auto p-4 space-y-6">
+<!-- Objective -->
+<section>
+<label class="block font-data-label text-data-label text-on-surface-variant mb-2">OBJECTIVE</label>
+<div class="relative">
+<textarea class="w-full bg-transparent border-0 border-b border-outline focus:border-primary focus:ring-0 px-0 py-2 font-body-sm text-body-sm resize-none h-16 transition-colors" placeholder="Enter objective...">Accommodate 2,000 additional homes</textarea>
+</div>
+</section>
+<!-- Constraints -->
+<section>
+<label class="block font-data-label text-data-label text-on-surface-variant mb-4">CONSTRAINTS</label>
+<div class="space-y-4">
+<div class="flex items-center justify-between">
+<span class="font-body-sm text-body-sm">Residential zoning</span>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox" value=""/>
+<div class="w-9 h-5 bg-surface-variant rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<div>
+<div class="flex justify-between items-center mb-1">
+<span class="font-body-sm text-body-sm">Transit access</span>
+<span class="font-data-label text-data-label text-primary">800m</span>
+</div>
+<input class="w-full" max="2000" min="100" type="range" value="800"/>
+</div>
+<div class="flex justify-between items-center">
+<span class="font-body-sm text-body-sm">Flood risk</span>
+<select class="bg-transparent border-0 border-b border-outline focus:border-primary focus:ring-0 py-1 pl-0 pr-6 font-body-sm text-body-sm cursor-pointer">
+<option>Include all</option>
+<option selected="">Exclude High-risk</option>
+<option>Exclude Med/High</option>
+</select>
+</div>
+<div>
+<span class="font-body-sm text-body-sm block mb-1">Min parcel size (m²)</span>
+<input class="w-full bg-transparent border-0 border-b border-outline focus:border-primary focus:ring-0 px-0 py-1 font-data-label text-data-label" type="number" value="5000"/>
+</div>
+</div>
+</section>
+<!-- Priorities -->
+<section>
+<div class="flex justify-between items-end mb-4">
+<label class="block font-data-label text-data-label text-on-surface-variant">PRIORITIES (WEIGHTS)</label>
+<span class="font-caption text-caption text-on-surface-variant">Sum: <span class="text-primary font-medium">100%</span></span>
+</div>
+<div class="space-y-4">
+<div>
+<div class="flex justify-between items-center mb-1">
+<span class="font-body-sm text-body-sm">Transit Proximity</span>
+<span class="font-data-label text-data-label text-primary">45%</span>
+</div>
+<input class="w-full" max="100" min="0" type="range" value="45"/>
+</div>
+<div>
+<div class="flex justify-between items-center mb-1">
+<span class="font-body-sm text-body-sm">Housing Yield</span>
+<span class="font-data-label text-data-label text-primary">35%</span>
+</div>
+<input class="w-full" max="100" min="0" type="range" value="35"/>
+</div>
+<div>
+<div class="flex justify-between items-center mb-1">
+<span class="font-body-sm text-body-sm">Flood Resilience</span>
+<span class="font-data-label text-data-label text-primary">20%</span>
+</div>
+<input class="w-full" max="100" min="0" type="range" value="20"/>
+</div>
+</div>
+</section>
+<!-- Assumptions -->
+<section class="bg-surface-container-low p-3 rounded border border-outline-variant">
+<div class="flex items-center gap-2 mb-3">
+<span class="material-symbols-outlined text-primary text-sm">psychology</span>
+<label class="font-data-label text-data-label text-on-surface-variant">ASSUMPTIONS</label>
+</div>
+<div class="space-y-3">
+<div class="flex justify-between items-center">
+<span class="font-body-sm text-body-sm">Target Density (FAR)</span>
+<div class="flex items-center gap-2">
+<input class="w-16 bg-transparent border-0 border-b border-outline focus:border-primary focus:ring-0 px-0 py-1 font-data-label text-data-label text-right" step="0.1" type="number" value="4.0"/>
+<span class="material-symbols-outlined text-outline cursor-help text-[16px]" title="What happens if I change this?">help</span>
+</div>
+</div>
+<div class="flex justify-between items-center">
+<span class="font-body-sm text-body-sm">Developable Area</span>
+<div class="flex items-center gap-2">
+<input class="w-16 bg-transparent border-0 border-b border-outline focus:border-primary focus:ring-0 px-0 py-1 font-data-label text-data-label text-right" type="number" value="80"/>
+<span class="font-data-label text-data-label">%</span>
+</div>
+</div>
+</div>
+</section>
+</div>
+<div class="p-4 border-t border-outline-variant bg-surface">
+<button class="w-full flex justify-center items-center gap-2 px-4 py-2 bg-surface-variant text-on-surface rounded hover:bg-outline-variant transition-colors">
+<span class="material-symbols-outlined text-sm">refresh</span>
+<span class="font-body-sm text-body-sm font-medium">Recalculate Scenario</span>
+</button>
+</div>
+</aside>
+<!-- Center: Map Area -->
+<section class="flex-1 relative bg-[#e5e3df] overflow-hidden">
+<!-- Map Placeholder -->
+<div class="absolute inset-0 bg-cover bg-center" data-location="Seattle" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDl5eGhk_NGXTddk8cXfpZsjoggojIFJ7YPxkSYTaBxcEVnxTMWnBFJcVH--LsoKPN-Gl32p-ZtVr_OpeOwQETszTtpQPNzeJdRW2Rhk64Ji9w98TkIIsoLI7eiDXQWtUXtNiCLCqsgz6uFujqtaILT7HPj8oNt1hq4VNI7QMU0FC9eKvIq5b6sHA-McIPW_0qrey7TJsNGYKSVPWK6bT20IOqaYk26SdB7fzlLlNeVnfonw13BMEleIQ'); opacity: 0.8;"></div>
+<!-- Map Overlay UI -->
+<div class="absolute top-4 left-4 bg-surface/90 backdrop-blur-md rounded border border-outline-variant p-2 shadow-sm">
+<div class="flex flex-col gap-2">
+<button class="p-1 hover:bg-surface-variant rounded text-on-surface"><span class="material-symbols-outlined">add</span></button>
+<div class="w-full h-px bg-outline-variant"></div>
+<button class="p-1 hover:bg-surface-variant rounded text-on-surface"><span class="material-symbols-outlined">remove</span></button>
+</div>
+</div>
+<!-- Legend -->
+<div class="absolute bottom-4 left-4 bg-surface/90 backdrop-blur-md rounded border border-outline-variant p-3 shadow-sm w-48">
+<span class="block font-data-label text-data-label text-on-surface-variant mb-2">CANDIDATE SCORE</span>
+<div class="flex h-2 w-full rounded overflow-hidden mb-1">
+<div class="bg-primary/20 flex-1"></div>
+<div class="bg-primary/50 flex-1"></div>
+<div class="bg-primary/80 flex-1"></div>
+<div class="bg-primary flex-1"></div>
+</div>
+<div class="flex justify-between font-caption text-caption text-on-surface-variant">
+<span>Low</span>
+<span>High</span>
+</div>
+</div>
+<!-- AI Glow / Processing State (Hidden by default, shown for structure) -->
+<div class="absolute inset-0 pointer-events-none hidden border-4 border-primary/30 shadow-[inset_0_0_50px_rgba(0,69,93,0.1)]"></div>
+</section>
+<!-- Right Panel: Scenario Impact -->
+<aside class="w-sidebar-width bg-surface border-l border-outline-variant flex flex-col h-full z-40 shrink-0">
+<!-- AI Confidence Bar -->
+<div class="h-1 w-full bg-surface-variant">
+<div class="h-full bg-primary" style="width: 85%;"></div>
+</div>
+<div class="p-4 border-b border-outline-variant bg-[#F0EEEB]">
+<h2 class="font-headline-md text-headline-md text-primary">Scenario Impact</h2>
+<p class="font-caption text-caption text-on-surface-variant mt-1">Analysis vs. Baseline</p>
+</div>
+<div class="flex-1 overflow-y-auto p-4 space-y-6">
+<!-- Metrics -->
+<section>
+<label class="block font-data-label text-data-label text-on-surface-variant mb-3">KEY METRICS</label>
+<div class="space-y-4">
+<!-- Metric Item -->
+<div class="flex justify-between items-center pb-2 border-b border-surface-variant">
+<div>
+<span class="block font-body-sm text-body-sm text-on-surface">Housing Capacity</span>
+<span class="font-caption text-caption text-on-surface-variant">Total projected units</span>
+</div>
+<div class="text-right">
+<div class="flex items-center gap-2 justify-end">
+<span class="font-caption text-caption text-on-surface-variant line-through">4,860</span>
+<span class="material-symbols-outlined text-[14px] text-outline">arrow_forward</span>
+<span class="font-data-label text-data-label text-on-surface">4,420</span>
+</div>
+<span class="font-caption text-caption text-error">-9.1%</span>
+</div>
+</div>
+<!-- Metric Item -->
+<div class="flex justify-between items-center pb-2 border-b border-surface-variant">
+<div>
+<span class="block font-body-sm text-body-sm text-on-surface">Transit Accessibility</span>
+<span class="font-caption text-caption text-on-surface-variant">% within 800m</span>
+</div>
+<div class="text-right">
+<div class="flex items-center gap-2 justify-end">
+<span class="font-caption text-caption text-on-surface-variant">91%</span>
+<span class="material-symbols-outlined text-[14px] text-outline">arrow_forward</span>
+<span class="font-data-label text-data-label text-on-surface">95%</span>
+</div>
+<span class="font-caption text-caption text-primary">+4.4%</span>
+</div>
+</div>
+<!-- Metric Item -->
+<div class="flex justify-between items-center pb-2 border-b border-surface-variant">
+<div>
+<span class="block font-body-sm text-body-sm text-on-surface">Flood Exposure</span>
+<span class="font-caption text-caption text-on-surface-variant">% in high-risk zones</span>
+</div>
+<div class="text-right">
+<div class="flex items-center gap-2 justify-end">
+<span class="font-caption text-caption text-on-surface-variant line-through">8%</span>
+<span class="material-symbols-outlined text-[14px] text-outline">arrow_forward</span>
+<span class="font-data-label text-data-label text-on-surface">3%</span>
+</div>
+<span class="font-caption text-caption text-primary">-5.0%</span>
+</div>
+</div>
+<!-- Metric Item -->
+<div class="flex justify-between items-center pb-2 border-b border-surface-variant">
+<div>
+<span class="block font-body-sm text-body-sm text-on-surface">Candidate Areas</span>
+<span class="font-caption text-caption text-on-surface-variant">Viable parcels</span>
+</div>
+<div class="text-right">
+<div class="flex items-center gap-2 justify-end">
+<span class="font-caption text-caption text-on-surface-variant line-through">17</span>
+<span class="material-symbols-outlined text-[14px] text-outline">arrow_forward</span>
+<span class="font-data-label text-data-label text-on-surface">11</span>
+</div>
+<span class="font-caption text-caption text-error">-6 areas</span>
+</div>
+</div>
+</div>
+</section>
+<!-- AI Trade-off Analysis -->
+<section class="bg-surface-container-low rounded border border-outline-variant relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-primary"></div>
+<div class="p-4 pl-5">
+<div class="flex items-start gap-2 mb-2">
+<span class="material-symbols-outlined text-primary text-sm mt-0.5">smart_toy</span>
+<span class="font-data-label text-data-label text-primary">COPILOT INSIGHT</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface mb-3">
+                            Prioritizing flood resilience removes 6 high-capacity candidate areas, leading to the 9.1% drop in total housing capacity.
+                        </p>
+<button class="flex items-center gap-1 text-primary hover:text-primary-container transition-colors">
+<span class="font-body-sm text-body-sm font-medium">Ask Copilot to explain</span>
+<span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+</div>
+</section>
+<!-- Status Chip -->
+<div class="flex gap-2">
+<span class="inline-flex items-center rounded-full border border-outline px-2 py-1 font-caption text-caption text-on-surface-variant">
+                        Draft Scenario
+                    </span>
+<span class="inline-flex items-center rounded-full bg-primary px-2 py-1 font-caption text-caption text-on-primary">
+                        AI Recommended
+                    </span>
+</div>
+</div>
+<!-- Action Area -->
+<div class="p-4 border-t border-outline-variant bg-surface space-y-3">
+<button class="w-full flex justify-center items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded hover:bg-primary-container transition-colors shadow-sm">
+<span class="material-symbols-outlined text-sm">save</span>
+<span class="font-body-sm text-body-sm font-medium">Save scenario</span>
+</button>
+<button class="w-full flex justify-center items-center gap-2 px-4 py-2 border border-outline text-on-surface rounded hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-sm">compare_arrows</span>
+<span class="font-body-sm text-body-sm font-medium">Compare with Baseline</span>
+</button>
+</div>
+</aside>
+</main>
+</body></html>
