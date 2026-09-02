@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import {
   MapContainer,
-  TileLayer,
   GeoJSON,
   CircleMarker,
   useMap,
@@ -12,6 +11,7 @@ import {
   ScaleControl,
 } from "react-leaflet";
 import type { WorkspaceSnapshot, Candidate, GeographicSelection } from "@/lib/domain/types";
+import { STUDY_BOUNDS } from "@/lib/domain/seed";
 import L from "leaflet";
 
 function FitBoundsOnce({
@@ -28,9 +28,27 @@ function FitBoundsOnce({
         [bounds.south, bounds.west],
         [bounds.north, bounds.east],
       ],
-      { padding: [24, 24] }
+      { padding: [32, 32], maxZoom: 15 }
     );
     fitted.current = true;
+  }, [map, bounds]);
+  return null;
+}
+
+function RestrictToStudyArea({
+  bounds,
+}: {
+  bounds: { west: number; south: number; east: number; north: number };
+}) {
+  const map = useMap();
+  useEffect(() => {
+    const leafletBounds = L.latLngBounds(
+      [bounds.south, bounds.west],
+      [bounds.north, bounds.east]
+    );
+    map.setMaxBounds(leafletBounds.pad(0.05));
+    map.setMinZoom(12);
+    map.setMaxZoom(17);
   }, [map, bounds]);
   return null;
 }
@@ -43,25 +61,8 @@ type Props = {
   onMapClickExclude?: (latlng: { lat: number; lng: number }) => void;
   drawingExclusion?: boolean;
   excludeClicks?: [number, number][];
+  stale?: boolean;
 };
-
-function tileConfig(): { url: string; attribution: string; subdomains?: string } {
-  const cartoKey = process.env.NEXT_PUBLIC_CARTO_API_KEY;
-  if (cartoKey) {
-    return {
-      url: `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=${cartoKey}`,
-      subdomains: "abcd",
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    };
-  }
-  return {
-    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    subdomains: "abc",
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  };
-}
 
 export default function PlanningMap({
   workspace,
@@ -71,10 +72,11 @@ export default function PlanningMap({
   onMapClickExclude,
   drawingExclusion,
   excludeClicks = [],
+  stale = false,
 }: Props) {
   const { mapState } = workspace.project;
   const selectedId = mapState.selectedCandidateId;
-  const tiles = tileConfig();
+  const studyBounds = mapState.viewport.bounds ?? STUDY_BOUNDS;
 
   const visibleKinds = useMemo(() => {
     const ids = new Set(
@@ -90,15 +92,17 @@ export default function PlanningMap({
     const candidate = candidates.find((c) => c.id === id || c.featureIds.includes(id));
     const selected = selectedId === id || selectedId === candidate?.id;
     const rejected = candidate?.status === "rejected";
+    const staleDim = stale && candidate ? 0.35 : 1;
     return {
       color: selected ? "#00455d" : rejected ? "#ba1a1a" : "#70787e",
       weight: selected ? 2.5 : 1,
       fillColor: candidate
         ? rejected
           ? "#ba1a1a"
-          : `rgba(0, 94, 125, ${0.15 + Math.min(candidate.score, 100) / 250})`
+          : `rgba(0, 94, 125, ${(0.15 + Math.min(candidate.score, 100) / 250) * staleDim})`
         : "#e8eef0",
-      fillOpacity: candidate ? 0.55 : 0.35,
+      fillOpacity: candidate ? 0.55 * staleDim : 0.35,
+      opacity: staleDim,
     };
   };
 
@@ -113,22 +117,30 @@ export default function PlanningMap({
 
   return (
     <div className="absolute inset-0">
+      <div
+        className="absolute inset-0 z-0"
+        style={{
+          background:
+            "repeating-linear-gradient(0deg, #e8eef0 0px, #e8eef0 1px, #f4f7f8 1px, #f4f7f8 24px), repeating-linear-gradient(90deg, #e8eef0 0px, #e8eef0 1px, #f4f7f8 1px, #f4f7f8 24px)",
+        }}
+        aria-hidden
+      />
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1001] pointer-events-none">
+        <div className="bg-surface/95 border border-outline-variant px-4 py-1.5 rounded-full shadow-sm text-caption text-on-surface-variant font-medium whitespace-nowrap">
+          Synthetic geography — not a real city
+        </div>
+      </div>
       <MapContainer
         center={[mapState.viewport.center[1], mapState.viewport.center[0]]}
         zoom={mapState.viewport.zoom}
-        className="h-full w-full z-0"
+        className="h-full w-full z-[1] bg-transparent"
         zoomControl={false}
         scrollWheelZoom
       >
-        <TileLayer
-          attribution={tiles.attribution}
-          url={tiles.url}
-          subdomains={tiles.subdomains}
-          maxZoom={20}
-        />
         <ZoomControl position="topright" />
         <ScaleControl position="bottomleft" imperial={false} />
-        <FitBoundsOnce bounds={mapState.viewport.bounds} />
+        <FitBoundsOnce bounds={studyBounds} />
+        <RestrictToStudyArea bounds={studyBounds} />
 
         {visibleKinds.has("flood") && layerData.flood && (
           <GeoJSON
@@ -138,14 +150,15 @@ export default function PlanningMap({
               color: "#005e7d",
               weight: 1,
               fillColor: f?.properties?.risk === "high" ? "#8ccff3" : "#c1e8ff",
-              fillOpacity: 0.4,
+              fillOpacity: stale ? 0.2 : 0.4,
+              opacity: stale ? 0.5 : 1,
             })}
           />
         )}
 
         {visibleKinds.has("parcels") && layerData.parcels && (
           <GeoJSON
-            key={`parcels-${candidates.length}-${selectedId}`}
+            key={`parcels-${candidates.length}-${selectedId}-${stale}`}
             data={layerData.parcels}
             style={parcelStyle}
             onEachFeature={(feature, layer) => {
@@ -169,7 +182,13 @@ export default function PlanningMap({
                 key={`t-${i}`}
                 center={[lat, lng]}
                 radius={6}
-                pathOptions={{ color: "#00455d", fillColor: "#005e7d", fillOpacity: 1, weight: 2 }}
+                pathOptions={{
+                  color: "#00455d",
+                  fillColor: "#005e7d",
+                  fillOpacity: stale ? 0.5 : 1,
+                  weight: 2,
+                  opacity: stale ? 0.5 : 1,
+                }}
               />
             );
           })}
@@ -182,7 +201,13 @@ export default function PlanningMap({
                 key={`s-${i}`}
                 center={[lat, lng]}
                 radius={7}
-                pathOptions={{ color: "#815504", fillColor: "#fdc26c", fillOpacity: 0.95, weight: 2 }}
+                pathOptions={{
+                  color: "#815504",
+                  fillColor: "#fdc26c",
+                  fillOpacity: stale ? 0.5 : 0.95,
+                  weight: 2,
+                  opacity: stale ? 0.5 : 1,
+                }}
               />
             );
           })}
@@ -200,8 +225,9 @@ export default function PlanningMap({
                 pathOptions={{
                   color: "#70787e",
                   fillColor: "#bfc8ce",
-                  fillOpacity: 0.45,
+                  fillOpacity: stale ? 0.25 : 0.45,
                   weight: 1,
+                  opacity: stale ? 0.5 : 1,
                 }}
               />
             );
@@ -218,8 +244,9 @@ export default function PlanningMap({
                 pathOptions={{
                   color: "#565756",
                   fillColor: "#3f403f",
-                  fillOpacity: 0.8,
+                  fillOpacity: stale ? 0.4 : 0.8,
                   weight: 1,
+                  opacity: stale ? 0.5 : 1,
                 }}
               />
             );

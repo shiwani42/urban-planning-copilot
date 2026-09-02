@@ -7,12 +7,17 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const ws = await services.createProject({
-    name: body.name,
-    objectiveText: body.objectiveText,
-    geographyLabel: body.geographyLabel,
-    mode: body.mode,
-  });
-  return NextResponse.json(ws);
+  try {
+    const body = await req.json();
+    const ws = await services.createProject({
+      name: body.name,
+      objectiveText: body.objectiveText,
+      geographyLabel: body.geographyLabel,
+      mode: body.mode,
+    });
+    return NextResponse.json(ws);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to create project";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
 }

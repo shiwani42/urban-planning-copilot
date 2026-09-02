@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { ProvenanceChip, useWorkspace } from "@/components/workspace-hooks";
 import { WebMcpProvider } from "@/components/WebMcpProvider";
+import { formatLocaleTime } from "@/lib/format";
 import type {
   Candidate,
   CriterionWeight,
@@ -29,12 +30,25 @@ type Tab =
   | "activity"
   | "report";
 
+type DrawerPanel = "candidates" | "evidence";
+
+const TAB_LABELS: Record<Tab, string> = {
+  workspace: "Workspace",
+  results: "Results",
+  evidence: "Evidence",
+  compare: "Compare",
+  decision: "Decision",
+  activity: "Activity",
+  report: "Report",
+};
+
 export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const { workspace, loading, error, busy, act, refresh } = useWorkspace(projectId);
   const [tab, setTab] = useState<Tab>("workspace");
   const [layerData, setLayerData] = useState<Record<string, GeoJSON.FeatureCollection>>({});
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerPanel, setDrawerPanel] = useState<DrawerPanel>("candidates");
   const [drawingExclusion, setDrawingExclusion] = useState(false);
   const [excludeClicks, setExcludeClicks] = useState<[number, number][]>([]);
   const [weightDraft, setWeightDraft] = useState<CriterionWeight[] | null>(null);
@@ -113,9 +127,10 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   }, [workspace]);
 
   const selectCandidate = useCallback(
-    async (c: Candidate) => {
+    async (c: Candidate, panel: DrawerPanel = "evidence") => {
       setSelectedCandidate(c);
       setDrawerOpen(true);
+      setDrawerPanel(panel);
       setTab("results");
       await act("select_candidate", {
         candidateId: c.id,
@@ -124,6 +139,33 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     },
     [act]
   );
+
+  const weightSum = useMemo(() => {
+    const draft = weightDraft ?? scenario?.weights ?? [];
+    return Math.round(draft.reduce((sum, w) => sum + w.weight, 0) * 100);
+  }, [weightDraft, scenario?.weights]);
+
+  const housingTarget = scenario?.objective.targetValue;
+  const totalCapacity = result?.aggregateMetrics.find((m) => m.key === "total_capacity")?.value;
+  const targetGap = result?.aggregateMetrics.find((m) => m.key === "housing_target_gap");
+
+  function constraintFunnelDetail(constraintLabel: string): string | null {
+    if (!result?.stepLogs) return null;
+    const match = result.stepLogs.find((log) =>
+      log.detail.toLowerCase().includes(constraintLabel.toLowerCase().slice(0, 20))
+    );
+    return match?.detail ?? null;
+  }
+
+  function floodConstraintStatus(): "excluded" | "no_overlap" | "unknown" {
+    const detail = constraintFunnelDetail("flood");
+    if (!detail) return "unknown";
+    if (detail.includes("no high-risk flood overlap")) return "no_overlap";
+    const m = detail.match(/(\d+)\s*→\s*(\d+)/);
+    if (m && m[1] !== m[2]) return "excluded";
+    if (m && m[1] === m[2]) return "no_overlap";
+    return "unknown";
+  }
 
   async function runAnalysis() {
     if (!scenario) return;
@@ -277,13 +319,19 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           ).map(([t, icon]) => (
             <button
               key={t}
-              title={t}
-              onClick={() => setTab(t)}
-              className={`p-2 rounded transition-colors ${
+              type="button"
+              title={TAB_LABELS[t]}
+              aria-label={TAB_LABELS[t]}
+              onClick={() => {
+                setTab(t);
+                if (t === "results") setDrawerOpen(true);
+              }}
+              className={`px-2 py-1.5 rounded transition-colors flex items-center gap-1 ${
                 tab === t ? "bg-surface-variant" : "hover:bg-surface-variant"
               }`}
             >
               <span className="material-symbols-outlined text-[20px]">{icon}</span>
+              <span className="hidden xl:inline text-caption">{TAB_LABELS[t]}</span>
             </button>
           ))}
           <button
@@ -296,18 +344,18 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         </div>
       </header>
 
-      <div className="bg-surface border-b border-outline-variant px-section-padding py-2 flex items-center gap-4 text-body-sm shrink-0 overflow-x-auto">
-        <div className="flex items-center gap-2 shrink-0">
+      <div className="bg-surface border-b border-outline-variant px-section-padding py-2 flex flex-wrap items-center gap-3 text-body-sm shrink-0">
+        <div className="flex items-center gap-2 shrink-0 min-w-0">
           <span className="material-symbols-outlined text-outline text-[18px]">flag</span>
           <span className="text-on-surface-variant">Objective</span>
           <span className="text-outline-variant">·</span>
-          <span className="font-medium">
+          <span className="font-medium truncate">
             {scenario.objective.targetValue
-              ? `${scenario.objective.targetValue} ${scenario.objective.targetUnit ?? ""}`
+              ? `${scenario.objective.targetValue.toLocaleString()} ${scenario.objective.targetUnit ?? ""}`
               : scenario.objective.intent.replace(/_/g, " ")}
           </span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap min-w-0">
           {scenario.objective.parsedRequirements.slice(0, 4).map((r) => (
             <span
               key={r}
@@ -317,13 +365,26 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             </span>
           ))}
         </div>
+        {result && housingTarget && totalCapacity != null && (
+          <div
+            className={`shrink-0 px-3 py-1 rounded border text-caption font-medium whitespace-nowrap ${
+              totalCapacity >= housingTarget
+                ? "border-secondary bg-secondary-fixed/20 text-secondary"
+                : "border-error bg-error-container/30 text-error"
+            }`}
+          >
+            {totalCapacity >= housingTarget ? "Meets" : "Shortfall"}:{" "}
+            {totalCapacity.toLocaleString()} / {housingTarget.toLocaleString()} homes
+            {targetGap ? ` (${targetGap.method})` : ""}
+          </div>
+        )}
         {result?.stale && (
-          <span className="ml-auto text-secondary text-caption font-medium whitespace-nowrap">
+          <span className="shrink-0 px-3 py-1 rounded border border-secondary bg-secondary-fixed/20 text-secondary text-caption font-medium whitespace-nowrap">
             Results stale — recalculate
           </span>
         )}
-        {workspace.project.resumeNote && (
-          <span className="ml-auto text-caption text-on-surface-variant truncate max-w-md">
+        {workspace.project.resumeNote && !result?.stale && (
+          <span className="text-caption text-on-surface-variant truncate max-w-md ml-auto">
             {workspace.project.resumeNote}
           </span>
         )}
@@ -368,24 +429,55 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                 <div className="space-y-3">
                   {scenario.constraints
                     .filter((c) => c.enabled)
-                    .map((c) => (
-                      <div key={c.id} className="flex items-center justify-between gap-2">
-                        <span className="text-body-sm flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[18px] text-primary">
-                            check_circle
+                    .map((c) => {
+                      const funnel = constraintFunnelDetail(c.label);
+                      const isFlood = c.datasetKind === "flood";
+                      const floodStatus = isFlood ? floodConstraintStatus() : null;
+                      return (
+                      <div key={c.id} className="flex items-start justify-between gap-2">
+                        <span className="text-body-sm flex items-start gap-2">
+                          <span
+                            className={`material-symbols-outlined text-[18px] shrink-0 ${
+                              isFlood && floodStatus === "no_overlap"
+                                ? "text-on-surface-variant"
+                                : "text-primary"
+                            }`}
+                          >
+                            {isFlood && floodStatus === "no_overlap"
+                              ? "info"
+                              : "check_circle"}
                           </span>
-                          {c.label}
+                          <span>
+                            {c.label}
+                            {funnel && (
+                              <span className="block text-caption text-on-surface-variant mt-0.5">
+                                {funnel}
+                              </span>
+                            )}
+                            {isFlood && floodStatus === "no_overlap" && (
+                              <span className="block text-caption text-on-surface-variant mt-0.5">
+                                No high-risk flood overlap in study area — constraint had no effect.
+                              </span>
+                            )}
+                          </span>
                         </span>
                         {c.operator === "within_distance" && (
-                          <input
-                            type="number"
-                            className="w-20 font-mono text-data-label bg-primary-fixed px-1.5 py-0.5 rounded text-primary"
-                            value={Number(c.value)}
-                            onChange={(e) => updateTransitThreshold(Number(e.target.value))}
-                          />
+                          <label className="flex flex-col items-end gap-0.5 shrink-0">
+                            <span className="sr-only">Transit proximity threshold in meters</span>
+                            <span className="font-mono text-[10px] text-on-surface-variant uppercase">
+                              Meters
+                            </span>
+                            <input
+                              type="number"
+                              aria-label="Transit proximity threshold in meters"
+                              className="w-20 font-mono text-data-label bg-primary-fixed px-1.5 py-0.5 rounded text-primary"
+                              value={Number(c.value)}
+                              onChange={(e) => updateTransitThreshold(Number(e.target.value))}
+                            />
+                          </label>
                         )}
                       </div>
-                    ))}
+                    );})}
                 </div>
               </section>
 
@@ -397,20 +489,28 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                   <button
                     onClick={applyWeights}
                     className="text-caption text-primary hover:underline"
-                    disabled={busy}
+                    disabled={busy || weightSum !== 100}
+                    title={weightSum !== 100 ? "Priorities must sum to 100% before applying" : undefined}
                   >
-                    Apply &amp; mark stale
+                    Apply priorities
                   </button>
                 </div>
+                {weightSum !== 100 && (
+                  <p className="text-caption text-secondary mb-2" role="status">
+                    Priorities sum to {weightSum}% — adjust to 100% before applying.
+                  </p>
+                )}
                 <div className="space-y-4">
                   {(weightDraft ?? scenario.weights).map((w, i) => (
                     <div key={w.id}>
                       <div className="flex justify-between text-caption mb-1">
-                        <span>{w.label}</span>
+                        <label htmlFor={`weight-${w.id}`}>{w.label}</label>
                         <span>{Math.round(w.weight * 100)}%</span>
                       </div>
                       <input
+                        id={`weight-${w.id}`}
                         type="range"
+                        aria-label={`${w.label} priority`}
                         min={0}
                         max={100}
                         value={Math.round(w.weight * 100)}
@@ -478,7 +578,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     >
                       {s.name}
                       <span className="text-caption text-on-surface-variant ml-2">
-                        {s.status}
+                        · {s.status}
                       </span>
                     </button>
                   ))}
@@ -509,9 +609,10 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               workspace={workspace}
               layerData={layerData}
               candidates={candidates}
-              onSelectCandidate={selectCandidate}
+              onSelectCandidate={(c) => selectCandidate(c, "evidence")}
               drawingExclusion={drawingExclusion}
               excludeClicks={excludeClicks}
+              stale={Boolean(result?.stale)}
               onMapClickExclude={({ lat, lng }) => {
                 setExcludeClicks((prev) => [...prev, [lng, lat]]);
               }}
@@ -551,17 +652,18 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               )}
             </div>
 
-            <div className="absolute left-4 bottom-8 glass-panel p-3 rounded border border-outline-variant z-[1000] max-w-[240px] pointer-events-none">
+            <div className="absolute left-4 bottom-28 glass-panel p-3 rounded border border-outline-variant z-[1001] max-w-[240px] pointer-events-auto">
               <h4 className="font-mono text-data-label text-on-surface-variant uppercase mb-2">
                 Legend
               </h4>
               <MapLegend visibleKinds={visibleLayerKinds} />
             </div>
 
-            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-20">
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-[1001] pointer-events-auto">
               <button
+                type="button"
                 onClick={() => {
-                  setDrawerOpen(true);
+                  setDrawerOpen((open) => !open);
                   setTab("results");
                 }}
                 className="bg-surface border-t border-l border-r border-outline-variant rounded-t-xl px-6 py-1 flex flex-col items-center hover:bg-surface-container-low"
@@ -668,7 +770,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           className="w-full text-left"
                         >
                           <div className="font-mono text-[10px] text-on-surface-variant mb-0.5">
-                            {new Date(a.timestamp).toLocaleTimeString()}
+                            {formatLocaleTime(a.timestamp)}
                           </div>
                           <div className="text-body-sm">{a.summary}</div>
                         </button>
@@ -797,30 +899,28 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      {(tab === "results" && drawerOpen) || selectedCandidate ? (
-        tab === "workspace" || tab === "results" ? (
-          <ResultsDrawer
-            open={drawerOpen || tab === "results"}
-            onClose={() => setDrawerOpen(false)}
-            result={result}
-            selected={selectedCandidate}
-            onSelect={selectCandidate}
-            onReject={async (c, reason) => {
-              await act("record_decision", {
-                scenarioId: scenario.id,
-                type: "reject_candidate",
-                subjectId: c.id,
-                reason,
-              });
-              await refresh();
-            }}
-            assumptions={scenario.assumptions}
-            assumptionsOpen={assumptionsOpen}
-            onAssumptionChange={async (assumptions) => {
-              await act("update_assumptions", { scenarioId: scenario.id, assumptions });
-            }}
-          />
-        ) : null
+      {drawerOpen && (tab === "workspace" || tab === "results") ? (
+        <ResultsDrawer
+          open={drawerOpen}
+          panel={drawerPanel}
+          onPanelChange={setDrawerPanel}
+          onClose={() => setDrawerOpen(false)}
+          result={result}
+          stale={Boolean(result?.stale)}
+          selected={selectedCandidate}
+          housingTarget={housingTarget}
+          totalCapacity={totalCapacity}
+          onSelect={(c) => selectCandidate(c, "evidence")}
+          onReject={async (c, reason) => {
+            await act("record_decision", {
+              scenarioId: scenario.id,
+              type: "reject_candidate",
+              subjectId: c.id,
+              reason,
+            });
+            await refresh();
+          }}
+        />
       ) : null}
 
       {tab === "evidence" && (
@@ -912,194 +1012,252 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
 function ResultsDrawer(props: {
   open: boolean;
+  panel: DrawerPanel;
+  onPanelChange: (panel: DrawerPanel) => void;
   onClose: () => void;
   result: WorkspaceSnapshot["analysisResults"][0] | undefined;
+  stale: boolean;
   selected: Candidate | null;
+  housingTarget?: number;
+  totalCapacity?: number;
   onSelect: (c: Candidate) => void;
   onReject: (c: Candidate, reason: string) => Promise<void>;
-  assumptions: WorkspaceSnapshot["scenarios"][0]["assumptions"];
-  assumptionsOpen: boolean;
-  onAssumptionChange: (
-    a: WorkspaceSnapshot["scenarios"][0]["assumptions"]
-  ) => Promise<void>;
 }) {
-  const { result, selected } = props;
+  const { result, selected, panel } = props;
   if (!props.open) return null;
 
-  return (
-    <div className="absolute bottom-0 left-[300px] right-[360px] max-h-[45vh] bg-surface border-t border-outline-variant z-40 flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-outline-variant bg-surface-container-low">
-        <div className="flex gap-4">
-          <span className="font-mono text-data-label text-primary border-b-2 border-primary pb-1">
-            Candidates
-          </span>
-          <span className="font-mono text-data-label text-on-surface-variant">Evidence</span>
-        </div>
-        <button onClick={props.onClose} className="p-1 hover:bg-surface-variant rounded">
-          <span className="material-symbols-outlined">close</span>
-        </button>
-      </div>
-      <div className="flex-1 overflow-auto grid md:grid-cols-2 gap-px bg-outline-variant">
-        <div className="bg-surface p-4 overflow-auto">
-          {!result ? (
-            <p className="text-body-sm text-on-surface-variant">No results yet.</p>
-          ) : result.status === "failed" ? (
-            <p className="text-body-sm text-error">{result.error}</p>
-          ) : result.candidates.length === 0 ? (
-            <div>
-              <p className="text-body-sm font-medium mb-2">No feasible candidates found.</p>
-              <p className="text-caption text-on-surface-variant">{result.summary}</p>
-            </div>
-          ) : (
-            <table className="w-full text-left text-body-sm">
-              <thead>
-                <tr className="font-mono text-data-label text-on-surface-variant">
-                  <th className="py-2">Rank</th>
-                  <th>Candidate</th>
-                  <th>Score</th>
-                  <th>Capacity</th>
-                  <th>Transit</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.candidates.slice(0, 40).map((c) => (
-                  <tr
-                    key={c.id}
-                    onClick={() => props.onSelect(c)}
-                    className={`border-t border-outline-variant cursor-pointer hover:bg-surface-container-low ${
-                      selected?.id === c.id ? "bg-primary-fixed/25" : ""
-                    }`}
-                  >
-                    <td className="py-2 font-mono">{c.rank}</td>
-                    <td>{c.label}</td>
-                    <td className="font-mono">{c.score}</td>
-                    <td className="font-mono">
-                      {c.metrics.find((m) => m.key === "capacity")?.value ?? "—"}
-                    </td>
-                    <td className="font-mono">
-                      {c.metrics.find((m) => m.key === "transit_distance_m")?.value ?? "—"}m
-                    </td>
-                    <td>
-                      <span className="text-caption">{c.status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          {result && (
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              {result.aggregateMetrics.map((m) => (
-                <div key={m.key} className="border border-outline-variant p-3">
-                  <div className="font-mono text-[10px] text-on-surface-variant uppercase mb-1">
-                    {m.label}
-                  </div>
-                  <div className="text-headline-md font-mono">
-                    {m.value}
-                    {m.unit ? ` ${m.unit}` : ""}
-                  </div>
-                  <ProvenanceChip kind={m.kind} />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+  const showEvidence = panel === "evidence" || Boolean(selected);
 
-        <div className="bg-surface p-4 overflow-auto">
-          {!selected ? (
-            <p className="text-body-sm text-on-surface-variant">
-              Select a candidate to inspect evidence.
-            </p>
-          ) : (
-            <div className="space-y-4">
+  return (
+    <div className="absolute bottom-0 left-[300px] right-[360px] max-h-[42vh] z-[35] pointer-events-none">
+      <div className="max-h-[42vh] bg-surface border-t border-outline-variant flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.06)] pointer-events-auto">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-outline-variant bg-surface-container-low shrink-0">
+          <div className="flex gap-4 items-center min-w-0">
+            <button
+              type="button"
+              onClick={() => props.onPanelChange("candidates")}
+              className={`font-mono text-data-label pb-1 ${
+                panel === "candidates"
+                  ? "text-primary border-b-2 border-primary"
+                  : "text-on-surface-variant hover:text-primary"
+              }`}
+            >
+              Candidates
+            </button>
+            <button
+              type="button"
+              onClick={() => props.onPanelChange("evidence")}
+              className={`font-mono text-data-label pb-1 ${
+                panel === "evidence"
+                  ? "text-primary border-b-2 border-primary"
+                  : "text-on-surface-variant hover:text-primary"
+              }`}
+            >
+              Evidence
+            </button>
+            {props.housingTarget != null && props.totalCapacity != null && (
+              <span
+                className={`hidden md:inline font-mono text-[10px] uppercase px-2 py-0.5 rounded border whitespace-nowrap ${
+                  props.totalCapacity >= props.housingTarget
+                    ? "border-secondary text-secondary"
+                    : "border-error text-error"
+                }`}
+              >
+                {props.totalCapacity >= props.housingTarget ? "Meets" : "Shortfall"}{" "}
+                {props.totalCapacity.toLocaleString()} / {props.housingTarget.toLocaleString()} homes
+              </span>
+            )}
+            {props.stale && (
+              <span className="text-caption text-secondary font-medium whitespace-nowrap">
+                Stale — recalculate
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={props.onClose}
+            className="p-1 hover:bg-surface-variant rounded"
+            aria-label="Close results panel"
+          >
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-hidden grid md:grid-cols-2 gap-px bg-outline-variant">
+          <div
+            className={`bg-surface p-4 overflow-auto min-h-0 ${panel === "evidence" ? "hidden md:block" : ""}`}
+          >
+            {!result ? (
+              <p className="text-body-sm text-on-surface-variant">No results yet.</p>
+            ) : result.status === "failed" ? (
+              <p className="text-body-sm text-error">{result.error}</p>
+            ) : result.candidates.length === 0 ? (
               <div>
-                <h3 className="text-headline-md mb-1">{selected.label}</h3>
-                <div className="flex gap-2 items-center">
-                  <ProvenanceChip kind="copilot_recommendation" />
-                  <span className="font-mono text-data-label">Score {selected.score}</span>
-                </div>
+                <p className="text-body-sm font-medium mb-2">No feasible candidates found.</p>
+                <p className="text-caption text-on-surface-variant">{result.summary}</p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                {selected.metrics.slice(0, 6).map((m) => (
-                  <div key={m.key} className="border border-outline-variant p-2">
-                    <div className="font-mono text-[10px] uppercase text-on-surface-variant">
-                      {m.label}
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-body-sm min-w-[520px]">
+                  <thead>
+                    <tr className="font-mono text-data-label text-on-surface-variant">
+                      <th className="py-2 pr-2">Rank</th>
+                      <th className="pr-2">Candidate</th>
+                      <th className="pr-2">Score</th>
+                      <th className="pr-2">Capacity</th>
+                      <th className="pr-2">Transit</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.candidates.slice(0, 40).map((c) => (
+                      <tr
+                        key={c.id}
+                        tabIndex={0}
+                        role="button"
+                        onClick={() => {
+                          props.onSelect(c);
+                          props.onPanelChange("evidence");
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            props.onSelect(c);
+                            props.onPanelChange("evidence");
+                          }
+                        }}
+                        className={`border-t border-outline-variant cursor-pointer hover:bg-surface-container-low ${
+                          selected?.id === c.id ? "bg-primary-fixed/25" : ""
+                        } ${props.stale ? "opacity-60" : ""}`}
+                      >
+                        <td className="py-2 pr-2 font-mono">{c.rank}</td>
+                        <td className="pr-2">{c.label}</td>
+                        <td className="pr-2 font-mono">{c.score.toFixed(1)}</td>
+                        <td className="pr-2 font-mono">
+                          {c.metrics.find((m) => m.key === "capacity")?.value ?? "—"}
+                        </td>
+                        <td className="pr-2 font-mono">
+                          {c.metrics.find((m) => m.key === "transit_distance_m")?.value ?? "—"}m
+                        </td>
+                        <td>
+                          <span className="text-caption whitespace-nowrap">{c.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {result && (
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                {result.aggregateMetrics
+                  .filter((m) => m.key !== "housing_target_gap")
+                  .map((m) => (
+                    <div
+                      key={m.key}
+                      className={`border border-outline-variant p-3 ${props.stale ? "opacity-60" : ""}`}
+                    >
+                      <div className="font-mono text-[10px] text-on-surface-variant uppercase mb-1">
+                        {m.label}
+                      </div>
+                      <div className="text-headline-md font-mono">
+                        {m.value.toLocaleString()}
+                        {m.unit ? ` ${m.unit}` : ""}
+                      </div>
+                      <ProvenanceChip kind={m.kind} />
                     </div>
-                    <div className="font-mono text-body-sm mt-1">
-                      {m.value}
-                      {m.unit ? ` ${m.unit}` : ""}
-                    </div>
-                    <ProvenanceChip kind={m.kind} />
-                    {m.method && (
-                      <p className="text-caption text-on-surface-variant mt-1">{m.method}</p>
+                  ))}
+              </div>
+            )}
+          </div>
+
+          <div
+            className={`bg-surface p-4 overflow-auto min-h-0 ${panel === "candidates" ? "hidden md:block" : ""}`}
+          >
+            {!showEvidence || !selected ? (
+              <p className="text-body-sm text-on-surface-variant">
+                Select a candidate to inspect evidence.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-headline-md mb-1">{selected.label}</h3>
+                  <div className="flex gap-2 items-center flex-wrap">
+                    <ProvenanceChip kind="copilot_recommendation" />
+                    <span className="font-mono text-data-label">Score {selected.score.toFixed(1)}</span>
+                    {props.housingTarget != null && (
+                      <span className="text-caption text-on-surface-variant">
+                        Capacity{" "}
+                        {selected.metrics.find((m) => m.key === "capacity")?.value ?? "—"} vs goal{" "}
+                        {props.housingTarget.toLocaleString()} homes
+                      </span>
                     )}
                   </div>
-                ))}
-              </div>
-              <div>
-                <h4 className="font-mono text-data-label uppercase mb-2">Provenance</h4>
-                <ul className="text-caption space-y-1 text-on-surface-variant">
-                  <li>Score ← weighted criteria</li>
-                  {Object.entries(selected.provenance.scoreBreakdown).map(([k, v]) => (
-                    <li key={k}>
-                      · {k}: {v}
+                </div>
+                <div>
+                  <h4 className="font-mono text-data-label uppercase mb-2">Score breakdown</h4>
+                  <ul className="text-body-sm space-y-1">
+                    {Object.entries(selected.provenance.scoreBreakdown).map(([k, v]) => (
+                      <li key={k} className="flex justify-between gap-4">
+                        <span className="text-on-surface-variant">{k.replace(/_/g, " ")}</span>
+                        <span className="font-mono">{v}</span>
+                      </li>
+                    ))}
+                    <li className="flex justify-between gap-4 font-medium border-t border-outline-variant pt-1">
+                      <span>Total score</span>
+                      <span className="font-mono">{selected.score.toFixed(1)}</span>
                     </li>
+                  </ul>
+                  <p className="text-caption text-on-surface-variant mt-2">
+                    Ranking uses weighted criteria — higher capacity alone does not guarantee rank #1.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {selected.metrics.slice(0, 6).map((m) => (
+                    <div key={m.key} className="border border-outline-variant p-2">
+                      <div className="font-mono text-[10px] uppercase text-on-surface-variant">
+                        {m.label}
+                      </div>
+                      <div className="font-mono text-body-sm mt-1">
+                        {m.value}
+                        {m.unit ? ` ${m.unit}` : ""}
+                      </div>
+                      <ProvenanceChip kind={m.kind} />
+                      {m.method && (
+                        <p className="text-caption text-on-surface-variant mt-1">{m.method}</p>
+                      )}
+                    </div>
                   ))}
-                  <li>Datasets: {selected.provenance.datasets.join(", ") || "—"}</li>
-                  <li>Assumptions: {selected.provenance.assumptions.join(", ")}</li>
-                  <li>Constraints: {selected.provenance.constraints.join("; ")}</li>
-                  <li>
-                    Limitations: {selected.provenance.limitations.join("; ") || "None noted"}
-                  </li>
-                </ul>
+                </div>
+                <div>
+                  <h4 className="font-mono text-data-label uppercase mb-2">Provenance</h4>
+                  <ul className="text-caption space-y-1 text-on-surface-variant">
+                    <li>Datasets: {selected.provenance.datasets.join(", ") || "—"}</li>
+                    <li>Assumptions: {selected.provenance.assumptions.join(", ")}</li>
+                    <li>Constraints: {selected.provenance.constraints.join("; ")}</li>
+                    <li>
+                      Limitations: {selected.provenance.limitations.join("; ") || "None noted"}
+                    </li>
+                  </ul>
+                </div>
+                {selected.status !== "rejected" && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      props.onReject(selected, "Planned redevelopment already exists here.")
+                    }
+                    className="border border-error text-error px-3 py-1.5 rounded text-body-sm"
+                  >
+                    Reject candidate
+                  </button>
+                )}
+                {selected.rejectionReason && (
+                  <p className="text-body-sm text-secondary">
+                    <ProvenanceChip kind="planner_decision" /> Rejected: {selected.rejectionReason}
+                  </p>
+                )}
               </div>
-              {selected.status !== "rejected" && (
-                <button
-                  onClick={() =>
-                    props.onReject(selected, "Planned redevelopment already exists here.")
-                  }
-                  className="border border-error text-error px-3 py-1.5 rounded text-body-sm"
-                >
-                  Reject candidate
-                </button>
-              )}
-              {selected.rejectionReason && (
-                <p className="text-body-sm text-secondary">
-                  <ProvenanceChip kind="planner_decision" /> Rejected: {selected.rejectionReason}
-                </p>
-              )}
-            </div>
-          )}
-
-          {props.assumptionsOpen && (
-            <div className="mt-6 border-t border-outline-variant pt-4">
-              <h4 className="font-mono text-data-label uppercase mb-3">Assumptions</h4>
-              <div className="space-y-3">
-                {props.assumptions.map((a, i) => (
-                  <label key={a.id} className="block text-body-sm">
-                    <span className="text-on-surface-variant">{a.label}</span>
-                    <input
-                      disabled={!a.editable}
-                      className="ml-2 border-b border-outline bg-transparent font-mono w-24"
-                      value={String(a.value)}
-                      onChange={(e) => {
-                        const next = [...props.assumptions];
-                        const raw = e.target.value;
-                        next[i] = {
-                          ...a,
-                          value: Number.isFinite(Number(raw)) ? Number(raw) : raw,
-                        };
-                        props.onAssumptionChange(next);
-                      }}
-                    />
-                    {a.unit && <span className="text-caption ml-1">{a.unit}</span>}
-                    <p className="text-caption text-on-surface-variant">{a.description}</p>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -126,6 +126,7 @@ export interface PlanningObjective {
   geographyLabel: string;
   parsedRequirements: string[];
   confidence: number;
+  qualityWarning?: string;
 }
 
 export interface AnalysisPlanStep {
@@ -192,6 +193,12 @@ export interface Candidate {
   recommendationNote?: string;
 }
 
+export interface AnalysisStepLog {
+  step: string;
+  detail: string;
+  count?: number;
+}
+
 export interface AnalysisResult {
   id: string;
   jobId: string;
@@ -203,6 +210,7 @@ export interface AnalysisResult {
   aggregateMetrics: MetricValue[];
   summary: string;
   limitations: string[];
+  stepLogs?: AnalysisStepLog[];
   stale: boolean;
   staleReason?: string;
   error?: string;

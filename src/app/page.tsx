@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { AppHeader } from "@/components/AppHeader";
 import { ProvenanceChip } from "@/components/workspace-hooks";
+import { plannerGreeting } from "@/lib/format";
 
 type Project = {
   id: string;
@@ -13,12 +15,7 @@ type Project = {
   geographyLabel: string;
 };
 
-function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  return "Good evening";
-}
+const SHOW_WEBMCP_UI = process.env.NEXT_PUBLIC_SHOW_WEBMCP_UI === "true";
 
 export default function HomePage() {
   const router = useRouter();
@@ -53,37 +50,14 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <header className="h-16 border-b border-outline-variant bg-surface-container-high px-section-padding flex items-center justify-between">
-        <div className="flex items-center gap-8">
-          <h1 className="font-display text-[22px] font-semibold text-primary tracking-tight">
-            Urban Planning Copilot
-          </h1>
-          <nav className="flex gap-4 text-body-sm">
-            <span className="text-primary font-medium border-b-2 border-primary pb-0.5">
-              Projects
-            </span>
-            <Link href="/explore" className="text-on-surface-variant hover:text-primary">
-              Explore
-            </Link>
-            <Link href="/data" className="text-on-surface-variant hover:text-primary">
-              Data
-            </Link>
-          </nav>
-        </div>
-        <button
-          onClick={() => router.push("/new")}
-          className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm font-medium hover:bg-on-primary-fixed-variant transition-colors"
-        >
-          + New planning project
-        </button>
-      </header>
+      <AppHeader active="projects" />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-section-padding py-10">
         <div className="flex flex-col lg:flex-row lg:items-start gap-10">
           <div className="flex-1 min-w-0">
             <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
               <div>
-                <h2 className="text-display text-on-surface mb-2">{greeting()}, planner</h2>
+                <h2 className="text-display text-on-surface mb-2">{plannerGreeting()}</h2>
                 <p className="text-body-lg text-on-surface-variant max-w-2xl">
                   Continue your planning work or start a new analysis. Objectives, scenarios,
                   evidence, and human decisions persist across sessions.
@@ -121,20 +95,23 @@ export default function HomePage() {
                 All projects
               </h3>
               {loading ? (
-                <p className="text-body-sm text-on-surface-variant">Loading projects…</p>
+                <div className="flex items-center gap-2 text-body-sm text-on-surface-variant">
+                  <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
+                  Loading projects…
+                </div>
               ) : projects.length === 0 ? (
                 <div className="border border-outline-variant bg-surface-container-lowest p-10 text-center">
                   <p className="text-headline-md text-on-surface mb-2">No projects yet</p>
                   <p className="text-body-sm text-on-surface-variant mb-6">
                     Create a workspace and describe your planning question in natural language.
-                    Demo seed projects appear after first deploy when the data disk is empty.
+                    Your projects will appear here once saved.
                   </p>
-                  <button
-                    onClick={() => router.push("/new")}
-                    className="bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium"
+                  <Link
+                    href="/new"
+                    className="inline-block bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium"
                   >
                     Create your first project
-                  </button>
+                  </Link>
                 </div>
               ) : (
                 <div className="grid md:grid-cols-2 gap-4">
@@ -186,20 +163,22 @@ export default function HomePage() {
               </section>
             )}
 
-            <section className="border border-outline-variant p-4 bg-surface-container-low">
-              <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-3">
-                WebMCP
-              </h3>
-              <p className="text-body-sm text-on-surface-variant mb-2">
-                Browser tools register on every page via{" "}
-                <code className="font-mono text-[11px]">document.modelContext.registerTool</code>.
-              </p>
-              <p className="text-caption text-on-surface-variant">
-                Enable{" "}
-                <code className="font-mono">chrome://flags/#enable-webmcp-testing</code> or use
-                ChatGPT in-app browser. See README for eval commands.
-              </p>
-            </section>
+            {SHOW_WEBMCP_UI && (
+              <section className="border border-outline-variant p-4 bg-surface-container-low">
+                <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-3">
+                  WebMCP (developer)
+                </h3>
+                <p className="text-body-sm text-on-surface-variant mb-2">
+                  Browser tools register on every page via{" "}
+                  <code className="font-mono text-[11px]">document.modelContext.registerTool</code>.
+                </p>
+                <p className="text-caption text-on-surface-variant">
+                  Enable{" "}
+                  <code className="font-mono">chrome://flags/#enable-webmcp-testing</code> or set{" "}
+                  <code className="font-mono">NEXT_PUBLIC_SHOW_WEBMCP_UI=true</code>.
+                </p>
+              </section>
+            )}
           </aside>
         </div>
       </main>

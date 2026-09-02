@@ -1,8 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { AppHeader } from "@/components/AppHeader";
+import { assessObjectiveQuality } from "@/lib/domain/objective";
+
+const DRAFT_KEY = "upc-new-project-draft";
 
 const EXAMPLES = [
   {
@@ -28,7 +32,36 @@ export default function NewProjectPage() {
   const [name, setName] = useState("");
   const [objective, setObjective] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [objectiveError, setObjectiveError] = useState<string | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const objectiveRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as { name?: string; objective?: string };
+      if (draft.name) setName(draft.name);
+      if (draft.objective) setObjective(draft.objective);
+    } catch {
+      /* ignore corrupt draft */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (!name.trim() && !objective.trim()) {
+        sessionStorage.removeItem(DRAFT_KEY);
+        return;
+      }
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ name, objective }));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [name, objective]);
+
+  const objectiveQuality = useMemo(() => assessObjectiveQuality(objective), [objective]);
 
   const preview = useMemo(() => {
     const lower = objective.toLowerCase();
@@ -51,13 +84,46 @@ export default function NewProjectPage() {
     return { datasets, analyses };
   }, [objective]);
 
-  async function create() {
-    if (!name.trim() || !objective.trim()) {
-      setError("Project name and planning objective are required.");
-      return;
+  function handleBack() {
+    if (name.trim() || objective.trim()) {
+      const discard = window.confirm(
+        "Discard this draft? Your entries are saved in this browser session until you leave."
+      );
+      if (!discard) return;
+      sessionStorage.removeItem(DRAFT_KEY);
     }
+    router.push("/");
+  }
+
+  async function create() {
+    setNameError(null);
+    setObjectiveError(null);
+
+    let hasError = false;
+    if (!name.trim()) {
+      setNameError("Project name is required.");
+      nameRef.current?.focus();
+      hasError = true;
+    } else if (name.trim().length < 2) {
+      setNameError("Project name must be at least 2 characters.");
+      nameRef.current?.focus();
+      hasError = true;
+    }
+    if (!objective.trim()) {
+      setObjectiveError("Planning objective is required.");
+      if (!hasError) objectiveRef.current?.focus();
+      hasError = true;
+    } else if (!objectiveQuality.interpretable) {
+      setObjectiveError(
+        objectiveQuality.warning ??
+          "Planning objective is too vague to analyze. Add targets and constraints."
+      );
+      if (!hasError) objectiveRef.current?.focus();
+      hasError = true;
+    }
+    if (hasError) return;
+
     setBusy(true);
-    setError(null);
     try {
       const res = await fetch("/api/projects", {
         method: "POST",
@@ -65,50 +131,113 @@ export default function NewProjectPage() {
         body: JSON.stringify({
           name: name.trim(),
           objectiveText: objective.trim(),
-          geographyLabel: "Study area",
+          geographyLabel: "North River study area (synthetic)",
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create");
+      sessionStorage.removeItem(DRAFT_KEY);
       router.push(`/workspace/${data.project.id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setObjectiveError(e instanceof Error ? e.message : String(e));
       setBusy(false);
     }
   }
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <header className="h-14 border-b border-outline-variant px-section-padding flex items-center justify-between">
-        <Link href="/" className="text-body-sm text-primary hover:underline">
-          ← Projects
-        </Link>
+      <AppHeader active="projects" />
+
+      <div className="border-b border-outline-variant px-section-padding py-3 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="text-body-sm text-primary hover:underline"
+        >
+          ← Back to projects
+        </button>
         <h1 className="text-headline-md text-on-surface">New planning workspace</h1>
-        <div className="w-20" />
-      </header>
+      </div>
 
       <main className="flex-1 grid lg:grid-cols-2 gap-px bg-outline-variant">
         <section className="bg-surface p-8 overflow-y-auto">
-          <label className="font-mono text-data-label text-on-surface-variant uppercase block mb-2">
-            Project name
-          </label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. North River Housing Strategy"
-            className="w-full border-b border-outline bg-transparent py-2 mb-6 text-body-lg focus:outline-none focus:border-primary"
-          />
+          <div className="mb-6">
+            <label
+              htmlFor="project-name"
+              className="font-mono text-data-label text-on-surface-variant uppercase block mb-2"
+            >
+              Project name
+            </label>
+            <input
+              id="project-name"
+              ref={nameRef}
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (nameError) setNameError(null);
+              }}
+              placeholder="e.g. North River Housing Strategy"
+              aria-invalid={Boolean(nameError)}
+              aria-describedby={nameError ? "project-name-error" : undefined}
+              className={`w-full border-b bg-transparent py-2 text-body-lg focus:outline-none ${
+                nameError ? "border-error" : "border-outline focus:border-primary"
+              }`}
+            />
+            {nameError && (
+              <p id="project-name-error" role="alert" className="text-body-sm text-error mt-1">
+                {nameError}
+              </p>
+            )}
+          </div>
 
-          <label className="font-mono text-data-label text-on-surface-variant uppercase block mb-2">
-            Planning objective
-          </label>
-          <textarea
-            value={objective}
-            onChange={(e) => setObjective(e.target.value)}
-            rows={5}
-            placeholder="Describe the planning question in natural language…"
-            className="w-full border border-outline-variant rounded bg-surface-container-lowest p-3 text-body-sm focus:outline-none focus:border-primary mb-6"
-          />
+          <div className="mb-6">
+            <label
+              htmlFor="planning-objective"
+              className="font-mono text-data-label text-on-surface-variant uppercase block mb-2"
+            >
+              Planning objective
+            </label>
+            <textarea
+              id="planning-objective"
+              ref={objectiveRef}
+              value={objective}
+              onChange={(e) => {
+                setObjective(e.target.value);
+                if (objectiveError) setObjectiveError(null);
+              }}
+              rows={5}
+              placeholder="Describe the planning question in natural language…"
+              aria-invalid={Boolean(objectiveError)}
+              aria-describedby={
+                objectiveError
+                  ? "planning-objective-error"
+                  : objectiveQuality.warning
+                    ? "planning-objective-warning"
+                    : undefined
+              }
+              className={`w-full border rounded bg-surface-container-lowest p-3 text-body-sm focus:outline-none mb-2 ${
+                objectiveError
+                  ? "border-error"
+                  : !objectiveQuality.interpretable && objective.trim()
+                    ? "border-secondary"
+                    : "border-outline-variant focus:border-primary"
+              }`}
+            />
+            {objectiveError && (
+              <p id="planning-objective-error" role="alert" className="text-body-sm text-error">
+                {objectiveError}
+              </p>
+            )}
+            {!objectiveError && objective.trim() && objectiveQuality.warning && (
+              <p
+                id="planning-objective-warning"
+                role="status"
+                className="text-body-sm text-secondary"
+              >
+                {objectiveQuality.warning}
+              </p>
+            )}
+          </div>
 
           <h2 className="font-mono text-data-label text-on-surface-variant uppercase mb-3">
             Example questions
@@ -121,6 +250,7 @@ export default function NewProjectPage() {
                 onClick={() => {
                   setObjective(ex.text);
                   if (!name) setName(ex.title);
+                  setObjectiveError(null);
                 }}
                 className="text-left border border-outline-variant p-3 hover:border-primary transition-colors"
               >
@@ -130,9 +260,8 @@ export default function NewProjectPage() {
             ))}
           </div>
 
-          {error && <p className="text-body-sm text-error mb-3">{error}</p>}
-
           <button
+            type="button"
             onClick={create}
             disabled={busy}
             className="bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium disabled:opacity-50"
@@ -149,10 +278,15 @@ export default function NewProjectPage() {
               <p className="text-body-sm text-on-surface-variant">
                 {objective || "Enter a planning question to preview the plan."}
               </p>
+              {objective.trim() && !objectiveQuality.interpretable && (
+                <p className="text-caption text-secondary mt-2">
+                  Low confidence — revise before creating the workspace.
+                </p>
+              )}
             </div>
             <div>
               <div className="font-mono text-data-label uppercase text-on-surface mb-1">Geography</div>
-              <p className="text-body-sm">Study area (synthetic seed geography)</p>
+              <p className="text-body-sm">North River study area (synthetic seed geography)</p>
             </div>
             <div>
               <div className="font-mono text-data-label uppercase text-on-surface mb-2">

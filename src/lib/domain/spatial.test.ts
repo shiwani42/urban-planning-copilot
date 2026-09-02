@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseObjective, normalizeWeights, buildAnalysisPlan } from "./objective";
+import { parseObjective, normalizeWeights, buildAnalysisPlan, assessObjectiveQuality } from "./objective";
 import { runSpatialAnalysis } from "./spatial";
 import { generateSyntheticCity } from "./seed";
 
@@ -36,6 +36,15 @@ describe("objective parsing", () => {
       "Find neighborhoods with the largest transit accessibility gaps."
     );
     assert.equal(objective.intent, "transit_gap");
+  });
+
+  it("flags uninterpretable objectives", () => {
+    const quality = assessObjectiveQuality("hello");
+    assert.equal(quality.interpretable, false);
+    assert.ok(quality.warning);
+    const parsed = parseObjective("hello");
+    assert.ok(parsed.objective.confidence < 0.3);
+    assert.ok(parsed.objective.qualityWarning);
   });
 });
 
