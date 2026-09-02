@@ -26,7 +26,7 @@ import {
 } from "./shortlist";
 import { isHousingIntent, isAccessIntent } from "./intent";
 import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
-import { getStore, updateStore, reloadStoreFromDisk } from "./store";
+import { getStore, updateStore, reloadStoreFromDisk, StorePersistError } from "./store";
 import { STUDY_BOUNDS } from "./study-bounds";
 import { ToolError } from "./tool-errors";
 import {
@@ -1098,164 +1098,210 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
     externalLimitations: collectDatasetLimitations(live, sc),
   });
 
-  await updateStore((s) => {
-    const job = s.analysisJobs.find((j) => j.id === jobId);
-    const scenarioLive = requireScenario(s, projectId, scenarioId);
-    const currentHash = configHashFor(scenarioLive);
+    try {
+      await updateStore((s) => {
+        const job = s.analysisJobs.find((j) => j.id === jobId);
+        const scenarioLive = requireScenario(s, projectId, scenarioId);
+        const currentHash = configHashFor(scenarioLive);
 
-    if (!job) return;
+        if (!job) return;
 
-    // Record step activities from engine logs
-    for (const step of output.stepLogs) {
-      const ev = logActivity(s, {
-        projectId,
-        scenarioId,
-        actor: "agent",
-        category: "analysis",
-        action: step.step,
-        summary: step.detail,
-        inputs: {
-          scenario: scenarioLive.name,
-          datasets: datasetSnapshot(s, scenarioLive),
-        },
-        outputs: {
-          count: step.count,
-          detail: step.detail,
-        },
-      });
-      job.activityIds.push(ev.id);
-      job.progress = Math.min(95, job.progress + 12);
-      job.currentStep = step.detail;
-      if (scenarioLive.analysisPlan) {
-        const planStep = scenarioLive.analysisPlan.steps.find(
-          (ps) =>
-            ps.operation === step.step ||
-            step.detail.toLowerCase().includes(ps.label.toLowerCase().slice(0, 12))
+        // Record step activities from engine logs
+        for (const step of output.stepLogs) {
+          const ev = logActivity(s, {
+            projectId,
+            scenarioId,
+            actor: "agent",
+            category: "analysis",
+            action: step.step,
+            summary: step.detail,
+            inputs: {
+              scenario: scenarioLive.name,
+              datasets: datasetSnapshot(s, scenarioLive),
+            },
+            outputs: {
+              count: step.count,
+              detail: step.detail,
+            },
+          });
+          job.activityIds.push(ev.id);
+          job.progress = Math.min(95, job.progress + 12);
+          job.currentStep = step.detail;
+          if (scenarioLive.analysisPlan) {
+            const planStep = scenarioLive.analysisPlan.steps.find(
+              (ps) =>
+                ps.operation === step.step ||
+                step.detail.toLowerCase().includes(ps.label.toLowerCase().slice(0, 12))
+            );
+            if (planStep) planStep.status = "completed";
+          }
+        }
+
+        if (currentHash !== job.configHash) {
+          job.status = "cancelled";
+          job.completedAt = now();
+          job.error = "Planning criteria changed during analysis. Results need recalculation.";
+          logActivity(s, {
+            projectId,
+            scenarioId,
+            actor: "system",
+            category: "analysis",
+            action: "analysis_stale_cancelled",
+            summary: job.error,
+          });
+          touchProject(s, projectId, "Planning criteria changed. Current results need recalculation.");
+          return;
+        }
+
+        const result: AnalysisResult = {
+          id: nanoid(),
+          jobId: job.id,
+          scenarioId,
+          status: "completed",
+          createdAt: now(),
+          completedAt: now(),
+          candidates: output.candidates,
+          aggregateMetrics: output.aggregateMetrics,
+          summary: output.summary,
+          stepLogs: output.stepLogs,
+          limitations: dedupeLimitations([
+            ...output.limitations,
+            ...collectDatasetLimitations(s, scenarioLive),
+          ]),
+          stale: false,
+          configHash: job.configHash,
+        };
+
+        // Apply rejection status onto candidates
+        for (const c of result.candidates) {
+          const rejectedDecision = s.decisions.find(
+            (d) =>
+              d.scenarioId === scenarioId &&
+              d.type === "reject_candidate" &&
+              (d.subjectId === c.id || c.featureIds.includes(d.subjectId ?? ""))
+          );
+          if (rejectedDecision) {
+            c.status = "rejected";
+            c.rejectionReason = rejectedDecision.reason;
+          }
+        }
+
+        if (scenarioLive.shortlist?.length) {
+          scenarioLive.shortlist = remapShortlistAfterAnalysis(
+            scenarioLive.shortlist,
+            result.candidates
+          );
+        }
+
+        // Propagate analysis-level limitations onto each candidate
+        for (const c of result.candidates) {
+          c.provenance.limitations = [...result.limitations];
+        }
+
+        s.analysisResults.push(result);
+        job.status = "completed";
+        job.progress = 100;
+        job.completedAt = now();
+        job.currentStep = "Complete";
+        scenarioLive.latestResultId = result.id;
+        scenarioLive.updatedAt = now();
+        if (
+          scenarioLive.decisionStatus === "approved" &&
+          scenarioLive.approvedAgainstResultId &&
+          scenarioLive.approvedAgainstResultId !== result.id
+        ) {
+          scenarioLive.decisionStale = true;
+          scenarioLive.decisionStaleReason = "Analysis recalculated — prior approval is stale";
+          scenarioLive.decisionStatus = "pending";
+        } else if (scenarioLive.approvedAgainstConfigHash) {
+          const hash = configHashFor(scenarioLive);
+          if (scenarioLive.approvedAgainstConfigHash !== hash) {
+            scenarioLive.decisionStale = true;
+            scenarioLive.decisionStaleReason = "Planning inputs changed since approval";
+            scenarioLive.decisionStatus = "pending";
+          }
+        }
+        if (scenarioLive.analysisPlan) {
+          scenarioLive.analysisPlan.steps = scenarioLive.analysisPlan.steps.map((st) => ({
+            ...st,
+            status: "completed",
+          }));
+        }
+
+        logActivity(s, {
+          projectId,
+          scenarioId,
+          actor: "agent",
+          category: "analysis",
+          action: "analysis_completed",
+          summary: output.summary,
+          inputs: {
+            scenario: scenarioLive.name,
+            datasets: datasetSnapshot(s, scenarioLive),
+            configHash: job.configHash,
+          },
+          outputs: {
+            candidateCount: output.candidates.length,
+            topCandidate: output.candidates[0]?.label,
+            aggregateMetrics: Object.fromEntries(
+              result.aggregateMetrics.map((m) => [m.key, m.value])
+            ),
+          },
+          relatedCandidateIds: output.candidates.slice(0, 5).map((c) => c.id),
+        });
+        touchProject(
+          s,
+          projectId,
+          output.candidates.length
+            ? `Analysis complete — ${output.candidates.length} candidates.`
+            : "No feasible candidates — consider relaxing constraints."
         );
-        if (planStep) planStep.status = "completed";
-      }
-    }
-
-    if (currentHash !== job.configHash) {
-      job.status = "cancelled";
-      job.completedAt = now();
-      job.error = "Planning criteria changed during analysis. Results need recalculation.";
-      logActivity(s, {
-        projectId,
-        scenarioId,
-        actor: "system",
-        category: "analysis",
-        action: "analysis_stale_cancelled",
-        summary: job.error,
       });
-      touchProject(s, projectId, "Planning criteria changed. Current results need recalculation.");
-      return;
-    }
-
-    const result: AnalysisResult = {
-      id: nanoid(),
-      jobId: job.id,
-      scenarioId,
-      status: "completed",
-      createdAt: now(),
-      completedAt: now(),
-      candidates: output.candidates,
-      aggregateMetrics: output.aggregateMetrics,
-      summary: output.summary,
-      stepLogs: output.stepLogs,
-      limitations: dedupeLimitations([
-        ...output.limitations,
-        ...collectDatasetLimitations(s, scenarioLive),
-      ]),
-      stale: false,
-      configHash: job.configHash,
-    };
-
-    // Apply rejection status onto candidates
-    for (const c of result.candidates) {
-      const rejectedDecision = s.decisions.find(
-        (d) =>
-          d.scenarioId === scenarioId &&
-          d.type === "reject_candidate" &&
-          (d.subjectId === c.id || c.featureIds.includes(d.subjectId ?? ""))
-      );
-      if (rejectedDecision) {
-        c.status = "rejected";
-        c.rejectionReason = rejectedDecision.reason;
+    } catch (err) {
+      if (err instanceof StorePersistError) {
+        await updateStore((s) => {
+          const job = s.analysisJobs.find((j) => j.id === jobId);
+          if (job && job.status === "running") {
+            job.status = "failed";
+            job.completedAt = now();
+            job.error =
+              "Analysis finished but results could not be saved. Your project and scenarios are intact — retry analysis.";
+            job.currentStep = "Results not saved";
+          }
+          const scenarioLive = requireScenario(s, projectId, scenarioId);
+          if (scenarioLive.analysisPlan) {
+            scenarioLive.analysisPlan.steps = scenarioLive.analysisPlan.steps.map((st) => ({
+              ...st,
+              status: st.status === "completed" ? "completed" : "pending",
+            }));
+          }
+          logActivity(s, {
+            projectId,
+            scenarioId,
+            actor: "system",
+            category: "analysis",
+            action: "analysis_persist_failed",
+            summary: job?.error ?? "Results not saved to disk",
+          });
+          touchProject(
+            s,
+            projectId,
+            "Analysis finished but results were not saved — retry when storage is healthy."
+          );
+        });
+        const ws = await getWorkspace(projectId);
+        if (!ws) throw err;
+        return {
+          ...ws,
+          persistError: {
+            code: "RESULTS_NOT_SAVED" as const,
+            message:
+              "Analysis completed but results could not be saved. Project and scenario metadata were kept.",
+          },
+        };
       }
+      throw err;
     }
-
-    if (scenarioLive.shortlist?.length) {
-      scenarioLive.shortlist = remapShortlistAfterAnalysis(
-        scenarioLive.shortlist,
-        result.candidates
-      );
-    }
-
-    // Propagate analysis-level limitations onto each candidate
-    for (const c of result.candidates) {
-      c.provenance.limitations = [...result.limitations];
-    }
-
-    s.analysisResults.push(result);
-    job.status = "completed";
-    job.progress = 100;
-    job.completedAt = now();
-    job.currentStep = "Complete";
-    scenarioLive.latestResultId = result.id;
-    scenarioLive.updatedAt = now();
-    if (
-      scenarioLive.decisionStatus === "approved" &&
-      scenarioLive.approvedAgainstResultId &&
-      scenarioLive.approvedAgainstResultId !== result.id
-    ) {
-      scenarioLive.decisionStale = true;
-      scenarioLive.decisionStaleReason = "Analysis recalculated — prior approval is stale";
-      scenarioLive.decisionStatus = "pending";
-    } else if (scenarioLive.approvedAgainstConfigHash) {
-      const hash = configHashFor(scenarioLive);
-      if (scenarioLive.approvedAgainstConfigHash !== hash) {
-        scenarioLive.decisionStale = true;
-        scenarioLive.decisionStaleReason = "Planning inputs changed since approval";
-        scenarioLive.decisionStatus = "pending";
-      }
-    }
-    if (scenarioLive.analysisPlan) {
-      scenarioLive.analysisPlan.steps = scenarioLive.analysisPlan.steps.map((st) => ({
-        ...st,
-        status: "completed",
-      }));
-    }
-
-    logActivity(s, {
-      projectId,
-      scenarioId,
-      actor: "agent",
-      category: "analysis",
-      action: "analysis_completed",
-      summary: output.summary,
-      inputs: {
-        scenario: scenarioLive.name,
-        datasets: datasetSnapshot(s, scenarioLive),
-        configHash: job.configHash,
-      },
-      outputs: {
-        candidateCount: output.candidates.length,
-        topCandidate: output.candidates[0]?.label,
-        aggregateMetrics: Object.fromEntries(
-          result.aggregateMetrics.map((m) => [m.key, m.value])
-        ),
-      },
-      relatedCandidateIds: output.candidates.slice(0, 5).map((c) => c.id),
-    });
-    touchProject(
-      s,
-      projectId,
-      output.candidates.length
-        ? `Analysis complete — ${output.candidates.length} candidates.`
-        : "No feasible candidates — consider relaxing constraints."
-    );
-  });
 
     return getWorkspace(projectId);
   });

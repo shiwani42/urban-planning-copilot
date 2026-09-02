@@ -1,6 +1,10 @@
 import { promises as fs } from "fs";
 import path from "path";
 import type { AppStore } from "./types";
+import {
+  hydrateAnalysisResultsInStore,
+  prepareStoreForPersistence,
+} from "./store-persistence";
 import { generateSyntheticCity } from "./seed";
 import {
   loadSanFranciscoCity,
@@ -75,6 +79,23 @@ let memory: AppStore | null = null;
 let memoryDataDir: string | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 let updateChain: Promise<AppStore> = Promise.resolve(null as unknown as AppStore);
+let persistFailureInjector: (() => void) | null = null;
+
+export class StorePersistError extends Error {
+  readonly code = "STORE_PERSIST_FAILED" as const;
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message);
+    this.name = "StorePersistError";
+    if (options?.cause) {
+      (this as Error & { cause?: unknown }).cause = options.cause;
+    }
+  }
+}
+
+/** Test hook — throw before renaming tmp → store.json */
+export function setPersistFailureInjector(fn: (() => void) | null): void {
+  persistFailureInjector = fn;
+}
 
 async function fileExists(file: string): Promise<boolean> {
   try {
@@ -121,20 +142,67 @@ async function verifyWritableDataDir(dir: string): Promise<void> {
   await fs.unlink(probe);
 }
 
+async function syncFile(filePath: string): Promise<void> {
+  const handle = await fs.open(filePath, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function backupPrimaryIfValid(
+  pathToStore: string,
+  pathToBackup: string
+): Promise<void> {
+  if (!(await fileExists(pathToStore))) return;
+  try {
+    const raw = await fs.readFile(pathToStore, "utf8");
+    if (!raw.trim()) return;
+    await parseStoreFile(raw, pathToStore);
+    await fs.copyFile(pathToStore, pathToBackup);
+  } catch {
+    /* keep existing .bak when primary is unreadable */
+  }
+}
+
 async function writeStorePayload(
   dir: string,
   pathToStore: string,
   pathToBackup: string,
   store: AppStore
 ): Promise<void> {
-  const payload = JSON.stringify(store, null, 2);
+  const payload = JSON.stringify(prepareStoreForPersistence(store), null, 2);
   const tmp = `${pathToStore}.tmp`;
   await fs.writeFile(tmp, payload, "utf8");
-  if (await fileExists(pathToStore)) {
-    await fs.copyFile(pathToStore, pathToBackup);
+  await syncFile(tmp);
+
+  const tmpRaw = await fs.readFile(tmp, "utf8");
+  if (!tmpRaw.trim()) {
+    await fs.unlink(tmp).catch(() => undefined);
+    throw new StorePersistError("Refusing to persist empty store payload");
   }
-  await fs.rename(tmp, pathToStore);
-  await fs.copyFile(pathToStore, pathToBackup);
+  await parseStoreFile(tmpRaw, tmp);
+
+  persistFailureInjector?.();
+
+  try {
+    await backupPrimaryIfValid(pathToStore, pathToBackup);
+    await fs.rename(tmp, pathToStore);
+    await syncFile(pathToStore);
+    await fs.copyFile(pathToStore, pathToBackup);
+    await syncFile(pathToBackup);
+  } catch (err) {
+    if (await fileExists(tmp)) {
+      await fs.unlink(tmp).catch(() => undefined);
+    }
+    throw err instanceof StorePersistError
+      ? err
+      : new StorePersistError(
+          err instanceof Error ? err.message : String(err),
+          { cause: err }
+        );
+  }
 }
 
 async function restoreStoreFromBackup(
@@ -145,6 +213,7 @@ async function restoreStoreFromBackup(
 ): Promise<AppStore> {
   const raw = await fs.readFile(pathToBackup, "utf8");
   const store = await parseStoreFile(raw, pathToBackup);
+  hydrateAnalysisResultsInStore(store);
   await upgradeCatalog(store);
   await writeStorePayload(dir, pathToStore, pathToBackup, store);
   memory = store;
@@ -166,6 +235,7 @@ async function readStoreFromDisk(): Promise<AppStore> {
         throw new Error("store.json is empty");
       }
       const store = await parseStoreFile(raw, pathToStore);
+      hydrateAnalysisResultsInStore(store);
       const upgraded = await upgradeCatalog(store);
       markStorageHealthy(dir);
       if (upgraded) await persist(store);
@@ -273,8 +343,27 @@ async function runStoreMutation(
   await flushStoreWrites();
   const store =
     memory && memoryDataDir === dir ? memory : await readStoreFromDisk();
+  const projectCountBefore = store.projects.length;
   await mutator(store);
-  await persist(store);
+  try {
+    await persist(store);
+  } catch (err) {
+    memory = null;
+    memoryDataDir = null;
+    const recovered = await readStoreFromDisk();
+    if (recovered.projects.length < projectCountBefore) {
+      throw new StorePersistError(
+        "Persist failed and project list could not be recovered intact",
+        { cause: err }
+      );
+    }
+    throw err instanceof StorePersistError
+      ? err
+      : new StorePersistError(
+          err instanceof Error ? err.message : String(err),
+          { cause: err }
+        );
+  }
   return store;
 }
 

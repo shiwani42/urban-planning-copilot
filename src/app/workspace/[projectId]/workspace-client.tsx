@@ -32,6 +32,7 @@ import {
   normalizeTransitThresholdMeters,
 } from "@/lib/domain/transit-threshold";
 import type {
+  AnalysisResult,
   Candidate,
   CriterionWeight,
   DatasetMeta,
@@ -274,6 +275,7 @@ export default function WorkspaceClient({
   useEffect(() => {
     if (!scenario) return;
     setCompareHint(null);
+    setAnalysisProgress(null);
   }, [scenario?.id, scenario?.latestResultId]);
 
   useEffect(() => {
@@ -523,6 +525,15 @@ export default function WorkspaceClient({
     if (!scenario || !weightDraft || weightSumRounded !== 100) return;
     setCriteriaStaleHint(true);
     await act("update_weights", { scenarioId: scenario.id, weights: weightDraft });
+  }
+
+  function scenarioDisplayStatus(
+    s: NonNullable<typeof scenario>,
+    scResult?: AnalysisResult
+  ): string {
+    if (scResult?.status === "completed" && !scResult.stale) return "analyzed";
+    if (s.status === "saved") return "ready";
+    return s.status;
   }
 
   function scenarioStatusLabel(): string {
@@ -1403,7 +1414,7 @@ export default function WorkspaceClient({
                         >
                           <span className="font-medium">{s.name}</span>
                           <span className="text-caption text-on-surface-variant ml-2">
-                            · {s.status}
+                            · {scenarioDisplayStatus(s, scResult)}
                           </span>
                           {scResult && (
                             <span className="block text-caption text-on-surface-variant mt-0.5">
@@ -1876,7 +1887,7 @@ export default function WorkspaceClient({
                 <span className="material-symbols-outlined text-[18px]">play_arrow</span>
                 {busy && analysisProgress ? "Running…" : result ? "Recalculate" : "Run analysis"}
               </button>
-              {(busy || analysisProgress || runningJob) && (
+              {(runningJob || (busy && analysisProgress)) && (
                 <p className="text-caption text-on-surface-variant flex items-center gap-2">
                   <span className="material-symbols-outlined animate-spin text-[14px] text-primary">
                     progress_activity
@@ -1990,6 +2001,20 @@ export default function WorkspaceClient({
           error={compareError}
           hint={compareHint}
           onHint={setCompareHint}
+          onRunAnalysis={async (scenarioId) => {
+            await act("activate_scenario", { scenarioId });
+            setTab("workspace");
+            const sc = workspace.scenarios.find((s) => s.id === scenarioId);
+            const steps = sc?.analysisPlan?.steps.length ?? 4;
+            setAnalysisProgress(`Running analysis (0/${steps} steps)…`);
+            try {
+              await act("run_analysis", { scenarioId });
+              setAnalysisProgress(null);
+              setCompareHint(null);
+            } catch {
+              setAnalysisProgress(null);
+            }
+          }}
           onCompare={async () => {
             const ids = [...compareIds];
             if (ids.length < 2) return;
@@ -2815,6 +2840,7 @@ function CompareView(props: {
   error?: string | null;
   hint?: string | null;
   onHint: (msg: string | null) => void;
+  onRunAnalysis: (scenarioId: string) => Promise<void>;
   onCompare: () => Promise<void>;
   onPrefer: (id: string) => Promise<void>;
 }) {
@@ -2847,26 +2873,36 @@ function CompareView(props: {
         to evaluate differences.
       </p>
       <div className="flex flex-wrap gap-3 mb-2" role="group" aria-label="Scenarios to compare">
-        {workspace.scenarios.map((s) => {
+        {props.workspace.scenarios.map((s) => {
           const on = props.compareIds.includes(s.id);
           const hasResult = Boolean(s.latestResultId);
           return (
-            <button
-              key={s.id}
-              type="button"
-              aria-pressed={on}
-              aria-label={`${on ? "Deselect" : "Select"} scenario ${s.name}`}
-              onClick={() => toggleScenario(s.id)}
-              className={`px-3 py-1.5 border text-body-sm transition-colors ${
-                on ? "border-primary bg-primary-fixed/30 text-primary" : "border-outline-variant"
-              } ${!hasResult ? "opacity-60" : ""}`}
-            >
-              {s.name}
+            <div key={s.id} className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-pressed={on}
+                aria-label={`${on ? "Deselect" : "Select"} scenario ${s.name}`}
+                onClick={() => toggleScenario(s.id)}
+                className={`px-3 py-1.5 border text-body-sm transition-colors ${
+                  on ? "border-primary bg-primary-fixed/30 text-primary" : "border-outline-variant"
+                } ${!hasResult ? "opacity-60" : ""}`}
+              >
+                {s.name}
+                {!hasResult && (
+                  <span className="ml-1 text-caption text-on-surface-variant">(no results)</span>
+                )}
+                {on && <span className="ml-2 font-mono text-[10px]">selected</span>}
+              </button>
               {!hasResult && (
-                <span className="ml-1 text-caption text-on-surface-variant">(no results)</span>
+                <button
+                  type="button"
+                  onClick={() => void props.onRunAnalysis(s.id)}
+                  className="px-2 py-1.5 border border-primary text-primary text-caption rounded hover:bg-primary-fixed/20"
+                >
+                  Run
+                </button>
               )}
-              {on && <span className="ml-2 font-mono text-[10px]">selected</span>}
-            </button>
+            </div>
           );
         })}
       </div>
