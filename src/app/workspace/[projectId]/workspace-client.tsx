@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Component, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
   ProvenanceChip,
   useWorkspace,
@@ -19,7 +19,6 @@ import {
 } from "@/lib/planner-pending";
 import { resolvePendingPlannerAction } from "@/lib/webmcp/register-browser";
 import {
-  dedupeLimitations,
   formatActivitySummary,
   formatDecisionStatus,
   formatDecisionType,
@@ -53,6 +52,15 @@ import {
   resultsColumnsForIntent,
   type ResultsColumn,
 } from "@/lib/domain/results-display";
+import {
+  aggregateMetricValue,
+  analysisAggregateMetrics,
+  analysisLimitations,
+  candidateMetricValue,
+  candidateProvenance,
+  formatCandidateScore,
+  limitationsSummary,
+} from "@/lib/domain/analysis-display";
 import { filterAnalysisCaveats } from "@/lib/domain/caveats";
 import { objectiveTitleMismatchWarning } from "@/lib/objective-display";
 import { layerSwatch } from "@/lib/domain/layer-styles";
@@ -111,6 +119,48 @@ const TAB_PATHS: Tab[] = [
   "activity",
   "report",
 ];
+
+class TabErrorBoundary extends Component<
+  { tabName: string; children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidUpdate(prevProps: { tabName: string }) {
+    if (prevProps.tabName !== this.props.tabName && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <main className="flex-1 overflow-auto p-8 max-w-3xl">
+          <h2 className="text-headline-md text-error mb-2">{this.props.tabName} view error</h2>
+          <p className="text-body-sm text-on-surface-variant mb-4">
+            Something went wrong rendering this tab. Your project and analysis data are still
+            loaded — switch tabs or retry below.
+          </p>
+          <p className="text-caption font-mono text-on-surface-variant mb-4 border border-outline-variant p-3 rounded bg-surface-container-low">
+            {this.state.error.message}
+          </p>
+          <button
+            type="button"
+            onClick={() => this.setState({ error: null })}
+            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm"
+          >
+            Try again
+          </button>
+        </main>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function WorkspaceClient({
   projectId,
@@ -497,15 +547,15 @@ export default function WorkspaceClient({
     scenario?.objective.intent === "housing_capacity"
       ? scenario.objective.targetValue
       : undefined;
-  const totalCapacity = result?.aggregateMetrics.find((m) => m.key === "total_capacity")?.value;
+  const totalCapacity = aggregateMetricValue(result, "total_capacity");
   const enabledDatasetCount =
     scenario?.enabledDatasetIds.filter((id) =>
       workspace?.datasets.some((d) => d.id === id && d.enabled)
     ).length ?? workspace?.datasets.filter((d) => d.enabled).length ?? 0;
-  const targetGap = result?.aggregateMetrics.find((m) => m.key === "housing_target_gap");
+  const targetGap = analysisAggregateMetrics(result).find((m) => m.key === "housing_target_gap");
   const accessHeadline =
     scenario && result
-      ? headlineMetric(scenario.objective.intent, result.aggregateMetrics)
+      ? headlineMetric(scenario.objective.intent, analysisAggregateMetrics(result))
       : null;
   const hasParksDataset = Boolean(workspace?.datasets.some((d) => d.kind === "parks" && d.enabled));
   const resultsColumns = scenario
@@ -2161,7 +2211,7 @@ export default function WorkspaceClient({
           onDismissUpdated={() => setSelectionUpdated(false)}
           focusedRowIndex={focusedRowIndex}
           setFocusedRowIndex={setFocusedRowIndex}
-          resultLimitations={result?.limitations ?? []}
+          resultLimitations={analysisLimitations(result)}
           topCandidateId={topCandidate?.id}
           onSelect={(c) => selectCandidate(c, "evidence")}
           onToggleShortlist={async (c) => {
@@ -2292,8 +2342,9 @@ export default function WorkspaceClient({
           }}
         />
       )}
-      {tab === "decision" && (
-        <DecisionView
+      {tab === "decision" && scenario && (
+        <TabErrorBoundary tabName="Decision">
+          <DecisionView
           workspace={workspace}
           scenario={scenario}
           result={result}
@@ -2331,7 +2382,8 @@ export default function WorkspaceClient({
               setDecisionError(e instanceof Error ? e.message : String(e));
             }
           }}
-        />
+          />
+        </TabErrorBoundary>
       )}
       {tab === "activity" && (
         <ActivityView
@@ -2340,8 +2392,9 @@ export default function WorkspaceClient({
           onSelect={setActivityId}
         />
       )}
-      {tab === "report" && (
-        <ReportView
+      {tab === "report" && scenario && (
+        <TabErrorBoundary tabName="Report">
+          <ReportView
           workspace={workspace}
           scenario={scenario}
           result={result}
@@ -2365,6 +2418,7 @@ export default function WorkspaceClient({
           }}
           generating={busy}
         />
+        </TabErrorBoundary>
       )}
       {inspectDatasetId && workspace && (() => {
         const inspectDataset = workspace.datasets.find((d) => d.id === inspectDatasetId);
@@ -2437,7 +2491,7 @@ function ShortlistPanel(props: {
                     )}
                     {entry.candidate && (
                       <span className="font-mono text-caption text-on-surface-variant">
-                        Rank {entry.candidate.rank} · {entry.candidate.score.toFixed(1)}
+                        Rank {entry.candidate.rank} · {formatCandidateScore(entry.candidate)}
                       </span>
                     )}
                     {entry.missing && (
@@ -2529,11 +2583,14 @@ function ResultsDrawer(props: {
   const evidenceMetrics = selected
     ? evidenceMetricsForCandidate(selected, intent)
     : [];
-  const limitationText = dedupeLimitations(
+  const limitationText = limitationsSummary(
     props.resultLimitations.length > 0
       ? props.resultLimitations
-      : selected?.provenance.limitations ?? []
-  ).join("; ") || "None noted";
+      : selected
+        ? candidateProvenance(selected, props.resultLimitations).limitations
+        : [],
+    { fallback: "None noted" }
+  );
 
   return (
     <div
@@ -2753,7 +2810,7 @@ function ResultsDrawer(props: {
             )}
             {result && (
               <div className="mt-4 grid grid-cols-2 gap-3">
-                {result.aggregateMetrics
+                {analysisAggregateMetrics(result)
                   .filter(
                     (m) =>
                       m.key !== "housing_target_gap" &&
@@ -2787,17 +2844,21 @@ function ResultsDrawer(props: {
               </p>
             ) : (
               <div className="space-y-4">
+                {(() => {
+                  const provenance = candidateProvenance(selected, props.resultLimitations);
+                  return (
+                    <>
                 <div>
                   <h3 className="text-headline-md mb-1">{selected.label}</h3>
                   <div className="flex gap-2 items-center flex-wrap">
                     {props.topCandidateId === selected.id && (
                       <ProvenanceChip kind="copilot_recommendation" />
                     )}
-                    <span className="font-mono text-data-label">Score {selected.score.toFixed(1)}</span>
+                    <span className="font-mono text-data-label">Score {formatCandidateScore(selected)}</span>
                     {props.housingTarget != null && housingAnalysis && (
                       <span className="text-caption text-on-surface-variant">
                         Capacity{" "}
-                        {selected.metrics.find((m) => m.key === "capacity")?.value ?? "—"} vs goal{" "}
+                        {candidateMetricValue(selected, "capacity") ?? "—"} vs goal{" "}
                         {props.housingTarget.toLocaleString()} homes
                       </span>
                     )}
@@ -2806,7 +2867,7 @@ function ResultsDrawer(props: {
                 <div>
                   <h4 className="font-mono text-data-label uppercase mb-2">Score breakdown</h4>
                   <ul className="text-body-sm space-y-1">
-                    {Object.entries(selected.provenance.scoreBreakdown).map(([k, v]) => (
+                    {Object.entries(provenance.scoreBreakdown).map(([k, v]) => (
                       <li key={k} className="flex justify-between gap-4">
                         <span className="text-on-surface-variant">
                           {k.replace(/_/g, " ")} (weighted contribution)
@@ -2816,7 +2877,7 @@ function ResultsDrawer(props: {
                     ))}
                     <li className="flex justify-between gap-4 font-medium border-t border-outline-variant pt-1">
                       <span>Total score</span>
-                      <span className="font-mono">{selected.score.toFixed(1)}</span>
+                      <span className="font-mono">{formatCandidateScore(selected)}</span>
                     </li>
                   </ul>
                   <p className="text-caption text-on-surface-variant mt-2">
@@ -2847,8 +2908,8 @@ function ResultsDrawer(props: {
                   <ul className="text-caption space-y-1 text-on-surface-variant">
                     <li className="flex flex-wrap items-center gap-1">
                       <span>Datasets:</span>
-                      {selected.provenance.datasets.length > 0
-                        ? selected.provenance.datasets.map((id) => (
+                      {provenance.datasets.length > 0
+                        ? provenance.datasets.map((id) => (
                             <DatasetRefChip
                               key={id}
                               label={id}
@@ -2858,8 +2919,8 @@ function ResultsDrawer(props: {
                           ))
                         : "—"}
                     </li>
-                    <li>Assumptions: {selected.provenance.assumptions.join(", ")}</li>
-                    <li>Constraints: {selected.provenance.constraints.join("; ")}</li>
+                    <li>Assumptions: {provenance.assumptions.join(", ") || "—"}</li>
+                    <li>Constraints: {provenance.constraints.join("; ") || "—"}</li>
                     <li>Limitations: {limitationText}</li>
                   </ul>
                 </div>
@@ -2884,6 +2945,9 @@ function ResultsDrawer(props: {
                     <ProvenanceChip kind="planner_decision" /> Rejected: {selected.rejectionReason}
                   </p>
                 )}
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -3459,8 +3523,10 @@ function DecisionView(props: {
         <p className="text-body-sm font-medium text-primary mb-4 border border-primary-fixed/40 bg-primary-fixed/10 px-3 py-2 rounded">
           {housingGoalSummary({
             target: scenario.objective.targetValue,
-            totalCapacity: result.aggregateMetrics.find((m) => m.key === "total_capacity")?.value,
-            targetGapMetric: result.aggregateMetrics.find((m) => m.key === "housing_target_gap"),
+            totalCapacity: aggregateMetricValue(result, "total_capacity"),
+            targetGapMetric: analysisAggregateMetrics(result).find(
+              (m) => m.key === "housing_target_gap"
+            ),
           }) ?? "Housing target metrics unavailable — recalculate analysis."}
         </p>
       )}
@@ -3468,7 +3534,7 @@ function DecisionView(props: {
         <ProvenanceChip kind="copilot_recommendation" />
         <p className="text-body-sm mt-2">
           {topCandidate
-            ? `Copilot recommends ${topCandidate.label} (score ${topCandidate.score.toFixed(1)}).`
+            ? `Copilot recommends ${topCandidate.label} (score ${formatCandidateScore(topCandidate)}).`
             : "No recommendation available yet."}
         </p>
       </div>
@@ -3501,7 +3567,7 @@ function DecisionView(props: {
         </p>
         <p className="text-body-sm text-secondary">
           <strong>Limitations:</strong>{" "}
-          {dedupeLimitations(result?.limitations ?? []).join("; ") || "None recorded"}
+          {limitationsSummary(analysisLimitations(result), { fallback: "None recorded" })}
         </p>
       </section>
       <label className="block mb-4">
@@ -3594,13 +3660,16 @@ function DecisionView(props: {
             <div className="text-body-sm space-y-2 mb-4 border border-outline-variant p-3 rounded bg-surface-container-low">
               <p>
                 <strong>Copilot recommendation:</strong>{" "}
-                {topCandidate ? `${topCandidate.label} (score ${topCandidate.score.toFixed(1)})` : "—"}
+                {topCandidate
+                  ? `${topCandidate.label} (score ${formatCandidateScore(topCandidate)})`
+                  : "—"}
               </p>
               <p>
                 <strong>Your reason:</strong> {props.reason.trim() || "(none entered)"}
               </p>
               <p>
-                <strong>Limitations:</strong> {(result?.limitations ?? []).slice(0, 2).join("; ") || "None"}
+                <strong>Limitations:</strong>{" "}
+                {limitationsSummary(analysisLimitations(result), { max: 2, fallback: "None" })}
               </p>
             </div>
             <div className="flex gap-3 justify-end">
@@ -3848,8 +3917,10 @@ function ReportView(props: {
     props.result && props.scenario.objective.intent === "housing_capacity"
       ? housingGoalSummary({
           target: props.scenario.objective.targetValue,
-          totalCapacity: props.result.aggregateMetrics.find((m) => m.key === "total_capacity")?.value,
-          targetGapMetric: props.result.aggregateMetrics.find((m) => m.key === "housing_target_gap"),
+          totalCapacity: aggregateMetricValue(props.result, "total_capacity"),
+          targetGapMetric: analysisAggregateMetrics(props.result).find(
+            (m) => m.key === "housing_target_gap"
+          ),
         })
       : null;
 

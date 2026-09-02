@@ -1,4 +1,5 @@
 import type { Candidate, PlanningIntent, MetricValue } from "./types";
+import { candidateMetricValue, candidateMetrics, formatCandidateScore } from "./analysis-display";
 import { isAccessIntent, isHousingIntent, intentUsesParkMetrics, intentUsesSchoolMetrics } from "./intent";
 
 export type ResultsColumn = {
@@ -14,7 +15,7 @@ export function resultsColumnsForIntent(
   const base: ResultsColumn[] = [
     { key: "rank", label: "Rank", format: (c: Candidate) => String(c.rank) },
     { key: "label", label: "Candidate", format: (c: Candidate) => c.label },
-    { key: "score", label: "Score", format: (c: Candidate) => c.score.toFixed(1) },
+    { key: "score", label: "Score", format: (c: Candidate) => formatCandidateScore(c) },
   ];
 
   if (isHousingIntent(intent)) {
@@ -23,14 +24,12 @@ export function resultsColumnsForIntent(
       {
         key: "capacity",
         label: "Capacity",
-        format: (c: Candidate) =>
-          String(c.metrics.find((m) => m.key === "capacity")?.value ?? "—"),
+        format: (c: Candidate) => String(candidateMetricValue(c, "capacity") ?? "—"),
       },
       {
         key: "transit",
         label: "Transit (m)",
-        format: (c: Candidate) =>
-          String(c.metrics.find((m) => m.key === "transit_distance_m")?.value ?? "—"),
+        format: (c: Candidate) => String(candidateMetricValue(c, "transit_distance_m") ?? "—"),
       },
       { key: "status", label: "Status", format: (c: Candidate) => c.status },
     ];
@@ -45,14 +44,14 @@ export function resultsColumnsForIntent(
           label: "School gap (people)",
           format: (c: Candidate) =>
             String(
-              c.metrics.find((m) => m.key === "school_underserved_pop")?.value ?? "—"
+            String(candidateMetricValue(c, "school_underserved_pop") ?? "—")
             ),
         },
         {
           key: "school_dist",
           label: "School (m)",
           format: (c: Candidate) =>
-            String(c.metrics.find((m) => m.key === "school_distance_m")?.value ?? "—"),
+            String(candidateMetricValue(c, "school_distance_m") ?? "—"),
         }
       );
     }
@@ -62,13 +61,13 @@ export function resultsColumnsForIntent(
           key: "park_gap",
           label: "Park gap (people)",
           format: (c: Candidate) =>
-            String(c.metrics.find((m) => m.key === "park_underserved_pop")?.value ?? "—"),
+            String(candidateMetricValue(c, "park_underserved_pop") ?? "—"),
         },
         {
           key: "park_dist",
           label: "Park (m)",
           format: (c: Candidate) =>
-            String(c.metrics.find((m) => m.key === "park_distance_m")?.value ?? "—"),
+            String(candidateMetricValue(c, "park_distance_m") ?? "—"),
         }
       );
     }
@@ -79,14 +78,14 @@ export function resultsColumnsForIntent(
           label: "Transit gap (people)",
           format: (c: Candidate) =>
             String(
-              c.metrics.find((m) => m.key === "transit_underserved_pop")?.value ?? "—"
+            String(candidateMetricValue(c, "transit_underserved_pop") ?? "—")
             ),
         },
         {
           key: "transit_dist",
           label: "Transit (m)",
           format: (c: Candidate) =>
-            String(c.metrics.find((m) => m.key === "transit_distance_m")?.value ?? "—"),
+            String(candidateMetricValue(c, "transit_distance_m") ?? "—"),
         }
       );
     }
@@ -188,6 +187,6 @@ export function evidenceMetricsForCandidate(
       keys.add("population_coverage");
     }
   }
-  const ordered = candidate.metrics.filter((m) => keys.has(m.key));
-  return ordered.length ? ordered : candidate.metrics.slice(0, 6);
+  const ordered = candidateMetrics(candidate).filter((m) => keys.has(m.key));
+  return ordered.length ? ordered : candidateMetrics(candidate).slice(0, 6);
 }

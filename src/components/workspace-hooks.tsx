@@ -38,6 +38,7 @@ export function useWorkspace(projectId: string) {
       if (detail.projectId && detail.projectId !== projectId) return;
       refresh().catch((e) => {
         setError(e instanceof Error ? e.message : String(e));
+        // Keep the last loaded workspace — a transient refresh failure must not look like data loss.
       });
     });
   }, [projectId, refresh]);
@@ -55,7 +56,13 @@ export function useWorkspace(projectId: string) {
           },
           { label: "Workspace action" }
         );
-        await refresh();
+        try {
+          await refresh();
+        } catch (refreshErr) {
+          const message =
+            refreshErr instanceof Error ? refreshErr.message : String(refreshErr);
+          setError(message);
+        }
         return data;
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
