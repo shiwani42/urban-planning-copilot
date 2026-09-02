@@ -10,6 +10,8 @@ import {
   reloadStoreFromDisk,
   resetStore,
   updateStore,
+  setPersistFailureInjector,
+  StorePersistError,
   verifyWritableDataDir,
 } from "./store";
 
@@ -164,6 +166,82 @@ describe("store persistence", () => {
     assert.ok(ws.project.id);
   });
 
+  it("persists compact analysis results without candidate geometries on disk", async () => {
+    const ws = await services.createProject({
+      name: "Compact persist",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    await services.runAnalysis(ws.project.id, ws.project.activeScenarioId!);
+    const raw = await fs.readFile(getStorePath(), "utf8");
+    const parsed = JSON.parse(raw) as {
+      analysisResults: Array<{ candidates: Array<{ geometry?: unknown }> }>;
+    };
+    for (const result of parsed.analysisResults) {
+      for (const c of result.candidates) {
+        assert.equal(c.geometry, undefined, "candidates on disk must not embed geometry");
+      }
+    }
+    const reloaded = await reloadStoreFromDisk();
+    const result = reloaded.analysisResults.find(
+      (r) => r.id === reloaded.scenarios[0]?.latestResultId
+    );
+    assert.ok(result);
+    assert.ok(result!.candidates.length > 0);
+    assert.ok(result!.candidates[0]?.geometry);
+  });
+
+  it("keeps one project and both scenario results after two analyses and reload", async () => {
+    const ws = await services.createProject({
+      name: "Two scenario analysis",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const baselineId = ws.project.activeScenarioId!;
+    await services.runAnalysis(ws.project.id, baselineId);
+    const branched = await services.createScenario(ws.project.id, "Branch B", baselineId);
+    const branchId = branched.scenarios.find((s) => s.name === "Branch B")!.id;
+    await services.runAnalysis(ws.project.id, branchId);
+
+    const reloaded = await reloadStoreFromDisk();
+    assert.equal(reloaded.projects.length, 1);
+    assert.equal(reloaded.scenarios.length, 2);
+
+    const baselineResult = reloaded.analysisResults.find(
+      (r) => r.id === reloaded.scenarios.find((s) => s.id === baselineId)?.latestResultId
+    );
+    const branchResult = reloaded.analysisResults.find(
+      (r) => r.id === reloaded.scenarios.find((s) => s.id === branchId)?.latestResultId
+    );
+    assert.ok(baselineResult?.candidates.length);
+    assert.ok(branchResult?.candidates.length);
+  });
+
+  it("does not drop projects when persist fails mid-write", async () => {
+    const ws = await services.createProject({
+      name: "Persist failure guard",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    await services.runAnalysis(ws.project.id, ws.project.activeScenarioId!);
+
+    setPersistFailureInjector(() => {
+      throw new StorePersistError("Injected persist failure");
+    });
+    try {
+      await assert.rejects(
+        () =>
+          updateStore((store) => {
+            store.projects[0]!.resumeNote = "should not stick";
+          }),
+        /Injected persist failure/
+      );
+      const after = await getStore();
+      assert.equal(after.projects.length, 1);
+      assert.equal(after.projects[0]?.name, "Persist failure guard");
+      assert.notEqual(after.projects[0]?.resumeNote, "should not stick");
+    } finally {
+      setPersistFailureInjector(null);
+    }
+  });
+
   it("setActiveScenario is a no-op when scenario is already active", async () => {
     const ws = await services.createProject({
       name: "Active scenario no-op",
@@ -174,8 +252,8 @@ describe("store persistence", () => {
     await services.recordDecision({
       projectId: ws.project.id,
       scenarioId: baselineId,
-      type: "approve_scenario",
       reason: "Meets housing target with acceptable flood risk.",
+      type: "approve_scenario",
     });
     const before = await services.getWorkspace(ws.project.id);
     assert.match(before!.project.resumeNote ?? "", /Decision recorded/);
