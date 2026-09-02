@@ -68,6 +68,25 @@ const FLOOD_BRANCH_SUGGESTION: PlannerSuggestion = {
   requiresProject: true,
 };
 
+const PIN_TOP_SUGGESTION: PlannerSuggestion = {
+  id: "pin-top-site",
+  label: "Pin top site",
+  tool: "add_to_shortlist",
+  requiresProject: true,
+};
+
+const EXCLUDE_AREA_SUGGESTION: PlannerSuggestion = {
+  id: "exclude-area",
+  label: "Exclude area",
+  tool: "__copilot_query__",
+  args: { query: "exclude this area on the map" },
+  requiresProject: true,
+};
+
+/** Placeholder hint for supported natural-language commands (discoverability only). */
+export const COPILOT_COMMAND_HINTS =
+  "Try: pin top site · flood-weighted branch · compare · exclude area · run analysis";
+
 const HOME_SUGGESTIONS: PlannerSuggestion[] = [
   {
     id: "new-project",
@@ -95,7 +114,18 @@ export function plannerSuggestions(context: PlannerRouteContext | boolean): Plan
   const scenarioCount = ctx.scenarioCount ?? 0;
   const scenarioSuggestion =
     scenarioCount >= 2 ? COMPARE_SUGGESTION : FLOOD_BRANCH_SUGGESTION;
-  return [...WORKSPACE_SUGGESTIONS_BASE, scenarioSuggestion];
+  return [
+    PIN_TOP_SUGGESTION,
+    scenarioSuggestion,
+    EXCLUDE_AREA_SUGGESTION,
+    ...WORKSPACE_SUGGESTIONS_BASE.filter((s) => s.id !== "run-analysis"),
+    {
+      id: "run-analysis",
+      label: "Run analysis",
+      tool: "run_analysis",
+      requiresProject: true,
+    },
+  ];
 }
 
 function normalize(text: string): string {

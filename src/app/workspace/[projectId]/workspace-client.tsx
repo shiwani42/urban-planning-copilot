@@ -82,6 +82,17 @@ import {
   shortlistPinReason,
   type ResolvedShortlistEntry,
 } from "@/lib/domain/shortlist";
+import {
+  buildFloodCoverageDetail,
+  type FloodCoverageDetail,
+} from "@/lib/domain/flood-coverage";
+import {
+  candidateNeighborhoods,
+  DEFAULT_RESULTS_FILTER,
+  filterCandidates,
+  type ResultsFilterState,
+} from "@/lib/domain/results-filter";
+import { computeYieldGap, type YieldGapSummary } from "@/lib/domain/yield-gap";
 import type { MapDrawMode } from "@/components/PlanningMap";
 import { resolveWorkspaceTab, type WorkspaceTab } from "@/lib/workspace-tabs";
 
@@ -97,6 +108,11 @@ const MapLegend = dynamic(
 type Tab = WorkspaceTab;
 
 type DrawerPanel = "candidates" | "evidence";
+
+type ToastState = {
+  message: string;
+  undo?: () => void;
+} | null;
 
 const TAB_LABELS: Record<Tab, string> = {
   workspace: "Workspace",
@@ -220,11 +236,11 @@ export default function WorkspaceClient({
   const [scenarioNameDraft, setScenarioNameDraft] = useState("");
   const [focusedRowIndex, setFocusedRowIndex] = useState(0);
   const [selectionUpdated, setSelectionUpdated] = useState(false);
-  const [lastResultId, setLastResultId] = useState<string | null>(null);
+  const prevResultIdRef = useRef<string | null>(null);
   const [reportId, setReportId] = useState<string | null>(null);
   const [activityId, setActivityId] = useState<string | null>(null);
   const [assumptionsOpen, setAssumptionsOpen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState>(null);
   const [transitDraftText, setTransitDraftText] = useState<Record<string, string>>({});
   const [transitThresholdWarning, setTransitThresholdWarning] = useState<string | null>(null);
   const [analysisBusy, setAnalysisBusy] = useState(false);
@@ -398,15 +414,16 @@ export default function WorkspaceClient({
 
   useEffect(() => {
     if (!workspace?.project?.mapState.selectedCandidateId) return;
-    if (selectedCandidate && result?.id && result.id !== lastResultId) {
+    if (!selectedCandidate || !result?.id) return;
+    const prev = prevResultIdRef.current;
+    if (prev && prev !== result.id) {
       setSelectionUpdated(true);
-      setLastResultId(result.id);
     }
+    prevResultIdRef.current = result.id;
   }, [
     workspace?.project?.mapState.selectedCandidateId,
     selectedCandidate,
     result?.id,
-    lastResultId,
   ]);
 
   useEffect(() => {
@@ -453,7 +470,8 @@ export default function WorkspaceClient({
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3200);
+    const duration = toast.undo ? 8000 : 3200;
+    const t = setTimeout(() => setToast(null), duration);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -517,19 +535,20 @@ export default function WorkspaceClient({
     return new Set(workspace.datasets.filter((d) => ids.has(d.id)).map((d) => d.kind));
   }, [workspace, syncedMapLayers]);
 
-  const floodCoverageWarning = useMemo(() => {
+  const floodCoverageDetail = useMemo((): FloodCoverageDetail | null => {
     if (!workspace || !result) return null;
-    const flood = workspace.datasets.find((d) => d.kind === "flood");
-    if (!flood || (!flood.incompleteCoverage && flood.featureCount > 1)) return null;
-    const floodLog = result.stepLogs?.find((s) => /flood/i.test(s.detail));
-    if (!floodLog) return null;
-    const excluded = floodLog.detail.match(/(\d+)\s*→\s*(\d+)/);
-    if (!excluded) return null;
-    const before = Number(excluded[1]);
-    const after = Number(excluded[2]);
-    if (before - after < 10) return null;
-    return `Flood layer has incomplete coverage (${flood.featureCount} feature${flood.featureCount === 1 ? "" : "s"}). ${before - after} parcels were excluded — verify site-specific flood risk before decisions.`;
-  }, [workspace, result]);
+    const parcels = layerData.parcels?.features;
+    return buildFloodCoverageDetail({
+      datasets: workspace.datasets,
+      result,
+      parcels,
+      floodLayer: layerData.flood,
+    });
+  }, [workspace, result, layerData.parcels, layerData.flood]);
+
+  function showToast(message: string, undo?: () => void) {
+    setToast({ message, undo });
+  }
 
   function openDatasetInspect(datasetId: string) {
     setInspectDatasetId(datasetId);
@@ -565,20 +584,38 @@ export default function WorkspaceClient({
         reason: reason ?? "Pinned from Results",
       });
       await refresh();
+      showToast(`Pinned ${c.label} to shortlist`, () => {
+        void act("remove_from_shortlist", {
+          scenarioId: scenario.id,
+          candidateId: c.id,
+        }).then(() => refresh());
+      });
     },
     [act, refresh, scenario]
   );
 
   const unpinFromShortlist = useCallback(
-    async (candidateId: string) => {
+    async (candidateId: string, label?: string) => {
       if (!scenario) return;
+      const entry = shortlist.find((e) => e.candidateId === candidateId);
+      const pinReason = entry?.reason ?? "Pinned from Results";
+      const pinNote = entry?.note;
       await act("remove_from_shortlist", {
         scenarioId: scenario.id,
         candidateId,
       });
       await refresh();
+      const displayLabel = label ?? entry?.candidate?.label ?? "site";
+      showToast(`Removed ${displayLabel} from shortlist`, () => {
+        void act("add_to_shortlist", {
+          scenarioId: scenario.id,
+          candidateId,
+          reason: pinReason,
+          note: pinNote,
+        }).then(() => refresh());
+      });
     },
-    [act, refresh, scenario]
+    [act, refresh, scenario, shortlist]
   );
 
   const saveShortlistNote = useCallback(
@@ -620,6 +657,16 @@ export default function WorkspaceClient({
     ? resultsColumnsForIntent(scenario.objective.intent, hasParksDataset)
     : [];
 
+  const yieldGap = useMemo((): YieldGapSummary | null => {
+    if (!housingTarget || !result?.candidates.length) return null;
+    if (scenario?.objective.intent !== "housing_capacity") return null;
+    return computeYieldGap({
+      target: housingTarget,
+      candidates: result.candidates,
+      shortlist,
+    });
+  }, [housingTarget, result?.candidates, scenario?.objective.intent, shortlist]);
+
   function constraintFunnelDetail(constraintLabel: string): string | null {
     if (!result?.stepLogs) return null;
     const match = result.stepLogs.find((log) =>
@@ -650,9 +697,9 @@ export default function WorkspaceClient({
       setCriteriaStaleHint(false);
       setDrawerOpen(true);
       setTab("results");
-      setToast("Analysis complete — results updated.");
+      showToast("Analysis complete — results updated.");
     } catch {
-      setToast("Analysis could not complete — check the error banner and retry.");
+      showToast("Analysis could not complete — check the error banner and retry.");
     } finally {
       setAnalysisBusy(false);
       setAnalysisProgress(null);
@@ -668,9 +715,9 @@ export default function WorkspaceClient({
       const safeName = (workspace?.project.name ?? "map").replace(/[^\w.-]+/g, "-");
       const ok = await captureMapPng(container, `${safeName}-workspace.png`);
       if (ok) {
-        setToast("Map exported as PNG — check your Downloads folder.");
+        showToast("Map exported as PNG — check your Downloads folder.");
       } else {
-        setToast("Map export failed — try again after tiles finish loading.");
+        showToast("Map export failed — try again after tiles finish loading.");
       }
     } finally {
       setExportingMap(false);
@@ -735,7 +782,7 @@ export default function WorkspaceClient({
     try {
       await act("update_constraints", { scenarioId: scenario.id, constraints });
       if (normalized.adjusted || normalized.warning) {
-        setToast(normalized.warning ?? `Transit threshold set to ${normalized.meters}m`);
+        showToast(normalized.warning ?? `Transit threshold set to ${normalized.meters}m`);
       }
     } catch {
       setTransitDraftText((prev) => ({
@@ -786,7 +833,7 @@ export default function WorkspaceClient({
           patch: { geometry: polygonFromRing(drawClicks) },
         });
         setCriteriaStaleHint(true);
-        setToast("Geographic area updated — recalculate to apply.");
+        showToast("Geographic area updated — recalculate to apply.");
         cancelDrawing();
       } finally {
         setGeoSaving(false);
@@ -824,7 +871,7 @@ export default function WorkspaceClient({
         },
       });
       setCriteriaStaleHint(true);
-      setToast(`${drawMode === "include" ? "Inclusion" : "Exclusion"} "${label}" added — recalculate.`);
+      showToast(`${drawMode === "include" ? "Inclusion" : "Exclusion"} "${label}" added — recalculate.`);
       cancelDrawing();
     } finally {
       setGeoSaving(false);
@@ -841,7 +888,7 @@ export default function WorkspaceClient({
       await act("remove_geo_selection", { scenarioId, selectionId });
       if (editingSelectionId === selectionId) cancelDrawing();
       setCriteriaStaleHint(true);
-      setToast(
+      showToast(
         sel
           ? `Removed "${sel.label}" — recalculate to restore excluded candidates.`
           : "Geographic area removed — recalculate."
@@ -859,7 +906,7 @@ export default function WorkspaceClient({
       patch: { label: label.trim() },
     });
     setRenamingExclusionId(null);
-    setToast("Geographic area renamed.");
+    showToast("Geographic area renamed.");
   }
 
   function geographicFunnelDetail(label: string): string | null {
@@ -879,11 +926,11 @@ export default function WorkspaceClient({
       setDuplicateDialogOpen(false);
       setTab("workspace");
       setHighlightWeightsPanel(true);
-      setToast(
+      showToast(
         `Created "${name}" — analysis and decision were not copied. Adjust priorities below (e.g. flood weight), then run analysis.`
       );
     } catch (e) {
-      setToast(
+      showToast(
         e instanceof Error ? e.message : "Could not duplicate scenario — try again."
       );
     } finally {
@@ -900,7 +947,7 @@ export default function WorkspaceClient({
   async function confirmDuplicateScenario() {
     const trimmed = duplicateNameDraft.trim();
     if (trimmed.length < 2) {
-      setToast("Scenario name must be at least 2 characters.");
+      showToast("Scenario name must be at least 2 characters.");
       return;
     }
     await duplicateScenario(trimmed);
@@ -911,14 +958,14 @@ export default function WorkspaceClient({
     try {
       await act("activate_scenario", { scenarioId });
     } catch (e) {
-      setToast(e instanceof Error ? e.message : "Could not switch scenario.");
+      showToast(e instanceof Error ? e.message : "Could not switch scenario.");
     }
   }
 
   async function saveScenario() {
     if (!scenario) return;
     await act("save_scenario", { scenarioId: scenario.id });
-    setToast(`Scenario "${scenario.name}" saved`);
+    showToast(`Scenario "${scenario.name}" saved`);
   }
 
   if (loading) {
@@ -1139,10 +1186,10 @@ export default function WorkspaceClient({
                   setPendingBusy(true);
                   try {
                     await resolvePendingPlannerAction(pending.id, projectId, true);
-                    setToast(`Approved: ${pending.tool.replace(/_/g, " ")}`);
+                    showToast(`Approved: ${pending.tool.replace(/_/g, " ")}`);
                     await refresh();
                   } catch (e) {
-                    setToast(e instanceof Error ? e.message : String(e));
+                    showToast(e instanceof Error ? e.message : String(e));
                   } finally {
                     setPendingBusy(false);
                   }
@@ -1159,7 +1206,7 @@ export default function WorkspaceClient({
                   setPendingBusy(true);
                   try {
                     await resolvePendingPlannerAction(pending.id, projectId, false);
-                    setToast("Agent action rejected");
+                    showToast("Agent action rejected");
                   } finally {
                     setPendingBusy(false);
                   }
@@ -1403,6 +1450,20 @@ export default function WorkspaceClient({
                   Constraints
                 </h3>
                 <div className="space-y-3">
+                  <div className="rounded border border-dashed border-outline-variant p-3 bg-surface-container-lowest">
+                    <button
+                      type="button"
+                      onClick={() => startDraw("exclude")}
+                      disabled={drawingActive && drawMode !== "exclude"}
+                      className="inline-flex items-center gap-2 text-body-sm text-primary font-medium hover:underline disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">block</span>
+                      Exclude this area
+                    </button>
+                    <p className="text-caption text-on-surface-variant mt-1">
+                      Click map corners, then Finish — drawn polygons use the existing exclusion flow.
+                    </p>
+                  </div>
                   {scenario.constraints
                     .filter((c) => c.enabled)
                     .map((c) => {
@@ -1815,14 +1876,17 @@ export default function WorkspaceClient({
                   if (drawMode === "exclude") cancelDrawing();
                   else startDraw("exclude");
                 }}
-                className={`glass-panel p-2 rounded border border-outline-variant pointer-events-auto ${
+                className={`glass-panel px-2.5 py-1.5 rounded border border-outline-variant pointer-events-auto flex items-center gap-1.5 ${
                   drawMode === "exclude" ? "bg-error-container" : ""
                 }`}
-                title="Draw exclusion polygon"
-                aria-label="Draw exclusion polygon"
+                title="Draw exclusion polygon on the map"
+                aria-label="Exclude this area — draw polygon on map"
                 aria-pressed={drawMode === "exclude"}
               >
-                <span className="material-symbols-outlined">block</span>
+                <span className="material-symbols-outlined text-[18px]">block</span>
+                <span className="text-[10px] font-mono uppercase whitespace-nowrap">
+                  {drawMode === "exclude" ? "Drawing…" : "Exclude area"}
+                </span>
               </button>
               <button
                 type="button"
@@ -2270,8 +2334,28 @@ export default function WorkspaceClient({
       ) : null}
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] bg-inverse-surface text-inverse-on-surface px-4 py-2 rounded shadow-lg text-body-sm">
-          {toast}
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] bg-inverse-surface text-inverse-on-surface px-4 py-2 rounded shadow-lg text-body-sm flex items-center gap-3 max-w-[min(92vw,28rem)]">
+          <span className="flex-1">{toast.message}</span>
+          {toast.undo && (
+            <button
+              type="button"
+              className="underline font-medium shrink-0"
+              onClick={() => {
+                toast.undo?.();
+                setToast(null);
+              }}
+            >
+              Undo
+            </button>
+          )}
+          <button
+            type="button"
+            className="text-inverse-on-surface/80 hover:text-inverse-on-surface shrink-0"
+            aria-label="Dismiss notification"
+            onClick={() => setToast(null)}
+          >
+            <span className="material-symbols-outlined text-[18px]">close</span>
+          </button>
         </div>
       )}
 
@@ -2343,7 +2427,13 @@ export default function WorkspaceClient({
           scenario={scenario}
           datasets={workspace.datasets}
           onInspectDataset={(datasetId) => openDatasetInspect(datasetId)}
-          floodCoverageWarning={floodCoverageWarning}
+          floodCoverageDetail={floodCoverageDetail}
+          yieldGap={yieldGap}
+          onStartExcludeDraw={() => startDraw("exclude")}
+          onInspectFloodDataset={() => {
+            const flood = workspace.datasets.find((d) => d.kind === "flood");
+            if (flood) openDatasetInspect(flood.id);
+          }}
           housingTarget={housingTarget}
           totalCapacity={totalCapacity}
           intent={scenario.objective.intent}
@@ -2492,6 +2582,7 @@ export default function WorkspaceClient({
           result={result}
           topCandidate={topCandidate}
           shortlist={shortlist}
+          yieldGap={yieldGap}
           shortlistedFeatureIds={shortlistedFeatureIds}
           layerData={layerData}
           onSelectShortlist={(candidateId) => {
@@ -2519,7 +2610,7 @@ export default function WorkspaceClient({
                 reason: decisionReason.trim() || undefined,
               });
               setConfirmDecision(null);
-              setToast(`Decision recorded: ${formatDecisionType(type)}`);
+              showToast(`Decision recorded: ${formatDecisionType(type)}`);
             } catch (e) {
               setDecisionError(e instanceof Error ? e.message : String(e));
             }
@@ -2549,7 +2640,7 @@ export default function WorkspaceClient({
           onUpdateShortlistNote={saveShortlistNote}
           selectedReportId={reportId}
           onSelectReport={setReportId}
-          onDownload={(message) => setToast(message)}
+          onDownload={(message) => showToast(message)}
           onGenerate={async () => {
             const data = (await act("generate_report", {
               scenarioIds: [scenario.id],
@@ -2686,6 +2777,157 @@ function ShortlistPanel(props: {
   );
 }
 
+function YieldGapBanner({ gap }: { gap: YieldGapSummary }) {
+  if (!gap.needsWarning) return null;
+  return (
+    <div
+      role="status"
+      className="mb-3 border border-error/40 bg-error-container/15 text-error text-caption px-3 py-2 rounded"
+    >
+      <p className="font-medium text-body-sm mb-1">Yield gap — {gap.headline}</p>
+      <p>{gap.detail}</p>
+    </div>
+  );
+}
+
+function FloodCoverageAlert(props: {
+  detail: FloodCoverageDetail;
+  expanded: boolean;
+  onToggle: () => void;
+  onInspectEvidence?: () => void;
+}) {
+  const { detail, expanded, onToggle, onInspectEvidence } = props;
+  return (
+    <div
+      role="alert"
+      className="mb-3 border border-secondary/50 bg-secondary-fixed/15 text-secondary text-caption rounded overflow-hidden"
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-secondary-fixed/25"
+        aria-expanded={expanded}
+      >
+        <span className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">
+          {expanded ? "expand_less" : "expand_more"}
+        </span>
+        <span>{detail.summary}</span>
+      </button>
+      {expanded && (
+        <div className="px-3 pb-3 pt-0 space-y-2 border-t border-secondary/30">
+          <p>
+            <strong>Coverage:</strong> {detail.incompleteReason}
+          </p>
+          {detail.exclusionReasons.length > 0 && (
+            <div>
+              <strong>Exclusion reasons:</strong>
+              <ul className="list-disc ml-5 mt-1 space-y-1">
+                {detail.exclusionReasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {detail.excludedParcelSamples.length > 0 && (
+            <div>
+              <strong>Sample excluded parcels:</strong>
+              <ul className="list-disc ml-5 mt-1 space-y-1">
+                {detail.excludedParcelSamples.map((label) => (
+                  <li key={label}>{label}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {onInspectEvidence && (
+            <button
+              type="button"
+              onClick={onInspectEvidence}
+              className="text-primary underline font-medium"
+            >
+              Open flood layer in Evidence
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResultsFilterBar(props: {
+  filter: ResultsFilterState;
+  onChange: (next: ResultsFilterState) => void;
+  neighborhoods: string[];
+  totalCount: number;
+  filteredCount: number;
+}) {
+  const { filter, onChange, neighborhoods, totalCount, filteredCount } = props;
+  return (
+    <div className="border border-outline-variant rounded p-3 bg-surface-container-lowest space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-mono text-[10px] uppercase text-on-surface-variant">
+          Filter candidates
+        </span>
+        <span className="font-mono text-[10px] text-on-surface-variant">
+          Showing {filteredCount.toLocaleString()} of {totalCount.toLocaleString()}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        <label className="block text-caption">
+          <span className="sr-only">Search address or block/lot</span>
+          <input
+            type="search"
+            value={filter.text}
+            onChange={(e) => onChange({ ...filter, text: e.target.value })}
+            placeholder="Address / Blk-Lot…"
+            className="w-full border border-outline-variant rounded px-2 py-1 text-body-sm"
+          />
+        </label>
+        <label className="block text-caption">
+          <span className="sr-only">Neighborhood</span>
+          <select
+            value={filter.neighborhood}
+            onChange={(e) => onChange({ ...filter, neighborhood: e.target.value })}
+            className="w-full border border-outline-variant rounded px-2 py-1 text-body-sm bg-surface"
+          >
+            <option value="">All neighborhoods</option>
+            {neighborhoods.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-caption">
+          <span className="sr-only">Score band</span>
+          <select
+            value={filter.scoreBand}
+            onChange={(e) =>
+              onChange({
+                ...filter,
+                scoreBand: e.target.value as ResultsFilterState["scoreBand"],
+              })
+            }
+            className="w-full border border-outline-variant rounded px-2 py-1 text-body-sm bg-surface"
+          >
+            <option value="all">All scores</option>
+            <option value="high">High (≥70)</option>
+            <option value="medium">Medium (40–69)</option>
+            <option value="low">Low (&lt;40)</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-body-sm px-1 py-1">
+          <input
+            type="checkbox"
+            checked={filter.shortlistedOnly}
+            onChange={(e) => onChange({ ...filter, shortlistedOnly: e.target.checked })}
+          />
+          Shortlisted only
+        </label>
+      </div>
+    </div>
+  );
+}
+
 function ResultsDrawer(props: {
   open: boolean;
   panel: DrawerPanel;
@@ -2710,7 +2952,10 @@ function ResultsDrawer(props: {
   resultLimitations: string[];
   datasets: DatasetMeta[];
   onInspectDataset: (datasetId: string) => void;
-  floodCoverageWarning?: string | null;
+  floodCoverageDetail?: FloodCoverageDetail | null;
+  yieldGap?: YieldGapSummary | null;
+  onStartExcludeDraw?: () => void;
+  onInspectFloodDataset?: () => void;
   onSelect: (c: Candidate) => void;
   onToggleShortlist: (c: Candidate) => void | Promise<void>;
   onUnpinShortlist: (candidateId: string) => void | Promise<void>;
@@ -2718,10 +2963,23 @@ function ResultsDrawer(props: {
   onReject: (c: Candidate, reason: string) => Promise<void>;
 }) {
   const { result, selected, panel, intent, scenario, shortlist } = props;
+  const [resultsFilter, setResultsFilter] = useState<ResultsFilterState>(DEFAULT_RESULTS_FILTER);
+  const [floodExpanded, setFloodExpanded] = useState(false);
+  const allCandidates = result?.candidates ?? [];
+  const shortlistedIds = useMemo(
+    () => new Set(shortlist.map((e) => e.candidateId).filter(Boolean) as string[]),
+    [shortlist]
+  );
+  const filteredCandidates = useMemo(
+    () => filterCandidates(allCandidates, resultsFilter, shortlistedIds),
+    [allCandidates, resultsFilter, shortlistedIds]
+  );
+  const visibleCandidates = filteredCandidates;
+  const neighborhoods = useMemo(() => candidateNeighborhoods(allCandidates), [allCandidates]);
+
   if (!props.open) return null;
 
   const showEvidence = panel === "evidence" || Boolean(selected);
-  const visibleCandidates = result?.candidates.slice(0, 40) ?? [];
   const housingAnalysis = isHousingIntent(intent);
   const evidenceMetrics = selected
     ? evidenceMetricsForCandidate(selected, intent)
@@ -2823,14 +3081,15 @@ function ResultsDrawer(props: {
           <div
             className={`bg-surface p-4 overflow-auto min-h-0 ${panel === "evidence" ? "hidden md:block" : ""}`}
           >
-            {props.floodCoverageWarning && (
-              <div
-                role="alert"
-                className="mb-3 border border-secondary/50 bg-secondary-fixed/15 text-secondary text-caption px-3 py-2 rounded"
-              >
-                {props.floodCoverageWarning}
-              </div>
+            {props.floodCoverageDetail && (
+              <FloodCoverageAlert
+                detail={props.floodCoverageDetail}
+                expanded={floodExpanded}
+                onToggle={() => setFloodExpanded((v) => !v)}
+                onInspectEvidence={props.onInspectFloodDataset}
+              />
             )}
+            {props.yieldGap && <YieldGapBanner gap={props.yieldGap} />}
             {!result ? (
               <p className="text-body-sm text-on-surface-variant">No results yet.</p>
             ) : result.status === "failed" ? (
@@ -2852,6 +3111,18 @@ function ResultsDrawer(props: {
                     if (c) props.onSelect(c);
                   }}
                 />
+                <ResultsFilterBar
+                  filter={resultsFilter}
+                  onChange={setResultsFilter}
+                  neighborhoods={neighborhoods}
+                  totalCount={allCandidates.length}
+                  filteredCount={filteredCandidates.length}
+                />
+                {filteredCandidates.length === 0 && (
+                  <p className="text-body-sm text-on-surface-variant">
+                    No candidates match the current filters.
+                  </p>
+                )}
                 <div className="overflow-x-auto">
                 <table className="w-full text-left text-body-sm min-w-[620px]">
                   <thead>
@@ -3617,6 +3888,7 @@ function DecisionView(props: {
   result: WorkspaceSnapshot["analysisResults"][0] | undefined;
   topCandidate: Candidate | null;
   shortlist: ResolvedShortlistEntry[];
+  yieldGap?: YieldGapSummary | null;
   shortlistedFeatureIds: Set<string>;
   layerData: Record<string, GeoJSON.FeatureCollection>;
   onSelectShortlist: (candidateId: string) => void;
@@ -3674,6 +3946,7 @@ function DecisionView(props: {
           }) ?? "Housing target metrics unavailable — recalculate analysis."}
         </p>
       )}
+      {props.yieldGap && <YieldGapBanner gap={props.yieldGap} />}
       <div className="mb-4">
         <ProvenanceChip kind="copilot_recommendation" />
         <p className="text-body-sm mt-2">

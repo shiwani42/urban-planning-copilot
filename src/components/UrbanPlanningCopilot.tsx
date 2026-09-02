@@ -12,6 +12,7 @@ import {
   type CopilotActivityEntry,
 } from "@/lib/copilot/copilot-activity";
 import {
+  COPILOT_COMMAND_HINTS,
   plannerSuggestions,
   routePlannerQuery,
   summarizeToolResult,
@@ -231,6 +232,23 @@ export function UrbanPlanningCopilot({
       void runTool(suggestion.tool, suggestion.args ?? {}, suggestion.label);
       return;
     }
+    if (suggestion.tool === "__copilot_query__") {
+      const q = String(suggestion.args?.query ?? suggestion.label);
+      const route = routePlannerQuery(q, routeContext);
+      if (route.kind === "message") {
+        appendCopilotActivity({
+          tool: "planner",
+          query: q,
+          status: "success",
+          summary: route.message,
+        });
+        setStatusMessage(route.message);
+        setError(null);
+        return;
+      }
+      void runTool(route.tool, route.args, q);
+      return;
+    }
     if (suggestion.requiresProject && !hasProject) return;
     void runTool(suggestion.tool, suggestion.args ?? {}, suggestion.label);
   }
@@ -407,7 +425,7 @@ export function UrbanPlanningCopilot({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={
               hasProject
-                ? "Ask about this workspace…"
+                ? COPILOT_COMMAND_HINTS
                 : "Ask without a project — e.g. list datasets"
             }
             className="flex-1 min-w-0 border border-outline-variant bg-surface px-3 py-2 text-body-sm rounded focus:outline-none focus:border-primary"

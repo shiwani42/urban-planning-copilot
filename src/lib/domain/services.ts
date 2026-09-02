@@ -1147,7 +1147,12 @@ export function resumeNoteForScenario(
     return `Decision recorded: ${formatDecisionType("request_changes")}`;
   }
   if (result && result.status === "completed" && result.candidates.length > 0) {
-    return `Analysis complete — ${result.candidates.length} candidates (${scenario.name}).`;
+    const base = `Analysis complete — ${result.candidates.length} candidates (${scenario.name})`;
+    const shortlistCount = scenario.shortlist?.length ?? 0;
+    if (shortlistCount > 0) {
+      return `${base} · ${shortlistCount} shortlisted.`;
+    }
+    return `${base}.`;
   }
   return "No analysis yet — run analysis for this scenario.";
 }
