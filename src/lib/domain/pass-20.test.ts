@@ -170,4 +170,24 @@ describe("pass-20 hardening", () => {
     );
     assert.equal(result?.stale, true, "results stay stale until recalculate");
   });
+
+  it("home resume note includes shortlist count when pins exist", async () => {
+    const ws = await services.createProject({
+      name: "Shortlist status",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const scenarioId = ws.project.activeScenarioId!;
+    await services.runAnalysis(ws.project.id, scenarioId);
+    const after = await services.getWorkspace(ws.project.id);
+    const result = after!.analysisResults.find((r) => r.id === after!.scenarios[0]!.latestResultId);
+    const top = result?.candidates[0];
+    assert.ok(top);
+    await services.addToShortlist(ws.project.id, scenarioId, top!.id, "Pinned for review");
+
+    const listed = await services.listProjects();
+    const item = listed.find((p) => p.id === ws.project.id);
+    assert.ok(item);
+    assert.equal(item.shortlistCount, 1);
+    assert.match(item.activeScenarioNote ?? "", /1 shortlisted/);
+  });
 });
