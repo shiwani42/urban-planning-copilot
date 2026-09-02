@@ -22,6 +22,11 @@ type Project = {
   lastOpenedAt?: string;
   resumeNote?: string;
   geographyLabel: string;
+  approvedScenarioName?: string;
+  activeScenarioStatus?: string;
+  activeScenarioNote?: string;
+  actionRequiredLabel?: string;
+  actionRequiredKind?: "manual" | "data" | "ai";
 };
 
 const SHOW_WEBMCP_UI = process.env.NEXT_PUBLIC_SHOW_WEBMCP_UI === "true";
@@ -174,13 +179,12 @@ export default function HomePage() {
   const actionItems = useMemo(() => {
     const items: Array<{ label: string; projectId: string; kind: string }> = [];
     for (const p of projects) {
-      if (p.resumeNote?.includes("pending") || p.resumeNote?.includes("Proposal")) {
-        items.push({ label: p.resumeNote, projectId: p.id, kind: "manual" });
-      } else if (p.resumeNote?.includes("recalculate") || p.resumeNote?.includes("stale")) {
-        items.push({ label: p.resumeNote, projectId: p.id, kind: "data" });
-      } else if (p.resumeNote?.includes("complete") || p.resumeNote?.includes("candidates")) {
-        items.push({ label: `Review results — ${p.name}`, projectId: p.id, kind: "ai" });
-      }
+      if (!p.actionRequiredLabel) continue;
+      items.push({
+        label: p.actionRequiredLabel,
+        projectId: p.id,
+        kind: p.actionRequiredKind ?? "manual",
+      });
     }
     return items.slice(0, 3);
   }, [projects]);
@@ -407,7 +411,17 @@ export default function HomePage() {
               {renderRecency(project)}
             </p>
           )}
-          {project.resumeNote && (
+          {project.approvedScenarioName && (
+            <p className="text-body-sm text-secondary bg-secondary-fixed/20 border border-secondary-fixed/40 px-3 py-2 rounded text-left mb-2">
+              Approved: {project.approvedScenarioName}
+            </p>
+          )}
+          {project.activeScenarioNote && (
+            <p className="text-body-sm text-primary bg-primary-fixed/20 border border-primary-fixed/40 px-3 py-2 rounded text-left">
+              {project.activeScenarioNote}
+            </p>
+          )}
+          {!project.approvedScenarioName && !project.activeScenarioNote && project.resumeNote && (
             <p className="text-body-sm text-primary bg-primary-fixed/20 border border-primary-fixed/40 px-3 py-2 rounded text-left">
               {project.resumeNote}
             </p>
