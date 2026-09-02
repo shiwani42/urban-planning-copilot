@@ -35,11 +35,21 @@ export async function ensureStore(): Promise<AppStore> {
     memory = JSON.parse(raw) as AppStore;
     if (!memory.proposals) memory.proposals = [];
     // Ensure datasets exist (e.g. after schema upgrades)
+    const city = generateSyntheticCity();
     if (!memory.datasets?.length || !memory.featuresByDataset) {
-      const city = generateSyntheticCity();
       memory.datasets = city.datasets;
       memory.featuresByDataset = city.featuresByDataset;
       await persist(memory);
+    } else {
+      let upgraded = false;
+      for (const ds of city.datasets) {
+        if (!memory.datasets.some((d) => d.kind === ds.kind)) {
+          memory.datasets.push(ds);
+          memory.featuresByDataset[ds.id] = city.featuresByDataset[ds.id];
+          upgraded = true;
+        }
+      }
+      if (upgraded) await persist(memory);
     }
     return memory;
   } catch {

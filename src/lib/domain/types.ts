@@ -14,6 +14,7 @@ export type DatasetKind =
   | "infrastructure"
   | "zoning"
   | "schools"
+  | "parks"
   | "roads"
   | "custom";
 
@@ -54,10 +55,16 @@ export type PlanningIntent =
   | "housing_capacity"
   | "emergency_shelter"
   | "school_accessibility"
+  | "park_accessibility"
+  | "service_access"
   | "transit_gap"
   | "climate_resilience"
   | "generic_siting"
   | "explore";
+
+export type ServiceAccessType = "school" | "park";
+
+export type AnalysisUnit = "parcel" | "neighborhood";
 
 export interface BoundingBox {
   west: number;
@@ -130,6 +137,14 @@ export interface PlanningObjective {
   parsedRequirements: string[];
   confidence: number;
   qualityWarning?: string;
+  /** True when the objective explicitly disclaims housing production. */
+  excludesHousing?: boolean;
+  /** Service types referenced in a multi-service access study. */
+  serviceTypes?: ServiceAccessType[];
+  /** Geographic unit named in the objective (analysis may still rank parcels). */
+  analysisUnit?: AnalysisUnit;
+  /** Datasets referenced but unavailable — partial analysis only. */
+  dataGaps?: string[];
 }
 
 export interface AnalysisPlanStep {
