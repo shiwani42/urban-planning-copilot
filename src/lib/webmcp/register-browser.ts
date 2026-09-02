@@ -11,10 +11,16 @@ import {
 import { formatToolErrorMessage } from "@/lib/domain/tool-errors";
 import type { ToolErrorPayload } from "@/lib/domain/tool-errors";
 import { parseToolArguments } from "@/lib/domain/webmcp-validation";
+import { isPendingPlannerResult } from "@/lib/domain/human-gated-tools";
+import {
+  registerPendingPlannerAction,
+  clearPendingPlannerAction,
+} from "@/lib/planner-pending";
 import {
   mutationDetailFromToolResult,
   notifyWorkspaceMutated,
 } from "@/lib/workspace-sync";
+import { resolveWebMcpBrowserContext } from "./browser-context";
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {
   const res = await fetch(path, {
@@ -48,6 +54,19 @@ function ok(payload: unknown) {
   return { content: [{ type: "text" as const, text: truncate(payload) }] };
 }
 
+function mergeArgsWithBrowserContext(rawArgs: Record<string, unknown>) {
+  const args = parseToolArguments(rawArgs);
+  const ctx = resolveWebMcpBrowserContext();
+  return {
+    args: {
+      ...args,
+      ...(args.projectId ? {} : ctx.projectId ? { projectId: ctx.projectId } : {}),
+      ...(args.scenarioId ? {} : ctx.scenarioId ? { scenarioId: ctx.scenarioId } : {}),
+    },
+    context: ctx,
+  };
+}
+
 function navigateToWorkspace(result: unknown) {
   if (typeof window === "undefined") return;
   const payload = (result ?? {}) as { projectId?: string; workspaceUrl?: string };
@@ -62,10 +81,10 @@ function navigateToWorkspace(result: unknown) {
 }
 
 async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
-  const args = parseToolArguments(rawArgs);
+  const { args, context } = mergeArgsWithBrowserContext(rawArgs);
   const res = await api("/api/mcp", {
     method: "POST",
-    body: JSON.stringify({ tool: name, arguments: args }),
+    body: JSON.stringify({ tool: name, arguments: args, context }),
   });
   const data = res as {
     ok?: boolean;
@@ -83,12 +102,32 @@ async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
     throw new Error(message);
   }
   const result = data.result ?? data;
+
+  if (isPendingPlannerResult(result)) {
+    const projectId =
+      (typeof args.projectId === "string" ? args.projectId : undefined) ??
+      context.projectId;
+    if (projectId) {
+      registerPendingPlannerAction({
+        projectId,
+        tool: result.tool,
+        args,
+        message: result.message,
+        proposalId: result.proposalId,
+        scenarioId: result.scenarioId,
+        candidateId: result.candidateId,
+        title: result.title,
+      });
+    }
+    return result;
+  }
+
   const mutation = mutationDetailFromToolResult(
     name,
     args,
     result,
     data.projectId ??
-      (typeof args.projectId === "string" ? args.projectId : undefined)
+      (typeof args.projectId === "string" ? args.projectId : context.projectId)
   );
   if (mutation) {
     notifyWorkspaceMutated(mutation);
@@ -97,6 +136,22 @@ async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
     navigateToWorkspace(result);
   }
   return result;
+}
+
+/** Resolve a pending planner action after the human clicks Approve in the workspace banner. */
+export async function resolvePendingPlannerAction(
+  pendingId: string,
+  projectId: string,
+  approve: boolean
+): Promise<unknown> {
+  const { listPendingPlannerActions } = await import("@/lib/planner-pending");
+  const action = listPendingPlannerActions(projectId).find((item) => item.id === pendingId);
+  if (!action) throw new Error("Pending planner action not found");
+  clearPendingPlannerAction(projectId, pendingId);
+  if (!approve) {
+    return { status: "rejected_by_planner", tool: action.tool };
+  }
+  return invokeMcpTool(action.tool, { ...action.args, confirmed: true });
 }
 
 export type WebMcpRegistration = {
@@ -115,9 +170,7 @@ export function getPlanningToolSchemas(): Array<{
   return PLANNING_TOOL_META;
 }
 
-export async function registerPlanningWebMcpTools(options?: {
-  projectId?: string | null;
-}): Promise<WebMcpRegistration> {
+export async function registerPlanningWebMcpTools(): Promise<WebMcpRegistration> {
   const ctx = getModelContext();
   const controller = new AbortController();
   if (!ctx) {
@@ -130,8 +183,7 @@ export async function registerPlanningWebMcpTools(options?: {
     inputSchema: meta.inputSchema,
     annotations: meta.annotations,
     execute: async (input) => {
-      const parsedInput = parseToolArguments(input);
-      const result = await invokeMcpTool(meta.name, parsedInput);
+      const result = await invokeMcpTool(meta.name, parseToolArguments(input));
       return ok(result);
     },
   }));
@@ -144,8 +196,6 @@ export async function registerPlanningWebMcpTools(options?: {
     (window as unknown as { __UPC_WEBMCP_TOOLS__?: unknown }).__UPC_WEBMCP_TOOLS__ =
       PLANNING_TOOL_META;
   }
-
-  void options;
 
   return {
     available: true,

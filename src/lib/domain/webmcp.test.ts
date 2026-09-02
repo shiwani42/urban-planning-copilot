@@ -249,7 +249,7 @@ describe("WebMCP pass 10 hardening", () => {
     assert.equal(updated?.project.mapState.viewport.zoom, 15);
   });
 
-  it("returns pending_human for approve_proposal without confirmed", async () => {
+  it("returns pending_planner for approve_proposal without confirmed", async () => {
     const ws = await services.createProject({
       name: "Approve gate",
       objectiveText: HOUSING_OBJECTIVE,
@@ -268,7 +268,7 @@ describe("WebMCP pass 10 hardening", () => {
     });
     assert.equal(result.ok, true);
     if (result.ok) {
-      assert.equal((result.result as { status: string }).status, "pending_human");
+      assert.equal((result.result as { status: string }).status, "pending_planner");
     }
   });
 
@@ -328,6 +328,60 @@ describe("WebMCP pass 10 hardening", () => {
     assert.equal(result.ok, true);
     if (result.ok) {
       assert.equal((result.result as { criteriaStale?: boolean }).criteriaStale, true);
+    }
+  });
+
+  it("defaults projectId and scenarioId from execution context", async () => {
+    const ws = await services.createProject({
+      name: "Context defaults",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const context = {
+      projectId: ws.project.id,
+      scenarioId: ws.project.activeScenarioId!,
+    };
+    const workspace = await invokeTool("get_workspace", {}, context);
+    assert.equal(workspace.ok, true);
+    const analysis = await invokeTool("run_analysis", {}, context);
+    assert.equal(analysis.ok, true);
+  });
+
+  it("blocks objective changes that drop enabled constraints without confirmation", async () => {
+    const ws = await services.createProject({
+      name: "Constraint gate",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const blocked = await invokeTool("set_planning_objective", {
+      projectId: ws.project.id,
+      objectiveText:
+        "Identify neighborhoods underserved by parks and schools. This is not a housing production question.",
+    });
+    assert.equal(blocked.ok, false);
+    if (!blocked.ok) assert.equal(blocked.error.code, "CONSTRAINT_CHANGE");
+
+    const allowed = await invokeTool("set_planning_objective", {
+      projectId: ws.project.id,
+      objectiveText:
+        "Identify neighborhoods underserved by parks and schools. This is not a housing production question.",
+      confirmConstraintChange: true,
+    });
+    assert.equal(allowed.ok, true);
+  });
+
+  it("returns pending_planner for generate_report without confirmed", async () => {
+    const ws = await services.createProject({
+      name: "Report gate",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    await services.runAnalysis(ws.project.id, ws.project.activeScenarioId!);
+    const result = await invokeTool("generate_report", {
+      projectId: ws.project.id,
+      scenarioIds: [ws.project.activeScenarioId!],
+      title: "Test report",
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal((result.result as { status: string }).status, "pending_planner");
     }
   });
 

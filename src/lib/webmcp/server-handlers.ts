@@ -2,20 +2,27 @@
  * Server-side WebMCP tool execution — same domain operations as browser tools.
  */
 import * as services from "@/lib/domain/services";
+
 import {
-  pendingHumanResult,
+  pendingPlannerResult,
   requiresPlannerConfirmation,
 } from "@/lib/domain/human-gated-tools";
 import {
   assertCompareScenarioIds,
   assertExclusionLabel,
-  assertNonEmptyProjectId,
   assertObjectiveTextAllowed,
+  assessObjectiveConstraintImpact,
   assertPriorityWeights,
   assertProposalAction,
   assertTransitThresholdMeters,
   validatePolygonRing,
 } from "@/lib/domain/webmcp-validation";
+import {
+  mergeToolContext,
+  resolveProjectId,
+  resolveScenarioId,
+  type ToolExecutionContext,
+} from "@/lib/webmcp/tool-context";
 import { getToolMeta, PLANNING_TOOL_META } from "./tool-definitions";
 import type { ToolErrorPayload } from "@/lib/domain/tool-errors";
 import { ToolError } from "@/lib/domain/tool-errors";
@@ -42,8 +49,10 @@ const FORBIDDEN = new Set([
 
 export async function executePlanningTool(
   name: string,
-  input: Record<string, unknown>
+  rawInput: Record<string, unknown>,
+  context?: ToolExecutionContext
 ): Promise<unknown> {
+  const input = mergeToolContext(rawInput, context);
   if (FORBIDDEN.has(name) || /sql|eval|exec|dom|click|selector/i.test(name)) {
     throw new ToolError(
       "FORBIDDEN",
@@ -57,7 +66,7 @@ export async function executePlanningTool(
 
   switch (name) {
     case "get_workspace": {
-      const projectId = assertNonEmptyProjectId(input.projectId);
+      const projectId = resolveProjectId(input, context);
       await services.requireProject(projectId);
       const ws = await services.getWorkspace(projectId);
       if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
@@ -78,10 +87,11 @@ export async function executePlanningTool(
       };
     }
     case "get_analysis_plan": {
-      const ws = await services.getWorkspace(input.projectId as string);
-      if (!ws) throw new Error("Project not found");
-      const scenario =
-        ws.scenarios.find((s) => s.id === input.scenarioId) ?? activeContext(ws).scenario;
+      const projectId = resolveProjectId(input, context);
+      const ws = await services.getWorkspace(projectId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
+      const scenario = ws.scenarios.find((s) => s.id === scenarioId) ?? activeContext(ws).scenario;
       return {
         scenarioId: scenario?.id,
         steps: scenario?.analysisPlan?.steps ?? [],
@@ -89,10 +99,11 @@ export async function executePlanningTool(
       };
     }
     case "list_candidates": {
-      const ws = await services.getWorkspace(input.projectId as string);
-      if (!ws) throw new Error("Project not found");
-      const scenario =
-        ws.scenarios.find((s) => s.id === input.scenarioId) ?? activeContext(ws).scenario;
+      const projectId = resolveProjectId(input, context);
+      const ws = await services.getWorkspace(projectId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
+      const scenario = ws.scenarios.find((s) => s.id === scenarioId) ?? activeContext(ws).scenario;
       const result = ws.analysisResults.find((r) => r.id === scenario?.latestResultId);
       const limit = Number(input.limit ?? 10);
       return {
@@ -108,10 +119,11 @@ export async function executePlanningTool(
       };
     }
     case "inspect_candidate": {
-      const ws = await services.getWorkspace(input.projectId as string);
-      if (!ws) throw new Error("Project not found");
-      const scenario =
-        ws.scenarios.find((s) => s.id === input.scenarioId) ?? activeContext(ws).scenario;
+      const projectId = resolveProjectId(input, context);
+      const ws = await services.getWorkspace(projectId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
+      const scenario = ws.scenarios.find((s) => s.id === scenarioId) ?? activeContext(ws).scenario;
       const result = ws.analysisResults.find((r) => r.id === scenario?.latestResultId);
       const candidate = result?.candidates.find((c) => c.id === input.candidateId);
       if (!candidate) throw new Error("Candidate not found");
@@ -130,12 +142,12 @@ export async function executePlanningTool(
       return services.listDatasets();
     case "compare_scenarios":
       return services.compareScenarios(
-        assertNonEmptyProjectId(input.projectId),
+        resolveProjectId(input, context),
         assertCompareScenarioIds(input.scenarioIds)
       );
     case "verify_operation":
       return services.verifyOperation(
-        input.projectId as string,
+        resolveProjectId(input, context),
         input.proposalId as string | undefined
       );
     case "start_planning_project": {
@@ -154,31 +166,50 @@ export async function executePlanningTool(
       };
     }
     case "set_planning_objective": {
-      const ws = await services.updateObjective(
-        assertNonEmptyProjectId(input.projectId),
-        assertObjectiveTextAllowed(input.objectiveText)
+      const projectId = resolveProjectId(input, context);
+      const objectiveText = assertObjectiveTextAllowed(input.objectiveText);
+      await services.requireProject(projectId);
+      const ws = await services.getWorkspace(projectId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+      const { scenario } = activeContext(ws);
+      if (!scenario) throw new ToolError("NOT_FOUND", "Scenario not found", "scenarioId");
+      const { droppedLabels } = assessObjectiveConstraintImpact(
+        scenario,
+        objectiveText,
+        ws.project.geographyLabel
       );
-      const { scenario } = activeContext(ws!);
+      if (droppedLabels.length > 0 && input.confirmConstraintChange !== true) {
+        throw new ToolError(
+          "CONSTRAINT_CHANGE",
+          `New objective would remove enabled constraints: ${droppedLabels.join(", ")}. Pass confirmConstraintChange:true after planner review.`,
+          "objectiveText"
+        );
+      }
+      const updated = await services.updateObjective(projectId, objectiveText);
+      const active = activeContext(updated!);
       return {
-        intent: scenario?.objective.intent,
-        requirements: scenario?.objective.parsedRequirements,
+        intent: active.scenario?.objective.intent,
+        requirements: active.scenario?.objective.parsedRequirements,
         note: "Results marked stale if prior analysis existed",
+        criteriaStale: true,
+        droppedConstraints: droppedLabels.length ? droppedLabels : undefined,
       };
     }
     case "set_transit_threshold": {
       const meters = assertTransitThresholdMeters(input.meters);
-      const projectId = assertNonEmptyProjectId(input.projectId);
+      const projectId = resolveProjectId(input, context);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
       await services.requireProject(projectId);
       const ws = await services.getWorkspace(projectId);
       if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
-      const scenario = ws.scenarios.find((s) => s.id === input.scenarioId);
+      const scenario = ws.scenarios.find((s) => s.id === scenarioId);
       if (!scenario) throw new ToolError("NOT_FOUND", "Scenario not found", "scenarioId");
       const constraints = scenario.constraints.map((c) =>
         c.operator === "within_distance"
           ? { ...c, value: meters, label: `Within ${meters}m of transit` }
           : c
       );
-      await services.updateConstraints(projectId, input.scenarioId as string, constraints);
+      await services.updateConstraints(projectId, scenarioId, constraints);
       return {
         meters,
         note: "Results stale — recalculate with run_analysis",
@@ -186,21 +217,19 @@ export async function executePlanningTool(
       };
     }
     case "set_priority_weights": {
-      const projectId = assertNonEmptyProjectId(input.projectId);
+      const projectId = resolveProjectId(input, context);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
       const ws = await services.getWorkspace(projectId);
       if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
-      const sc = ws.scenarios.find((s) => s.id === input.scenarioId);
+      const sc = ws.scenarios.find((s) => s.id === scenarioId);
       if (!sc) throw new ToolError("NOT_FOUND", "Scenario not found", "scenarioId");
       const weights = assertPriorityWeights(sc, input.weights);
-      await services.updateWeights(projectId, input.scenarioId as string, weights);
-      return { weights, note: "Weights updated — run_analysis to refresh ranking" };
+      await services.updateWeights(projectId, scenarioId, weights);
+      return { weights, note: "Weights updated — run_analysis to refresh ranking", criteriaStale: true };
     }
     case "run_analysis": {
-      const projectId = assertNonEmptyProjectId(input.projectId);
-      const scenarioId = String(input.scenarioId ?? "").trim();
-      if (!scenarioId) {
-        throw new ToolError("MISSING_FIELD", "scenarioId is required", "scenarioId");
-      }
+      const projectId = resolveProjectId(input, context);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
       await services.requireProject(projectId);
 
       const inFlight = await services.getAnalysisRunStatus(projectId, scenarioId);
@@ -239,8 +268,9 @@ export async function executePlanningTool(
       throw new ToolError("ANALYSIS_FAILED", "Analysis did not complete", "scenarioId");
     }
     case "create_scenario_branch": {
+      const projectId = resolveProjectId(input, context);
       const ws = await services.createScenario(
-        input.projectId as string,
+        projectId,
         input.name as string,
         input.fromScenarioId as string | undefined
       );
@@ -250,20 +280,18 @@ export async function executePlanningTool(
       };
     }
     case "select_candidate": {
-      const projectId = assertNonEmptyProjectId(input.projectId);
+      const projectId = resolveProjectId(input, context);
       const candidateId = String(input.candidateId ?? "").trim();
       if (!candidateId) {
         throw new ToolError("MISSING_FIELD", "candidateId is required", "candidateId");
       }
-      await services.selectCandidate(projectId, candidateId, undefined, input.scenarioId as string | undefined);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
+      await services.selectCandidate(projectId, candidateId, undefined, scenarioId);
       return { selected: candidateId };
     }
     case "exclude_map_area": {
-      const projectId = assertNonEmptyProjectId(input.projectId);
-      const scenarioId = String(input.scenarioId ?? "").trim();
-      if (!scenarioId) {
-        throw new ToolError("MISSING_FIELD", "scenarioId is required", "scenarioId");
-      }
+      const projectId = resolveProjectId(input, context);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
       const label = assertExclusionLabel(input.label);
       const closed = validatePolygonRing(input.coordinates);
       await services.requireProject(projectId);
@@ -282,7 +310,7 @@ export async function executePlanningTool(
       };
     }
     case "set_map_view": {
-      const projectId = assertNonEmptyProjectId(input.projectId);
+      const projectId = resolveProjectId(input, context);
       const centerInput = input.center as number[] | undefined;
       if (!Array.isArray(centerInput) || centerInput.length < 2) {
         throw new ToolError(
@@ -304,17 +332,22 @@ export async function executePlanningTool(
       return {
         center: ws?.project.mapState.viewport.center,
         zoom: ws?.project.mapState.viewport.zoom,
+        note: "Map viewport updated",
       };
     }
     case "remove_map_area": {
+      const projectId = resolveProjectId(input, context);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
       await services.removeGeographicSelection(
-        input.projectId as string,
-        input.scenarioId as string,
+        projectId,
+        scenarioId,
         input.selectionId as string
       );
-      return { removed: input.selectionId, note: "Results stale — call run_analysis" };
+      return { removed: input.selectionId, note: "Results stale — call run_analysis", criteriaStale: true };
     }
     case "update_map_area": {
+      const projectId = resolveProjectId(input, context);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
       const patch: {
         label?: string;
         geometry?: GeoJSON.Polygon;
@@ -332,20 +365,22 @@ export async function executePlanningTool(
         patch.geometry = { type: "Polygon", coordinates: [closed] };
       }
       await services.updateGeographicSelection(
-        input.projectId as string,
-        input.scenarioId as string,
+        projectId,
+        scenarioId,
         input.selectionId as string,
         patch
       );
-      return { updated: input.selectionId, note: "Results stale — call run_analysis" };
+      return { updated: input.selectionId, note: "Results stale — call run_analysis", criteriaStale: true };
     }
     case "stage_proposal": {
       const action = String(input.action ?? "");
       const payload = (input.payload ?? {}) as Record<string, unknown>;
       assertProposalAction(action, payload);
+      const projectId = resolveProjectId(input, context);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
       return services.stageProposal({
-        projectId: assertNonEmptyProjectId(input.projectId),
-        scenarioId: String(input.scenarioId ?? ""),
+        projectId,
+        scenarioId,
         title: String(input.title ?? ""),
         description: String(input.description ?? ""),
         action,
@@ -354,14 +389,16 @@ export async function executePlanningTool(
       });
     }
     case "reject_candidate": {
-      const projectId = assertNonEmptyProjectId(input.projectId);
-      if (requiresPlannerConfirmation("reject_candidate", input)) {
-        return pendingHumanResult("reject_candidate", input);
+      const projectId = resolveProjectId(input, context);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
+      const gatedInput = { ...input, projectId, scenarioId };
+      if (requiresPlannerConfirmation("reject_candidate", gatedInput)) {
+        return pendingPlannerResult("reject_candidate", gatedInput);
       }
       await services.requireProject(projectId);
       await services.recordDecision({
         projectId,
-        scenarioId: input.scenarioId as string,
+        scenarioId,
         type: "reject_candidate",
         subjectId: input.candidateId as string,
         reason: (input.reason as string) ?? "Rejected by planner",
@@ -369,50 +406,64 @@ export async function executePlanningTool(
       return { rejected: input.candidateId, kind: "planner_decision" };
     }
     case "prefer_scenario": {
-      const projectId = assertNonEmptyProjectId(input.projectId);
-      if (requiresPlannerConfirmation("prefer_scenario", input)) {
-        return pendingHumanResult("prefer_scenario", input);
+      const projectId = resolveProjectId(input, context);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
+      const gatedInput = { ...input, projectId, scenarioId };
+      if (requiresPlannerConfirmation("prefer_scenario", gatedInput)) {
+        return pendingPlannerResult("prefer_scenario", gatedInput);
       }
       await services.requireProject(projectId);
       await services.recordDecision({
         projectId,
-        scenarioId: input.scenarioId as string,
+        scenarioId,
         type: "prefer_scenario",
         reason: input.reason as string | undefined,
       });
-      await services.setActiveScenario(projectId, input.scenarioId as string);
-      return { preferredScenarioId: input.scenarioId, kind: "planner_decision" };
+      await services.setActiveScenario(projectId, scenarioId);
+      return { preferredScenarioId: scenarioId, kind: "planner_decision" };
     }
     case "approve_scenario": {
-      const projectId = assertNonEmptyProjectId(input.projectId);
-      if (requiresPlannerConfirmation("approve_scenario", input)) {
-        return pendingHumanResult("approve_scenario", input);
+      const projectId = resolveProjectId(input, context);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
+      const gatedInput = { ...input, projectId, scenarioId };
+      if (requiresPlannerConfirmation("approve_scenario", gatedInput)) {
+        return pendingPlannerResult("approve_scenario", gatedInput);
       }
       await services.requireProject(projectId);
       await services.recordDecision({
         projectId,
-        scenarioId: input.scenarioId as string,
+        scenarioId,
         type: "approve_scenario",
         reason: input.reason as string | undefined,
       });
-      return { approvedScenarioId: input.scenarioId, kind: "planner_decision" };
+      return { approvedScenarioId: scenarioId, kind: "planner_decision" };
     }
     case "approve_proposal": {
-      const projectId = assertNonEmptyProjectId(input.projectId);
+      const projectId = resolveProjectId(input, context);
       if (requiresPlannerConfirmation("approve_proposal", input)) {
         const ws = await services.getWorkspace(projectId);
         const proposal = ws?.proposals.find((p) => p.id === input.proposalId);
-        return pendingHumanResult("approve_proposal", input, { title: proposal?.title });
+        return pendingPlannerResult("approve_proposal", { ...input, projectId }, { title: proposal?.title });
       }
       await services.requireProject(projectId);
       return services.approveProposal(projectId, input.proposalId as string);
     }
     case "generate_report": {
-      const projectId = assertNonEmptyProjectId(input.projectId);
+      const projectId = resolveProjectId(input, context);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
+      const scenarioIds = Array.isArray(input.scenarioIds)
+        ? (input.scenarioIds as unknown[]).map((id) => String(id))
+        : [scenarioId];
+      const gatedInput = { ...input, projectId, scenarioIds };
+      if (requiresPlannerConfirmation("generate_report", gatedInput)) {
+        return pendingPlannerResult("generate_report", gatedInput, {
+          title: typeof input.title === "string" ? input.title : undefined,
+        });
+      }
       await services.requireProject(projectId);
       const data = await services.generateReport(
         projectId,
-        input.scenarioIds as string[],
+        scenarioIds,
         input.title as string | undefined
       );
       return {
@@ -428,15 +479,21 @@ export async function executePlanningTool(
 /** Validate tool input against minimal required fields from schema */
 export function validateToolInput(
   name: string,
-  input: Record<string, unknown>
+  rawInput: Record<string, unknown>,
+  context?: ToolExecutionContext
 ): ToolErrorPayload | null {
+  const input = mergeToolContext(rawInput, context);
   const meta = getToolMeta(name);
   if (!meta) {
     return { code: "UNKNOWN_TOOL", message: `Unknown tool: ${name}` };
   }
   const required = meta.inputSchema.required ?? [];
+  const toolsWithoutProject = new Set(["start_planning_project", "list_datasets"]);
   for (const key of required) {
+    if (key === "projectId" && toolsWithoutProject.has(name)) continue;
     if (input[key] === undefined || input[key] === null) {
+      if (key === "projectId" && context?.projectId) continue;
+      if (key === "scenarioId" && context?.scenarioId) continue;
       return {
         code: "MISSING_FIELD",
         field: key,

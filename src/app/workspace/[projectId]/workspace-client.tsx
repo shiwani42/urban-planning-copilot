@@ -9,7 +9,13 @@ import {
   useWorkspace,
 } from "@/components/workspace-hooks";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
-import { WebMcpProvider } from "@/components/WebMcpProvider";
+import { setWebMcpBrowserContext, clearWebMcpBrowserContext } from "@/lib/webmcp/browser-context";
+import {
+  listPendingPlannerActions,
+  onPlannerPending,
+  type PendingPlannerAction,
+} from "@/lib/planner-pending";
+import { resolvePendingPlannerAction } from "@/lib/webmcp/register-browser";
 import {
   dedupeLimitations,
   formatActivitySummary,
@@ -130,6 +136,8 @@ export default function WorkspaceClient({
   const [toast, setToast] = useState<string | null>(null);
   const [criteriaStaleHint, setCriteriaStaleHint] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
+  const [pendingPlannerActions, setPendingPlannerActions] = useState<PendingPlannerAction[]>([]);
+  const [pendingBusy, setPendingBusy] = useState(false);
 
   const setTab = useCallback(
     (next: Tab) => {
@@ -233,6 +241,20 @@ export default function WorkspaceClient({
     const t = setTimeout(() => setToast(null), 3200);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    setWebMcpBrowserContext({ projectId, scenarioId: scenario?.id });
+    return () => clearWebMcpBrowserContext(["projectId", "scenarioId"]);
+  }, [projectId, scenario?.id]);
+
+  useEffect(() => {
+    setPendingPlannerActions(listPendingPlannerActions(projectId));
+    return onPlannerPending((detail) => {
+      if (detail.projectId === projectId) {
+        setPendingPlannerActions(detail.actions);
+      }
+    });
+  }, [projectId]);
 
   useEffect(() => {
     return onWorkspaceMutated((detail) => {
@@ -515,7 +537,6 @@ export default function WorkspaceClient({
   const activeActivity = workspace.activities.find((a) => a.id === activityId);
 
   return (
-    <WebMcpProvider projectId={projectId}>
     <div className="h-screen flex flex-col overflow-hidden bg-background relative">
       <header className="bg-surface-container-high border-b border-outline-variant flex justify-between items-center px-section-padding h-14 shrink-0 z-50">
         <div className="flex items-center gap-6 min-w-0">
@@ -571,6 +592,66 @@ export default function WorkspaceClient({
           </button>
         </div>
       </header>
+
+      {pendingPlannerActions.length > 0 && (
+        <div className="bg-tertiary-fixed/20 border-b border-tertiary/30 px-section-padding py-2.5 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <ProvenanceChip kind="copilot_recommendation" />
+                <span className="font-mono text-data-label uppercase text-tertiary">
+                  Agent awaiting planner
+                </span>
+              </div>
+              {pendingPlannerActions.map((pending) => (
+                <div key={pending.id} className="text-body-sm">
+                  <strong>{pending.title ?? pending.tool.replace(/_/g, " ")}</strong>
+                  <span className="text-on-surface-variant"> — {pending.message}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button
+                disabled={pendingBusy}
+                onClick={async () => {
+                  const pending = pendingPlannerActions[0];
+                  if (!pending) return;
+                  setPendingBusy(true);
+                  try {
+                    await resolvePendingPlannerAction(pending.id, projectId, true);
+                    setToast(`Approved: ${pending.tool.replace(/_/g, " ")}`);
+                    await refresh();
+                  } catch (e) {
+                    setToast(e instanceof Error ? e.message : String(e));
+                  } finally {
+                    setPendingBusy(false);
+                  }
+                }}
+                className="bg-tertiary text-on-tertiary px-4 py-2 rounded text-body-sm font-medium disabled:opacity-50"
+              >
+                Approve
+              </button>
+              <button
+                disabled={pendingBusy}
+                onClick={async () => {
+                  const pending = pendingPlannerActions[0];
+                  if (!pending) return;
+                  setPendingBusy(true);
+                  try {
+                    await resolvePendingPlannerAction(pending.id, projectId, false);
+                    setToast("Agent action rejected");
+                  } finally {
+                    setPendingBusy(false);
+                  }
+                }}
+                className="border border-outline-variant px-4 py-2 rounded text-body-sm"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {workspace.proposals.length > 0 && (
         <div className="bg-secondary-fixed/20 border-b border-secondary/30 px-section-padding py-2.5 shrink-0">
@@ -1253,7 +1334,10 @@ export default function WorkspaceClient({
             </div>
           </section>
 
-          <aside className="w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0">
+          <aside
+            id="agent-activity-panel"
+            className="w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0"
+          >
             <div className="p-4 border-b border-outline-variant bg-surface-container-low flex justify-between items-center shrink-0">
               <div>
                 <h2 className="text-headline-md text-primary-container">Agent activity</h2>
@@ -1268,7 +1352,19 @@ export default function WorkspaceClient({
                   </p>
                 </div>
               </div>
-              <span className="material-symbols-outlined text-outline">smart_toy</span>
+              <button
+                type="button"
+                title="Jump to agent activity"
+                aria-label="Jump to agent activity"
+                onClick={() =>
+                  document
+                    .getElementById("agent-activity-panel")
+                    ?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+                }
+                className="material-symbols-outlined text-primary hover:text-primary-container transition-colors"
+              >
+                smart_toy
+              </button>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
@@ -1630,7 +1726,6 @@ export default function WorkspaceClient({
         />
       )}
     </div>
-    </WebMcpProvider>
   );
 }
 

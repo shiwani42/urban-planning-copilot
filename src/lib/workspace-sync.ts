@@ -6,6 +6,7 @@ export type WorkspaceMutatedDetail = {
   tool?: string;
   resumeNote?: string;
   criteriaStale?: boolean;
+  mapViewport?: { center: [number, number]; zoom: number };
 };
 
 export function notifyWorkspaceMutated(detail?: WorkspaceMutatedDetail): void {
@@ -52,10 +53,17 @@ export function mutationDetailFromToolResult(
   projectId?: string
 ): WorkspaceMutatedDetail | null {
   if (!WORKSPACE_MUTATING_TOOLS.has(name)) return null;
-  if (result && typeof result === "object" && (result as { status?: string }).status === "pending_human") {
+  const status = (result as { status?: string } | null)?.status;
+  if (status === "pending_human" || status === "pending_planner") {
     return null;
   }
-  const payload = (result ?? {}) as { note?: string; criteriaStale?: boolean; workspaceUrl?: string };
+  const payload = (result ?? {}) as {
+    note?: string;
+    criteriaStale?: boolean;
+    workspaceUrl?: string;
+    center?: [number, number];
+    zoom?: number;
+  };
   const note = payload.note;
   const criteriaStale =
     payload.criteriaStale === true ||
@@ -74,5 +82,14 @@ export function mutationDetailFromToolResult(
         : undefined),
     resumeNote: note,
     criteriaStale,
+    mapViewport:
+      name === "set_map_view" &&
+      Array.isArray(payload.center) &&
+      payload.center.length >= 2
+        ? {
+            center: payload.center as [number, number],
+            zoom: typeof payload.zoom === "number" ? payload.zoom : 14,
+          }
+        : undefined,
   };
 }

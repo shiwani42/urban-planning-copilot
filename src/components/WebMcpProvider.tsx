@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { registerPlanningWebMcpTools } from "@/lib/webmcp/register-browser";
+import {
+  clearWebMcpBrowserContext,
+  setWebMcpBrowserContext,
+} from "@/lib/webmcp/browser-context";
 
 /**
  * Registers browser WebMCP tools (document.modelContext) for the live page.
@@ -12,20 +16,31 @@ import { registerPlanningWebMcpTools } from "@/lib/webmcp/register-browser";
  */
 export function WebMcpProvider({
   projectId,
+  scenarioId,
   children,
 }: {
   projectId?: string | null;
+  scenarioId?: string | null;
   children?: React.ReactNode;
 }) {
   const [status, setStatus] = useState<"off" | "on" | "unsupported">("off");
   const [toolCount, setToolCount] = useState(0);
 
   useEffect(() => {
+    if (projectId) setWebMcpBrowserContext({ projectId });
+    if (scenarioId) setWebMcpBrowserContext({ scenarioId });
+    return () => {
+      if (projectId) clearWebMcpBrowserContext(["projectId"]);
+      if (scenarioId) clearWebMcpBrowserContext(["scenarioId"]);
+    };
+  }, [projectId, scenarioId]);
+
+  useEffect(() => {
     let aborted = false;
     let cleanup: (() => void) | undefined;
 
     (async () => {
-      const reg = await registerPlanningWebMcpTools({ projectId });
+      const reg = await registerPlanningWebMcpTools();
       if (aborted) {
         reg.abort();
         return;
@@ -41,7 +56,7 @@ export function WebMcpProvider({
       aborted = true;
       cleanup?.();
     };
-  }, [projectId]);
+  }, []);
 
   return (
     <>

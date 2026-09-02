@@ -1,7 +1,7 @@
 import * as turf from "@turf/turf";
-import type { CriterionWeight, Scenario } from "./types";
+import type { Constraint, CriterionWeight, Scenario } from "./types";
 import { ToolError } from "./tool-errors";
-import { assessObjectiveQuality } from "./objective";
+import { assessObjectiveQuality, parseObjective } from "./objective";
 import { STUDY_BOUNDS } from "./study-bounds";
 
 const DESTRUCTIVE_OBJECTIVE_RE =
@@ -250,4 +250,24 @@ export function assertExclusionLabel(label: unknown): string {
     throw new ToolError("MISSING_FIELD", "label is required for geographic exclusions", "label");
   }
   return label.trim();
+}
+
+function constraintFingerprint(constraint: Constraint): string {
+  return `${constraint.datasetKind ?? "none"}:${constraint.operator}`;
+}
+
+/** Detect when a new objective would drop enabled flood/transit/etc. constraints. */
+export function assessObjectiveConstraintImpact(
+  scenario: Scenario,
+  objectiveText: string,
+  geographyLabel: string
+): { droppedLabels: string[] } {
+  const parsed = parseObjective(objectiveText, geographyLabel);
+  const newKeys = new Set(
+    parsed.constraints.filter((c) => c.enabled).map(constraintFingerprint)
+  );
+  const droppedLabels = scenario.constraints
+    .filter((c) => c.enabled && !newKeys.has(constraintFingerprint(c)))
+    .map((c) => c.label);
+  return { droppedLabels };
 }

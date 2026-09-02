@@ -9,6 +9,7 @@ import {
 } from "@/lib/webmcp/server-handlers";
 import { parseToolArguments } from "@/lib/domain/webmcp-validation";
 import { isToolError, toolErrorPayload, type ToolErrorPayload } from "@/lib/domain/tool-errors";
+import { mergeToolContext, type ToolExecutionContext } from "@/lib/webmcp/tool-context";
 
 export { PLANNING_TOOL_META } from "@/lib/webmcp/tool-definitions";
 export { executePlanningTool, listToolsForCatalog } from "@/lib/webmcp/server-handlers";
@@ -23,7 +24,8 @@ export type InvokeToolResult =
 
 export async function invokeTool(
   name: string,
-  rawArgs: unknown
+  rawArgs: unknown,
+  context?: ToolExecutionContext
 ): Promise<InvokeToolResult> {
   let args: Record<string, unknown>;
   try {
@@ -32,7 +34,8 @@ export async function invokeTool(
     return { ok: false, error: toolErrorPayload(err) };
   }
 
-  const validationError = validateToolInput(name, args);
+  const mergedArgs = mergeToolContext(args, context);
+  const validationError = validateToolInput(name, mergedArgs, context);
   if (validationError) {
     return {
       ok: false,
@@ -45,10 +48,10 @@ export async function invokeTool(
   }
 
   try {
-    const result = await executePlanningTool(name, args);
+    const result = await executePlanningTool(name, mergedArgs, context);
     const projectId =
-      typeof args.projectId === "string"
-        ? args.projectId
+      typeof mergedArgs.projectId === "string"
+        ? mergedArgs.projectId
         : result &&
             typeof result === "object" &&
             result !== null &&

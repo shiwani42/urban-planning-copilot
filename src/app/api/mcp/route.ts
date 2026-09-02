@@ -18,10 +18,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { tool, arguments: args, name } = body as {
+  const { tool, arguments: args, name, context } = body as {
     tool?: string;
     name?: string;
     arguments?: unknown;
+    context?: { projectId?: string; scenarioId?: string };
   };
   const toolName = tool ?? name;
   if (!toolName) {
@@ -31,6 +32,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const result = await invokeTool(toolName, args ?? (body as { args?: unknown }).args ?? {});
+  const result = await invokeTool(toolName, args ?? (body as { args?: unknown }).args ?? {}, context);
   return NextResponse.json(result, { status: result.ok ? 200 : 400 });
 }

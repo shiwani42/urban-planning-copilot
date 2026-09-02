@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   MapContainer,
   GeoJSON,
@@ -15,6 +15,7 @@ import type { WorkspaceSnapshot, Candidate, GeographicSelection } from "@/lib/do
 import { featureIdsInExclusions, ringFromPolygon } from "@/lib/domain/geographic";
 import { STUDY_BOUNDS } from "@/lib/domain/study-bounds";
 import BasemapLayer from "@/components/BasemapLayer";
+import { onWorkspaceMutated } from "@/lib/workspace-sync";
 import L from "leaflet";
 
 export type MapDrawMode = "none" | "exclude" | "include" | "edit";
@@ -58,6 +59,25 @@ function RestrictToStudyArea({
   return null;
 }
 
+/** Sync live map pan/zoom when WebMCP or UI updates the stored viewport. */
+function MapViewportSync({
+  center,
+  zoom,
+}: {
+  center: [number, number];
+  zoom: number;
+}) {
+  const map = useMap();
+  const lastKey = useRef<string | null>(null);
+  useEffect(() => {
+    const key = `${center[0].toFixed(6)},${center[1].toFixed(6)},${zoom}`;
+    if (lastKey.current === key) return;
+    lastKey.current = key;
+    map.flyTo([center[1], center[0]], zoom, { duration: 0.75, animate: true });
+  }, [map, center, zoom]);
+  return null;
+}
+
 type Props = {
   workspace: WorkspaceSnapshot;
   layerData: Record<string, GeoJSON.FeatureCollection>;
@@ -86,6 +106,24 @@ export default function PlanningMap({
   stale = false,
 }: Props) {
   const { mapState } = workspace.project;
+  const [liveViewport, setLiveViewport] = useState<{
+    center: [number, number];
+    zoom: number;
+  } | null>(null);
+  const viewport = liveViewport ?? mapState.viewport;
+
+  useEffect(() => {
+    setLiveViewport(null);
+  }, [mapState.viewport.center[0], mapState.viewport.center[1], mapState.viewport.zoom]);
+
+  useEffect(() => {
+    return onWorkspaceMutated((detail) => {
+      if (detail.mapViewport) {
+        setLiveViewport(detail.mapViewport);
+      }
+    });
+  }, []);
+
   const selectedId = mapState.selectedCandidateId;
   const studyBounds = mapState.viewport.bounds ?? STUDY_BOUNDS;
   const drawingActive = drawMode !== "none";
@@ -176,8 +214,8 @@ export default function PlanningMap({
         </div>
       </div>
       <MapContainer
-        center={[mapState.viewport.center[1], mapState.viewport.center[0]]}
-        zoom={mapState.viewport.zoom}
+        center={[viewport.center[1], viewport.center[0]]}
+        zoom={viewport.zoom}
         className="h-full w-full z-[1] bg-transparent"
         zoomControl={false}
         scrollWheelZoom
@@ -186,6 +224,7 @@ export default function PlanningMap({
         <ZoomControl position="topright" />
         <ScaleControl position="bottomleft" imperial={false} />
         <BasemapLayer />
+        <MapViewportSync center={viewport.center} zoom={viewport.zoom} />
         <FitBoundsOnce bounds={studyBounds} />
         <RestrictToStudyArea bounds={studyBounds} />
         <DrawModeHandler enabled={drawingActive} />
