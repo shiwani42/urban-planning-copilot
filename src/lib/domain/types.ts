@@ -402,6 +402,9 @@ export interface Report {
   title: string;
   audience: string;
   createdAt: string;
+  /** Snapshot predates a planner decision or other material change. */
+  stale?: boolean;
+  staleReason?: string;
   sections: Array<{
     heading: string;
     kind: ProvenanceKind | "methodology" | "limitations" | "comparison";
@@ -431,6 +434,14 @@ export interface ProjectListItem {
   lastOpenedAt?: string;
   resumeNote?: string;
   geographyLabel: string;
+  /** Scenario with a current human approval (not stale). */
+  approvedScenarioName?: string;
+  /** Status line for the active scenario branch (when distinct from project approval). */
+  activeScenarioStatus?: string;
+  activeScenarioNote?: string;
+  /** Sidebar “Action required” label when the project needs planner attention. */
+  actionRequiredLabel?: string;
+  actionRequiredKind?: "manual" | "data" | "ai";
 }
 
 export interface WorkspaceSnapshot {

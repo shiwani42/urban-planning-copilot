@@ -220,6 +220,134 @@ function datasetIdsByKind(store: AppStore): Record<string, string> {
   return out;
 }
 
+function datasetIdsUsedByAnalysisPlan(store: AppStore, scenario: Scenario): Set<string> {
+  const used = new Set<string>();
+  const idsByKind = datasetIdsByKind(store);
+  const nameToId = new Map(store.datasets.map((d) => [d.name.toLowerCase(), d.id]));
+
+  const addRef = (ref: string) => {
+    const byName = nameToId.get(ref.toLowerCase());
+    if (byName) {
+      used.add(byName);
+      return;
+    }
+    const byKind = idsByKind[ref];
+    if (byKind) used.add(byKind);
+  };
+
+  const steps = scenario.analysisPlan?.steps ?? [];
+  if (steps.length) {
+    for (const step of steps) {
+      for (const ref of step.datasets) addRef(ref);
+    }
+    return used;
+  }
+
+  for (const c of scenario.constraints) {
+    if (!c.enabled || !c.datasetKind) continue;
+    const id = idsByKind[c.datasetKind];
+    if (id) used.add(id);
+  }
+  if (idsByKind.parcels) used.add(idsByKind.parcels);
+  return used;
+}
+
+function scenarioUsesDataset(store: AppStore, scenario: Scenario, datasetId: string): boolean {
+  return datasetIdsUsedByAnalysisPlan(store, scenario).has(datasetId);
+}
+
+function markReportsStaleForScenario(store: AppStore, scenarioId: string, reason: string) {
+  for (const report of store.reports) {
+    if (report.scenarioIds.includes(scenarioId) && !report.stale) {
+      report.stale = true;
+      report.staleReason = reason;
+    }
+  }
+}
+
+export function summarizeProjectForList(
+  store: AppStore,
+  project: Project
+): Pick<
+  ProjectListItem,
+  | "approvedScenarioName"
+  | "activeScenarioStatus"
+  | "activeScenarioNote"
+  | "actionRequiredLabel"
+  | "actionRequiredKind"
+  | "resumeNote"
+> {
+  const scenarios = store.scenarios.filter((s) => s.projectId === project.id);
+  const approved = scenarios.find(
+    (s) => s.decisionStatus === "approved" && !s.decisionStale
+  );
+  const active =
+    scenarios.find((s) => s.id === project.activeScenarioId) ?? scenarios[0];
+  const activeResult = active
+    ? store.analysisResults.find((r) => r.id === active.latestResultId)
+    : undefined;
+
+  const approvedScenarioName = approved?.name;
+  const activeScenarioStatus = active
+    ? resumeNoteForScenario(active, activeResult)
+    : undefined;
+  const activeScenarioNote =
+    active && approved && active.id !== approved.id
+      ? activeScenarioStatus
+      : !approved
+        ? activeScenarioStatus
+        : undefined;
+
+  let actionRequiredLabel: string | undefined;
+  let actionRequiredKind: ProjectListItem["actionRequiredKind"];
+
+  const resume = project.resumeNote ?? "";
+  if (resume.includes("pending") || resume.includes("Proposal")) {
+    actionRequiredLabel = resume;
+    actionRequiredKind = "manual";
+  } else if (resume.match(/recalculate|stale/i)) {
+    actionRequiredLabel = resume;
+    actionRequiredKind = "data";
+  } else if (
+    active &&
+    activeResult &&
+    !activeResult.stale &&
+    active.decisionStatus !== "approved" &&
+    !approved &&
+    (resume.includes("complete") || resume.includes("candidates"))
+  ) {
+    actionRequiredLabel = `Review results — ${active.name}`;
+    actionRequiredKind = "ai";
+  } else if (
+    active &&
+    activeResult?.stale &&
+    active.decisionStatus !== "approved"
+  ) {
+    actionRequiredLabel =
+      activeResult.staleReason ??
+      `Recalculate analysis for ${active.name} — inputs or data changed.`;
+    actionRequiredKind = "data";
+  }
+
+  const resumeNote = approvedScenarioName
+    ? [
+        `Approved: ${approvedScenarioName}`,
+        activeScenarioStatus && active?.id !== approved?.id ? activeScenarioStatus : undefined,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : activeScenarioStatus ?? project.resumeNote;
+
+  return {
+    approvedScenarioName,
+    activeScenarioStatus,
+    activeScenarioNote,
+    actionRequiredLabel,
+    actionRequiredKind,
+    resumeNote,
+  };
+}
+
 function configHashFor(scenario: Scenario): string {
   return hashConfig({
     objective: scenario.objective,
@@ -286,14 +414,22 @@ export async function listProjects(): Promise<ProjectListItem[]> {
   return store.projects
     .slice()
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      updatedAt: p.updatedAt,
-      lastOpenedAt: p.lastOpenedAt,
-      resumeNote: p.resumeNote,
-      geographyLabel: p.geographyLabel,
-    }));
+    .map((p) => {
+      const summary = summarizeProjectForList(store, p);
+      return {
+        id: p.id,
+        name: p.name,
+        updatedAt: p.updatedAt,
+        lastOpenedAt: p.lastOpenedAt,
+        resumeNote: summary.resumeNote,
+        geographyLabel: p.geographyLabel,
+        approvedScenarioName: summary.approvedScenarioName,
+        activeScenarioStatus: summary.activeScenarioStatus,
+        activeScenarioNote: summary.activeScenarioNote,
+        actionRequiredLabel: summary.actionRequiredLabel,
+        actionRequiredKind: summary.actionRequiredKind,
+      };
+    });
 }
 
 export async function recordProjectOpen(projectId: string): Promise<void> {
@@ -1006,10 +1142,10 @@ export function resumeNoteForScenario(
   if (scenario.decisionStatus === "changes_requested") {
     return `Decision recorded: ${formatDecisionType("request_changes")}`;
   }
-  if (result) {
+  if (result && result.status === "completed" && result.candidates.length > 0) {
     return `Analysis complete — ${result.candidates.length} candidates (${scenario.name}).`;
   }
-  return `Scenario "${scenario.name}" — no analysis results yet.`;
+  return "No analysis yet — run analysis for this scenario.";
 }
 
 export async function requireProject(projectId: string): Promise<Project> {
@@ -1324,9 +1460,10 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
         touchProject(
           s,
           projectId,
-          output.candidates.length
-            ? `Analysis complete — ${output.candidates.length} candidates.`
-            : "No feasible candidates — consider relaxing constraints."
+          resumeNoteForScenario(
+            scenarioLive,
+            s.analysisResults.find((r) => r.id === scenarioLive.latestResultId)
+          )
         );
       });
     } catch (err) {
@@ -1430,9 +1567,12 @@ export async function createScenario(
     store.scenarios.push(scenario);
     project.activeScenarioId = scenario.id;
     project.updatedAt = now();
-    project.resumeNote = fromScenarioId
-      ? `Duplicated "${source?.name ?? "scenario"}" — run analysis on "${name}" when ready.`
-      : project.resumeNote;
+    const branchResult = scenario.latestResultId
+      ? store.analysisResults.find((r) => r.id === scenario.latestResultId)
+      : undefined;
+    project.resumeNote = source
+      ? `Branched from "${source.name}" — no analysis yet. Prior results and decision were not copied.`
+      : resumeNoteForScenario(scenario, branchResult);
     logActivity(store, {
       projectId,
       scenarioId: scenario.id,
@@ -1713,6 +1853,17 @@ export async function recordDecision(input: {
       inputs: { subjectId: input.subjectId, reason: input.reason },
     });
     touchProject(s, input.projectId, `Decision recorded: ${formatDecisionType(input.type)}`);
+    if (
+      input.type === "approve_scenario" ||
+      input.type === "reject_scenario" ||
+      input.type === "request_changes"
+    ) {
+      markReportsStaleForScenario(
+        s,
+        input.scenarioId,
+        `Planner decision recorded after this report was generated (${formatDecisionType(input.type)}).`
+      );
+    }
   });
   return getWorkspace(input.projectId);
 }
@@ -1871,17 +2022,33 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
     sections.push({
       heading: `Datasets — ${sc.name}`,
       kind: "source_data",
-      body: store.datasets
-        .filter((d) => sc.enabledDatasetIds.includes(d.id))
-        .map((d) => {
+      body: (() => {
+        const usedIds = datasetIdsUsedByAnalysisPlan(store, sc);
+        const usedDatasets = store.datasets.filter((d) => usedIds.has(d.id));
+        const unusedEnabled = store.datasets.filter(
+          (d) =>
+            d.enabled &&
+            sc.enabledDatasetIds.includes(d.id) &&
+            !usedIds.has(d.id)
+        );
+        const formatDs = (d: (typeof store.datasets)[0]) => {
           const synced = formatReportDateTime(d.updatedAt);
           const vintage = d.dataVintage ? `; data vintage ${d.dataVintage}` : "";
           const synth = d.synthetic ? " (synthetic seed data)" : "";
           const limits =
             d.limitations.length > 0 ? ` — Limitations: ${d.limitations.join("; ")}` : "";
           return `${d.name} v${d.version} — ${d.source}; catalog synced ${synced}${vintage}${synth}${limits}`;
-        })
-        .join("\n"),
+        };
+        const lines = usedDatasets.map(formatDs);
+        if (unusedEnabled.length) {
+          lines.push(
+            "",
+            "Enabled in catalog but not used by this scenario's analysis plan:",
+            ...unusedEnabled.map((d) => `• ${d.name} v${d.version} (not in plan)`)
+          );
+        }
+        return lines.join("\n");
+      })(),
     });
 
     sections.push({
@@ -2048,7 +2215,9 @@ export async function setDatasetEnabled(datasetId: string, enabled: boolean) {
       }
       if (!enabled) {
         scenario.enabledDatasetIds = scenario.enabledDatasetIds.filter((id) => id !== datasetId);
-        markResultsStale(store, scenario.id, `Dataset ${ds.name} disabled`);
+        if (scenarioUsesDataset(store, scenario, datasetId)) {
+          markResultsStale(store, scenario.id, `Dataset ${ds.name} disabled`);
+        }
       }
     }
     logActivity(store, {
@@ -2073,28 +2242,38 @@ export async function markDatasetStale(datasetId: string, stale: boolean) {
         ...ds.limitations,
         "Marked outdated — verify before relying on recommendations",
       ]);
+      for (const scenario of store.scenarios) {
+        if (scenarioUsesDataset(store, scenario, datasetId)) {
+          markResultsStale(
+            store,
+            scenario.id,
+            `Dataset ${ds.name} marked outdated`
+          );
+        }
+      }
     } else {
       ds.limitations = ds.limitations.filter(
         (l) => l !== "Marked outdated — verify before relying on recommendations"
       );
     }
-    for (const scenario of store.scenarios) {
-      if (scenario.enabledDatasetIds.includes(datasetId)) {
-        markResultsStale(
-          store,
-          scenario.id,
-          stale ? `Dataset ${ds.name} marked outdated` : `Dataset ${ds.name} freshness restored`
-        );
-      }
-    }
+    const affectedScenarios = store.scenarios.filter((s) =>
+      scenarioUsesDataset(store, s, datasetId)
+    );
     const projectId = store.projects[0]?.id ?? "system";
     logActivity(store, {
       projectId,
       actor: "human",
       category: "data",
       action: stale ? "mark_dataset_stale" : "clear_dataset_stale",
-      summary: `${stale ? "Marked outdated" : "Cleared outdated flag on"} dataset ${ds.name} (global catalog)`,
-      inputs: { datasetId, version: ds.version, dataVintage: ds.dataVintage },
+      summary: stale
+        ? `Marked outdated dataset ${ds.name} (global catalog) — ${affectedScenarios.length} scenario(s) with stale results`
+        : `Cleared outdated flag on ${ds.name} (global catalog). Analysis results were not restored — recalculate affected scenarios before relying on recommendations.`,
+      inputs: {
+        datasetId,
+        version: ds.version,
+        dataVintage: ds.dataVintage,
+        affectedScenarioCount: affectedScenarios.length,
+      },
       relatedDatasetIds: [datasetId],
     });
   });
@@ -2114,7 +2293,9 @@ export async function patchFeatureProperties(
     if (!feature) throw new Error("Feature not found");
     feature.properties = { ...feature.properties, ...props };
     for (const scenario of store.scenarios) {
-      markResultsStale(store, scenario.id, `Underlying data changed for ${featureId}`);
+      if (scenarioUsesDataset(store, scenario, datasetId)) {
+        markResultsStale(store, scenario.id, `Underlying data changed for ${featureId}`);
+      }
     }
     logActivity(store, {
       projectId: store.projects[0]?.id ?? "system",

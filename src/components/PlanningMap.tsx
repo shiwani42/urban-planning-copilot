@@ -253,7 +253,7 @@ export default function PlanningMap({
           />
         )}
 
-        {visibleKinds.has("parcels") && layerData.parcels && (
+        {visibleKinds.has("parcels") && layerData.parcels && candidates.length > 0 && (
           <GeoJSON
             key={`parcels-${candidates.length}-${selectedId}-${stale}-${excludedFeatureIds.size}-${drawingActive}`}
             data={layerData.parcels}
@@ -407,6 +407,16 @@ export default function PlanningMap({
           onClick={(lat, lng) => onMapClickDraw?.({ lat, lng })}
         />
       </MapContainer>
+      {candidates.length === 0 && (
+        <div className="absolute inset-0 z-[2] flex items-center justify-center pointer-events-none">
+          <div className="bg-surface/95 border border-outline-variant rounded px-6 py-4 text-center max-w-sm shadow-sm">
+            <p className="text-body-sm font-medium text-on-surface mb-1">No analysis results yet</p>
+            <p className="text-caption text-on-surface-variant">
+              Run analysis to rank candidate sites on the map.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

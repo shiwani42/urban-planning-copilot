@@ -138,6 +138,15 @@ describe("explore investigation engine", () => {
     assert.equal(draft.topCandidates[0].rank, 1);
   });
 
+  it("returns candidate rows for paginated scratch tables", () => {
+    const result = runExploreInvestigation({
+      question: "Where are transit accessibility gaps largest?",
+      ...base,
+    });
+    assert.equal(result.candidateRows.length, result.totalCandidates);
+    assert.ok(result.candidateRows.length >= result.displayedCount);
+  });
+
   it("throws for unsupported questions", () => {
     assert.throws(
       () =>

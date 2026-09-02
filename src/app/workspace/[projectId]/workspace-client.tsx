@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, Component, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
   ProvenanceChip,
@@ -79,6 +79,7 @@ import {
   type ResolvedShortlistEntry,
 } from "@/lib/domain/shortlist";
 import type { MapDrawMode } from "@/components/PlanningMap";
+import { resolveWorkspaceTab, type WorkspaceTab } from "@/lib/workspace-tabs";
 
 const PlanningMap = dynamic(
   () => import("@/components/PlanningMap").then((m) => m.default),
@@ -89,14 +90,7 @@ const MapLegend = dynamic(
   { ssr: false }
 );
 
-type Tab =
-  | "workspace"
-  | "results"
-  | "evidence"
-  | "compare"
-  | "decision"
-  | "activity"
-  | "report";
+type Tab = WorkspaceTab;
 
 type DrawerPanel = "candidates" | "evidence";
 
@@ -170,10 +164,16 @@ export default function WorkspaceClient({
   initialTab?: Tab;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { workspace, loading, error, busy, act, refresh, clearError } = useWorkspace(projectId);
-  const [tab, setTabState] = useState<Tab>(
-    TAB_PATHS.includes(initialTab as Tab) ? (initialTab as Tab) : "workspace"
-  );
+  const [tab, setTabState] = useState<Tab>(() => {
+    const fromQuery =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("initialTab")
+        : null;
+    if (fromQuery) return resolveWorkspaceTab(fromQuery);
+    return TAB_PATHS.includes(initialTab as Tab) ? (initialTab as Tab) : "workspace";
+  });
   const [layerData, setLayerData] = useState<Record<string, GeoJSON.FeatureCollection>>({});
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerPanel, setDrawerPanel] = useState<DrawerPanel>("candidates");
@@ -250,10 +250,18 @@ export default function WorkspaceClient({
   );
 
   useEffect(() => {
-    if (TAB_PATHS.includes(initialTab as Tab) && initialTab !== tab) {
-      setTabState(initialTab as Tab);
+    const fromQuery = searchParams.get("initialTab");
+    const resolved = fromQuery ? resolveWorkspaceTab(fromQuery) : initialTab;
+    if (TAB_PATHS.includes(resolved as Tab) && resolved !== tab) {
+      setTabState(resolved as Tab);
     }
-  }, [initialTab, tab]);
+  }, [initialTab, searchParams, tab]);
+
+  useEffect(() => {
+    if (tab !== "activity" || !workspace?.activities.length) return;
+    if (activityId && workspace.activities.some((a) => a.id === activityId)) return;
+    setActivityId(workspace.activities[0]!.id);
+  }, [tab, workspace?.activities, activityId]);
 
   const scenario = useMemo(() => {
     if (!workspace) return undefined;
@@ -301,6 +309,25 @@ export default function WorkspaceClient({
   const hasAnyResult = Boolean(result);
   const isFreshResult = Boolean(result && result.status === "completed" && !result.stale);
   const candidates = result?.candidates ?? [];
+  const headerResumeNote = useMemo(() => {
+    if (!workspace || !scenario) return undefined;
+    if (scenario.decisionStatus === "approved" && !scenario.decisionStale) {
+      return `Decision recorded: ${formatDecisionType("approve_scenario")}`;
+    }
+    if (scenario.decisionStatus === "rejected" && !scenario.decisionStale) {
+      return `Decision recorded: ${formatDecisionType("reject_scenario")}`;
+    }
+    if (scenario.decisionStatus === "changes_requested") {
+      return `Decision recorded: ${formatDecisionType("request_changes")}`;
+    }
+    if (isFreshResult && result) {
+      return `Analysis complete — ${result.candidates.length} candidates (${scenario.name}).`;
+    }
+    if (!hasAnyResult) {
+      return "No analysis yet — run analysis for this scenario.";
+    }
+    return workspace.project.resumeNote;
+  }, [workspace, scenario, result, isFreshResult, hasAnyResult]);
   const topCandidate = useMemo(() => {
     if (!result?.candidates.length) return null;
     return (
@@ -849,7 +876,7 @@ export default function WorkspaceClient({
       setTab("workspace");
       setHighlightWeightsPanel(true);
       setToast(
-        `Created "${name}" — adjust priorities below (e.g. flood weight), then run analysis.`
+        `Created "${name}" — analysis and decision were not copied. Adjust priorities below (e.g. flood weight), then run analysis.`
       );
     } catch (e) {
       setToast(
@@ -1035,9 +1062,16 @@ export default function WorkspaceClient({
               Projects
             </Link>
             <span className="text-outline-variant">/</span>
-            <span className="truncate">{workspace.project.name}</span>
+            <span className="max-w-[9rem] sm:max-w-[14rem] truncate" title={workspace.project.name}>
+              {workspace.project.name}
+            </span>
             <span className="text-outline-variant">/</span>
-            <span className="text-primary font-medium truncate">Scenario: {scenario.name}</span>
+            <span
+              className="text-primary font-medium max-w-[9rem] sm:max-w-[14rem] truncate"
+              title={`Scenario: ${scenario.name}`}
+            >
+              Scenario: {scenario.name}
+            </span>
             {shortlist.length > 0 && (
               <span className="shrink-0 ml-2 px-2 py-0.5 rounded border border-[#815504] text-[#815504] text-caption font-medium">
                 Shortlist: {shortlist.length}
@@ -1274,9 +1308,9 @@ export default function WorkspaceClient({
             Changes requested — address before approving
           </span>
         )}
-        {workspace.project.resumeNote && !result?.stale && !criteriaStaleHint && (
+        {headerResumeNote && !result?.stale && !criteriaStaleHint && (
           <span className="text-caption text-on-surface-variant truncate max-w-md ml-auto">
-            {workspace.project.resumeNote}
+            {headerResumeNote}
           </span>
         )}
         {titleObjectiveMismatch && (
@@ -4157,6 +4191,7 @@ function ReportView(props: {
                   {r.title}
                   <span className="block text-caption text-on-surface-variant">
                     {formatReportDateTime(r.createdAt)}
+                    {r.stale ? " · stale snapshot" : ""}
                   </span>
                 </button>
               </li>
@@ -4173,6 +4208,16 @@ function ReportView(props: {
             <p className="text-caption text-on-surface-variant">
               Generated {formatReportDateTime(displayReport.createdAt)} · Audience: {displayReport.audience}
             </p>
+            {displayReport.stale && (
+              <p
+                role="status"
+                className="mt-3 text-body-sm text-error border border-error/40 bg-error-container/20 px-3 py-2 rounded"
+              >
+                This report snapshot is stale
+                {displayReport.staleReason ? ` — ${displayReport.staleReason}` : ""}. Generate an
+                updated report to include the latest planner decision and results.
+              </p>
+            )}
           </header>
           {displayReport.sections.map((s, i) => (
             <section key={i}>

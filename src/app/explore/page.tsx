@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { AppHeader } from "@/components/AppHeader";
 import { assessObjectiveQuality } from "@/lib/domain/objective";
@@ -10,11 +10,14 @@ import {
   EXPLORE_SESSION_KEY,
   buildExploreConvertDraft,
   type ExploreAnalysisType,
+  type ExploreCandidateRow,
   type ExploreInvestigationResult,
 } from "@/lib/domain/explore";
 import { filterAnalysisCaveats } from "@/lib/domain/caveats";
 import { formatLocaleDateTime } from "@/lib/format";
 import type { Candidate, DatasetMeta } from "@/lib/domain/types";
+
+const EXPLORE_PAGE_SIZE = 15;
 
 const ExploreMap = dynamic(
   () => import("@/components/ExploreMap").then((m) => m.ExploreMap),
@@ -116,12 +119,16 @@ function exportGeoJson(result: ExploreResult) {
 }
 
 export default function ExplorePage() {
+  const router = useRouter();
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
+  const [convertBusy, setConvertBusy] = useState(false);
+  const [convertError, setConvertError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ExploreResult | null>(null);
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [showMethodology, setShowMethodology] = useState(false);
+  const [listLimit, setListLimit] = useState(EXPLORE_PAGE_SIZE);
   const findingsRef = useRef<HTMLElement>(null);
   const hydrated = useRef(false);
 
@@ -163,7 +170,50 @@ export default function ExplorePage() {
     }
   }, [question, result]);
 
-  const selected = result?.candidates.find((c) => c.id === selectedId);
+  const candidateRows: ExploreCandidateRow[] = useMemo(() => {
+    if (!result) return [];
+    if (result.candidateRows?.length) return result.candidateRows;
+    return result.candidates.map((c) => ({
+      id: c.id,
+      label: c.label,
+      rank: c.rank,
+      score: c.score,
+      metrics: c.metrics,
+    }));
+  }, [result]);
+
+  const visibleRows = useMemo(
+    () => candidateRows.slice(0, listLimit),
+    [candidateRows, listLimit]
+  );
+
+  const selectedRow = candidateRows.find((c) => c.id === selectedId);
+  const selectedCandidate = result?.candidates.find((c) => c.id === selectedId);
+
+  async function handleConvert() {
+    if (!result || convertBusy) return;
+    setConvertError(null);
+    setConvertBusy(true);
+    try {
+      const draft = buildExploreConvertDraft(result);
+      sessionStorage.setItem(EXPLORE_CONVERT_KEY, JSON.stringify(draft));
+      sessionStorage.setItem(
+        "upc-new-project-draft",
+        JSON.stringify({
+          name: draft.suggestedName,
+          objective: draft.objective,
+        })
+      );
+      await router.push("/new?from=explore");
+    } catch (e) {
+      const message =
+        e instanceof Error
+          ? e.message
+          : "Could not open the planning workspace form. Check browser storage settings.";
+      setConvertError(message);
+      setConvertBusy(false);
+    }
+  }
 
   const investigate = useCallback(async () => {
     const q = question.trim();
@@ -190,6 +240,7 @@ export default function ExplorePage() {
       if (!res.ok) throw new Error(data.error || "Investigation failed");
       setResult(data);
       setSelectedId(data.candidates[0]?.id);
+      setListLimit(EXPLORE_PAGE_SIZE);
       setShowMethodology(false);
       requestAnimationFrame(() => {
         findingsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -200,16 +251,6 @@ export default function ExplorePage() {
       setBusy(false);
     }
   }, [question, objectiveQuality]);
-
-  function handleConvert() {
-    if (!result) return;
-    const draft = buildExploreConvertDraft(result);
-    try {
-      sessionStorage.setItem(EXPLORE_CONVERT_KEY, JSON.stringify(draft));
-    } catch {
-      /* ignore */
-    }
-  }
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -251,6 +292,11 @@ export default function ExplorePage() {
             {objectiveQuality.warning}
           </p>
         )}
+        {convertError && (
+          <p className="text-body-sm text-error mb-3" role="alert">
+            {convertError}
+          </p>
+        )}
         <div className="flex flex-wrap gap-3 items-center mb-8">
           <button
             type="button"
@@ -261,13 +307,14 @@ export default function ExplorePage() {
             {busy ? "Investigating…" : "Investigate"}
           </button>
           {result ? (
-            <Link
-              href="/new"
-              onClick={handleConvert}
-              className="text-body-sm text-primary hover:underline"
+            <button
+              type="button"
+              onClick={() => void handleConvert()}
+              disabled={convertBusy}
+              className="text-body-sm text-primary hover:underline disabled:opacity-50"
             >
-              Convert to planning project →
-            </Link>
+              {convertBusy ? "Opening workspace form…" : "Convert to planning project →"}
+            </button>
           ) : (
             <span className="text-caption text-on-surface-variant">
               Run an investigation to enable conversion
@@ -318,7 +365,7 @@ export default function ExplorePage() {
 
             <p className="text-body-sm">{result.summary}</p>
             {result.limitations.length > 0 && (() => {
-              const filtered = filterAnalysisCaveats(result.limitations, { max: 5 });
+              const filtered = filterAnalysisCaveats(result.limitations, { max: 8 });
               return (
               <ul className="text-caption text-secondary list-disc pl-5 space-y-1">
                 {filtered.map((l) => (
@@ -394,7 +441,7 @@ export default function ExplorePage() {
               />
             )}
 
-            {result.candidates.length > 0 && (
+            {candidateRows.length > 0 && (
               <div className="overflow-auto">
                 <table className="w-full text-body-sm">
                   <thead>
@@ -406,7 +453,7 @@ export default function ExplorePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {result.candidates.map((c) => (
+                    {visibleRows.map((c) => (
                       <tr
                         key={c.id}
                         className={`border-t border-outline-variant cursor-pointer ${
@@ -426,26 +473,48 @@ export default function ExplorePage() {
                         <td className="py-2 font-mono">{c.rank}</td>
                         <td>{c.label}</td>
                         <td className="font-mono">{c.score.toFixed(1)}</td>
-                        <td className="font-mono">{distanceValue(c, result.analysisType)}</td>
+                        <td className="font-mono">{distanceValue(c as Candidate, result.analysisType)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                {result.totalCandidates > result.displayedCount && (
-                  <p className="text-caption text-on-surface-variant mt-2">
-                    Showing top {result.displayedCount} of {result.totalCandidates} areas.
+                <div className="flex flex-wrap items-center gap-3 mt-2">
+                  <p className="text-caption text-on-surface-variant">
+                    Showing {visibleRows.length} of {result.totalCandidates} areas.
                   </p>
-                )}
+                  {listLimit < candidateRows.length && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setListLimit((n) =>
+                          Math.min(n + EXPLORE_PAGE_SIZE, candidateRows.length)
+                        )
+                      }
+                      className="text-caption text-primary hover:underline"
+                    >
+                      Show {Math.min(EXPLORE_PAGE_SIZE, candidateRows.length - listLimit)} more
+                    </button>
+                  )}
+                  {listLimit > EXPLORE_PAGE_SIZE && (
+                    <button
+                      type="button"
+                      onClick={() => setListLimit(EXPLORE_PAGE_SIZE)}
+                      className="text-caption text-on-surface-variant hover:underline"
+                    >
+                      Show top {EXPLORE_PAGE_SIZE} only
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
-            {selected && (
+            {selectedRow && (
               <div className="border border-outline-variant bg-surface p-4 space-y-3">
                 <h3 className="text-body-sm font-medium">
-                  Evidence — {selected.label} (rank {selected.rank})
+                  Evidence — {selectedRow.label} (rank {selectedRow.rank})
                 </h3>
                 <div className="grid sm:grid-cols-2 gap-2 text-caption">
-                  {selected.metrics.slice(0, 8).map((m) => (
+                  {(selectedCandidate?.metrics ?? selectedRow.metrics).slice(0, 8).map((m) => (
                     <div key={m.key} className="flex justify-between gap-2 border-b border-outline-variant/50 py-1">
                       <span className="text-on-surface-variant">{m.label}</span>
                       <span className="font-mono">
@@ -455,30 +524,32 @@ export default function ExplorePage() {
                     </div>
                   ))}
                 </div>
+                {selectedCandidate && (
                 <div>
                   <div className="font-mono text-data-label uppercase text-on-surface-variant mb-1">
                     Score breakdown (weighted contribution)
                   </div>
                   <ul className="text-caption space-y-1">
-                    {Object.entries(selected.provenance.scoreBreakdown).map(([k, v]) => (
+                    {Object.entries(selectedCandidate.provenance.scoreBreakdown).map(([k, v]) => (
                       <li key={k}>
                         {k}: {typeof v === "number" ? v.toFixed(2) : v}
                       </li>
                     ))}
                   </ul>
                 </div>
-                {selected.provenance.limitations.length > 0 && (
+                )}
+                {selectedCandidate?.provenance.limitations.length ? (
                   <div>
                     <div className="font-mono text-data-label uppercase text-on-surface-variant mb-1">
                       Limitations
                     </div>
                     <ul className="text-caption list-disc pl-5">
-                      {selected.provenance.limitations.map((l) => (
+                      {selectedCandidate.provenance.limitations.map((l) => (
                         <li key={l}>{l}</li>
                       ))}
                     </ul>
                   </div>
-                )}
+                ) : null}
               </div>
             )}
           </section>

@@ -261,7 +261,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
       type: "object",
       properties: {
         projectId: PROJECT_ID,
-        name: { type: "string" },
+        name: {
+          type: "string",
+          description: 'Display name for the new scenario branch (e.g. "Transit 900m variant").',
+        },
         fromScenarioId: {
           type: "string",
           description: "Source scenario to duplicate; defaults to active scenario",

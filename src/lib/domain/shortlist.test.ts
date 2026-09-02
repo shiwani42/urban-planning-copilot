@@ -51,9 +51,16 @@ describe("candidate shortlist (pass 13)", () => {
     const listed = await invokeTool("list_shortlist", { projectId, scenarioId });
     assert.equal(listed.ok, true);
     if (listed.ok) {
-      const data = listed.result as { count: number; shortlist: Array<{ label: string }> };
+      const data = listed.result as {
+        count: number;
+        message: string;
+        candidateIds: string[];
+        shortlist: Array<{ label: string }>;
+      };
       assert.equal(data.count, 1);
       assert.equal(data.shortlist[0].label, candidate.label);
+      assert.match(data.message, /Shortlist has 1 site/);
+      assert.deepEqual(data.candidateIds, [candidate.id]);
     }
   });
 

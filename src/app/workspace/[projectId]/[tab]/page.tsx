@@ -1,25 +1,33 @@
+import { Suspense } from "react";
 import WorkspaceClient from "../workspace-client";
+import { resolveWorkspaceTab, WORKSPACE_TABS } from "@/lib/workspace-tabs";
 
-const VALID_TABS = [
-  "workspace",
-  "results",
-  "evidence",
-  "compare",
-  "decision",
-  "activity",
-  "report",
-] as const;
+type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
 
-type WorkspaceTab = (typeof VALID_TABS)[number];
+function WorkspaceFallback() {
+  return (
+    <div className="h-screen flex items-center justify-center bg-background text-on-surface-variant text-body-sm">
+      Loading workspace…
+    </div>
+  );
+}
 
 export default async function WorkspaceTabPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ projectId: string; tab: string }>;
+  searchParams: Promise<{ initialTab?: string }>;
 }) {
   const { projectId, tab } = await params;
-  const initialTab: WorkspaceTab = (VALID_TABS as readonly string[]).includes(tab)
+  const { initialTab } = await searchParams;
+  const pathTab: WorkspaceTab = (WORKSPACE_TABS as readonly string[]).includes(tab)
     ? (tab as WorkspaceTab)
     : "workspace";
-  return <WorkspaceClient projectId={projectId} initialTab={initialTab} />;
+  const resolvedTab = resolveWorkspaceTab(initialTab ?? pathTab);
+  return (
+    <Suspense fallback={<WorkspaceFallback />}>
+      <WorkspaceClient projectId={projectId} initialTab={resolvedTab} />
+    </Suspense>
+  );
 }
