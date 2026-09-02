@@ -28,6 +28,7 @@ export function cloneScenarioForBranch(
     approvedAgainstConfigHash: undefined,
     approvedAgainstResultId: undefined,
     preferredCandidateId: undefined,
+    shortlist: source.shortlist ? structuredClone(source.shortlist) : [],
     createdAt: at,
     updatedAt: at,
     savedAt: undefined,

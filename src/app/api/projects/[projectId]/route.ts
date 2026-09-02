@@ -119,6 +119,32 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
             reason: body.reason,
           })
         );
+      case "add_to_shortlist":
+        return NextResponse.json(
+          await services.addToShortlist(
+            projectId,
+            body.scenarioId,
+            body.candidateId,
+            { reason: body.reason, note: body.note }
+          )
+        );
+      case "remove_from_shortlist":
+        return NextResponse.json(
+          await services.removeFromShortlist(
+            projectId,
+            body.scenarioId,
+            body.candidateId
+          )
+        );
+      case "update_shortlist_note":
+        return NextResponse.json(
+          await services.updateShortlistNote(
+            projectId,
+            body.scenarioId,
+            body.candidateId,
+            body.note ?? ""
+          )
+        );
       case "resolve_confirmation":
         return NextResponse.json(
           await services.resolveConfirmation(projectId, body.confirmationId, body.status)

@@ -258,6 +258,19 @@ export interface GeographicSelection {
   createdAt: string;
 }
 
+/** Planner-pinned candidate package for decision review — survives reload and re-analysis. */
+export interface ShortlistEntry {
+  /** Stable parcel keys — used to remap when analysis regenerates candidate ids */
+  featureIds: string[];
+  candidateId?: string;
+  label: string;
+  pinnedAt: string;
+  /** Why the planner pinned this site */
+  reason?: string;
+  /** Optional one-line planner note */
+  note?: string;
+}
+
 export interface Scenario {
   id: string;
   projectId: string;
@@ -281,6 +294,7 @@ export interface Scenario {
   approvedAgainstConfigHash?: string;
   approvedAgainstResultId?: string;
   preferredCandidateId?: string;
+  shortlist?: ShortlistEntry[];
   createdAt: string;
   updatedAt: string;
   savedAt?: string;

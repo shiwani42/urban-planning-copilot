@@ -118,6 +118,29 @@ export async function executePlanningTool(
         })),
       };
     }
+    case "list_shortlist": {
+      const projectId = resolveProjectId(input, context);
+      const ws = await services.getWorkspace(projectId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
+      const scenario = ws.scenarios.find((s) => s.id === scenarioId);
+      if (!scenario) throw new ToolError("NOT_FOUND", "Scenario not found", "scenarioId");
+      const result = ws.analysisResults.find((r) => r.id === scenario.latestResultId);
+      const entries = services.getShortlistForScenario(scenario, result);
+      return {
+        count: entries.length,
+        shortlist: entries.map((entry) => ({
+          candidateId: entry.candidateId,
+          label: entry.label,
+          rank: entry.candidate?.rank,
+          score: entry.candidate?.score,
+          pinnedAt: entry.pinnedAt,
+          reason: entry.reason,
+          note: entry.note,
+          missing: entry.missing ?? false,
+        })),
+      };
+    }
     case "inspect_candidate": {
       const projectId = resolveProjectId(input, context);
       const ws = await services.getWorkspace(projectId);
@@ -288,6 +311,43 @@ export async function executePlanningTool(
       const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
       await services.selectCandidate(projectId, candidateId, undefined, scenarioId);
       return { selected: candidateId };
+    }
+    case "add_to_shortlist": {
+      const projectId = resolveProjectId(input, context);
+      const candidateId = String(input.candidateId ?? "").trim();
+      if (!candidateId) {
+        throw new ToolError("MISSING_FIELD", "candidateId is required", "candidateId");
+      }
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
+      await services.requireProject(projectId);
+      const ws = await services.addToShortlist(projectId, scenarioId, candidateId, {
+        reason: input.reason as string | undefined,
+        note: input.note as string | undefined,
+      });
+      const scenario = ws?.scenarios.find((s) => s.id === scenarioId);
+      const count = scenario?.shortlist?.length ?? 0;
+      return {
+        candidateId,
+        shortlistCount: count,
+        note: `Pinned to shortlist (${count} site${count === 1 ? "" : "s"})`,
+      };
+    }
+    case "remove_from_shortlist": {
+      const projectId = resolveProjectId(input, context);
+      const candidateId = String(input.candidateId ?? "").trim();
+      if (!candidateId) {
+        throw new ToolError("MISSING_FIELD", "candidateId is required", "candidateId");
+      }
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
+      await services.requireProject(projectId);
+      const ws = await services.removeFromShortlist(projectId, scenarioId, candidateId);
+      const scenario = ws?.scenarios.find((s) => s.id === scenarioId);
+      const count = scenario?.shortlist?.length ?? 0;
+      return {
+        candidateId,
+        shortlistCount: count,
+        note: `Removed from shortlist (${count} site${count === 1 ? "" : "s"} remaining)`,
+      };
     }
     case "exclude_map_area": {
       const projectId = resolveProjectId(input, context);

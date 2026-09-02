@@ -34,6 +34,8 @@ export const WORKSPACE_MUTATING_TOOLS = new Set([
   "run_analysis",
   "create_scenario_branch",
   "select_candidate",
+  "add_to_shortlist",
+  "remove_from_shortlist",
   "exclude_map_area",
   "remove_map_area",
   "update_map_area",
