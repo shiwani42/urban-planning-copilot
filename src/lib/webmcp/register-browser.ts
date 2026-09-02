@@ -80,6 +80,14 @@ function navigateToWorkspace(result: unknown) {
   }
 }
 
+/** Invoke a planning tool from in-app copilot or browser WebMCP registration. */
+export async function invokePlanningTool(
+  name: string,
+  rawArgs: Record<string, unknown> = {}
+): Promise<unknown> {
+  return invokeMcpTool(name, rawArgs);
+}
+
 async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
   const { args, context } = mergeArgsWithBrowserContext(rawArgs);
   const res = await api("/api/mcp", {
