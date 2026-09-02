@@ -57,6 +57,18 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const [comparison, setComparison] = useState<Array<Record<string, string | number>> | null>(
     null
   );
+  const [compareInsights, setCompareInsights] = useState<
+    Array<{ heading: string; body: string }> | null
+  >(null);
+  const [compareBusy, setCompareBusy] = useState(false);
+  const [compareError, setCompareError] = useState<string | null>(null);
+  const [compareHint, setCompareHint] = useState<string | null>(null);
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [renamingScenarioId, setRenamingScenarioId] = useState<string | null>(null);
+  const [scenarioNameDraft, setScenarioNameDraft] = useState("");
+  const [focusedRowIndex, setFocusedRowIndex] = useState(0);
+  const [selectionUpdated, setSelectionUpdated] = useState(false);
+  const [lastResultId, setLastResultId] = useState<string | null>(null);
   const [report, setReport] = useState<WorkspaceSnapshot["reports"][0] | null>(null);
   const [activityId, setActivityId] = useState<string | null>(null);
   const [assumptionsOpen, setAssumptionsOpen] = useState(false);
@@ -96,9 +108,25 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       setSelectedCandidate(null);
       return;
     }
-    const c = candidates.find((x) => x.id === id);
-    setSelectedCandidate(c ?? null);
-  }, [workspace?.project.mapState.selectedCandidateId, candidates]);
+    const c = candidates.find((x) => x.id === id || x.featureIds.includes(id));
+    if (c) {
+      setSelectedCandidate(c);
+      if (result?.id && result.id !== lastResultId) {
+        setSelectionUpdated(true);
+        setLastResultId(result.id);
+      }
+    } else {
+      setSelectedCandidate(null);
+    }
+  }, [workspace?.project.mapState.selectedCandidateId, candidates, result?.id, lastResultId]);
+
+  useEffect(() => {
+    if (!scenario) return;
+    setCompareHint(null);
+    if (!scenario.latestResultId) {
+      setSelectedCandidate(null);
+    }
+  }, [scenario?.id, scenario?.latestResultId]);
 
   useEffect(() => {
     if (scenario) setWeightDraft(scenario.weights);
@@ -176,8 +204,25 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   }
 
   async function applyWeights() {
-    if (!scenario || !weightDraft) return;
+    if (!scenario || !weightDraft || weightSum !== 100) return;
     await act("update_weights", { scenarioId: scenario.id, weights: weightDraft });
+  }
+
+  function normalizeWeightDraft() {
+    if (!weightDraft) return;
+    const sum = weightDraft.reduce((s, w) => s + w.weight, 0);
+    if (sum <= 0) return;
+    setWeightDraft(
+      weightDraft.map((w) => ({ ...w, weight: w.weight / sum }))
+    );
+  }
+
+  function scenarioStatusLabel(): string {
+    if (runningJob) return runningJob.currentStep ?? "Analysis running…";
+    if (result) {
+      return `Analysis complete — ${result.candidates.length} candidates`;
+    }
+    return "No results yet — run analysis for this scenario";
   }
 
   async function updateTransitThreshold(meters: number) {
@@ -222,8 +267,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center text-body-sm text-on-surface-variant">
-        Loading workspace…
+      <div className="h-screen flex flex-col bg-background">
+        <div className="h-14 border-b border-outline-variant bg-surface-container-high px-section-padding flex items-center gap-4">
+          <div className="h-5 w-48 bg-surface-variant rounded animate-pulse" />
+        </div>
+        <div className="flex-1 flex items-center justify-center text-body-sm text-on-surface-variant gap-3">
+          <span className="material-symbols-outlined animate-spin text-primary">progress_activity</span>
+          Loading workspace…
+        </div>
       </div>
     );
   }
@@ -378,6 +429,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             {targetGap ? ` (${targetGap.method})` : ""}
           </div>
         )}
+        {!result && scenario && (
+          <span className="shrink-0 text-caption text-on-surface-variant">
+            {scenarioStatusLabel()}
+          </span>
+        )}
         {result?.stale && (
           <span className="shrink-0 px-3 py-1 rounded border border-secondary bg-secondary-fixed/20 text-secondary text-caption font-medium whitespace-nowrap">
             Results stale — recalculate
@@ -500,6 +556,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     Priorities sum to {weightSum}% — adjust to 100% before applying.
                   </p>
                 )}
+                <button
+                  type="button"
+                  onClick={normalizeWeightDraft}
+                  disabled={weightSum === 100}
+                  className="text-caption text-primary hover:underline mb-3 disabled:opacity-40"
+                >
+                  Normalize to 100%
+                </button>
                 <div className="space-y-4">
                   {(weightDraft ?? scenario.weights).map((w, i) => (
                     <div key={w.id}>
@@ -566,22 +630,77 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                   Scenarios
                 </h3>
                 <div className="space-y-2">
-                  {workspace.scenarios.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => act("activate_scenario", { scenarioId: s.id })}
-                      className={`w-full text-left px-2 py-1.5 text-body-sm rounded border ${
-                        s.id === scenario.id
-                          ? "border-primary bg-primary-fixed/30"
-                          : "border-outline-variant hover:bg-surface-container"
-                      }`}
-                    >
-                      {s.name}
-                      <span className="text-caption text-on-surface-variant ml-2">
-                        · {s.status}
-                      </span>
-                    </button>
-                  ))}
+                  {workspace.scenarios.map((s) => {
+                    const parent = s.parentScenarioId
+                      ? workspace.scenarios.find((p) => p.id === s.parentScenarioId)
+                      : null;
+                    const scResult = workspace.analysisResults.find(
+                      (r) => r.id === s.latestResultId
+                    );
+                    return (
+                    <div key={s.id} className="space-y-1">
+                      {renamingScenarioId === s.id ? (
+                        <div className="flex gap-1">
+                          <input
+                            className="flex-1 border border-outline-variant rounded px-2 py-1 text-body-sm"
+                            value={scenarioNameDraft}
+                            onChange={(e) => setScenarioNameDraft(e.target.value)}
+                            aria-label="Scenario name"
+                          />
+                          <button
+                            type="button"
+                            className="text-caption text-primary px-2"
+                            onClick={async () => {
+                              await act("rename_scenario", {
+                                scenarioId: s.id,
+                                name: scenarioNameDraft,
+                              });
+                              setRenamingScenarioId(null);
+                            }}
+                          >
+                            Save
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => act("activate_scenario", { scenarioId: s.id })}
+                          className={`w-full text-left px-2 py-1.5 text-body-sm rounded border ${
+                            s.id === scenario.id
+                              ? "border-primary bg-primary-fixed/30"
+                              : "border-outline-variant hover:bg-surface-container"
+                          }`}
+                        >
+                          <span className="font-medium">{s.name}</span>
+                          <span className="text-caption text-on-surface-variant ml-2">
+                            · {s.status}
+                          </span>
+                          {scResult && (
+                            <span className="block text-caption text-on-surface-variant mt-0.5">
+                              {scResult.candidates.length} candidates
+                              {scResult.stale ? " · stale" : ""}
+                            </span>
+                          )}
+                          {parent && (
+                            <span className="block text-caption text-on-surface-variant mt-0.5">
+                              Duplicated from {parent.name}
+                            </span>
+                          )}
+                        </button>
+                      )}
+                      {s.id === scenario.id && renamingScenarioId !== s.id && (
+                        <button
+                          type="button"
+                          className="text-caption text-primary hover:underline"
+                          onClick={() => {
+                            setRenamingScenarioId(s.id);
+                            setScenarioNameDraft(s.name);
+                          }}
+                        >
+                          Rename scenario
+                        </button>
+                      )}
+                    </div>
+                  );})}
                   <button
                     onClick={() =>
                       duplicateScenario(`Branch ${workspace.scenarios.length + 1}`)
@@ -632,9 +751,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                 className={`glass-panel p-2 rounded border border-outline-variant pointer-events-auto ${
                   drawingExclusion ? "bg-error-container" : ""
                 }`}
-                title="Draw exclusion polygon"
+                title="Draw exclusion polygon on the map"
+                aria-label="Draw exclusion polygon"
               >
                 <span className="material-symbols-outlined">block</span>
+                <span className="sr-only">Draw exclusion polygon</span>
               </button>
               {drawingExclusion && (
                 <button
@@ -652,11 +773,21 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               )}
             </div>
 
-            <div className="absolute left-4 bottom-28 glass-panel p-3 rounded border border-outline-variant z-[1001] max-w-[240px] pointer-events-auto">
-              <h4 className="font-mono text-data-label text-on-surface-variant uppercase mb-2">
-                Legend
-              </h4>
-              <MapLegend visibleKinds={visibleLayerKinds} />
+            <div className="absolute left-4 bottom-28 z-[1001] max-w-[240px] pointer-events-auto">
+              <button
+                type="button"
+                onClick={() => setLegendOpen((v) => !v)}
+                className="glass-panel px-3 py-1.5 rounded border border-outline-variant text-caption font-mono uppercase text-on-surface-variant flex items-center gap-2 w-full"
+                aria-expanded={legendOpen}
+              >
+                <span className="material-symbols-outlined text-[16px]">legend</span>
+                Legend {legendOpen ? "▾" : "▸"}
+              </button>
+              {legendOpen && (
+                <div className="glass-panel p-3 rounded border border-outline-variant mt-1">
+                  <MapLegend visibleKinds={visibleLayerKinds} />
+                </div>
+              )}
             </div>
 
             <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-[1001] pointer-events-auto">
@@ -687,11 +818,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     }`}
                   />
                   <p className="text-caption text-on-surface-variant">
-                    {runningJob
-                      ? runningJob.currentStep ?? "Analysis running…"
-                      : result
-                        ? "Analysis complete — review results"
-                        : "Review the plan, then run analysis"}
+                    {scenarioStatusLabel()}
                   </p>
                 </div>
               </div>
@@ -813,7 +940,12 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                   )}
                   {selectedCandidate && (
                     <button
-                      onClick={() => setDrawerOpen(true)}
+                      type="button"
+                      onClick={() => {
+                        setDrawerOpen(true);
+                        setDrawerPanel("evidence");
+                        setTab("results");
+                      }}
                       className="text-caption text-primary hover:underline"
                     >
                       Why this candidate?
@@ -910,6 +1042,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           selected={selectedCandidate}
           housingTarget={housingTarget}
           totalCapacity={totalCapacity}
+          selectionUpdated={selectionUpdated}
+          onDismissUpdated={() => setSelectionUpdated(false)}
+          focusedRowIndex={focusedRowIndex}
+          setFocusedRowIndex={setFocusedRowIndex}
+          resultLimitations={result?.limitations ?? []}
           onSelect={(c) => selectCandidate(c, "evidence")}
           onReject={async (c, reason) => {
             await act("record_decision", {
@@ -932,19 +1069,26 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           compareIds={compareIds}
           setCompareIds={setCompareIds}
           comparison={comparison}
-          busy={busy}
+          insights={compareInsights}
+          busy={compareBusy}
+          error={compareError}
+          hint={compareHint}
+          onHint={setCompareHint}
           onCompare={async () => {
             const ids = [...compareIds];
             if (ids.length < 2) return;
-            const res = await fetch(`/api/projects/${projectId}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: "compare_scenarios", scenarioIds: ids }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Compare failed");
-            setComparison(data.comparison ?? null);
-            setCompareIds(ids);
+            setCompareBusy(true);
+            setCompareError(null);
+            try {
+              const data = await act("compare_scenarios", { scenarioIds: ids });
+              setComparison(data.comparison ?? null);
+              setCompareInsights(data.insights ?? null);
+              setCompareIds(ids);
+            } catch (e) {
+              setCompareError(e instanceof Error ? e.message : "Compare failed");
+            } finally {
+              setCompareBusy(false);
+            }
           }}
           onPrefer={async (id) => {
             await act("record_decision", {
@@ -994,11 +1138,13 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       {tab === "report" && (
         <ReportView
           workspace={workspace}
+          scenario={scenario}
+          result={result}
           report={report}
           onGenerate={async () => {
             const data = await act("generate_report", {
-              scenarioIds: workspace.scenarios.map((s) => s.id),
-              title: `${workspace.project.name} — Planning Report`,
+              scenarioIds: [scenario.id],
+              title: `${workspace.project.name} — ${scenario.name} Planning Report`,
             });
             setReport(data.report);
             await refresh();
@@ -1020,6 +1166,11 @@ function ResultsDrawer(props: {
   selected: Candidate | null;
   housingTarget?: number;
   totalCapacity?: number;
+  selectionUpdated?: boolean;
+  onDismissUpdated?: () => void;
+  focusedRowIndex: number;
+  setFocusedRowIndex: (index: number) => void;
+  resultLimitations: string[];
   onSelect: (c: Candidate) => void;
   onReject: (c: Candidate, reason: string) => Promise<void>;
 }) {
@@ -1027,6 +1178,25 @@ function ResultsDrawer(props: {
   if (!props.open) return null;
 
   const showEvidence = panel === "evidence" || Boolean(selected);
+  const visibleCandidates = result?.candidates.slice(0, 40) ?? [];
+  const limitationText =
+    props.resultLimitations.length > 0
+      ? props.resultLimitations.join("; ")
+      : selected?.provenance.limitations.join("; ") || "None noted";
+
+  function housingChip(capacity: number | undefined) {
+    if (!props.housingTarget || capacity == null) return null;
+    const meets = capacity >= props.housingTarget;
+    return (
+      <span
+        className={`font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border whitespace-nowrap ${
+          meets ? "border-secondary text-secondary" : "border-error text-error"
+        }`}
+      >
+        {meets ? "Meets" : "Shortfall"}
+      </span>
+    );
+  }
 
   return (
     <div className="absolute bottom-0 left-[300px] right-[360px] max-h-[42vh] z-[35] pointer-events-none">
@@ -1072,6 +1242,18 @@ function ResultsDrawer(props: {
                 Stale — recalculate
               </span>
             )}
+            {props.selectionUpdated && (
+              <span className="text-caption text-primary font-medium whitespace-nowrap">
+                Selection updated for new results
+                <button
+                  type="button"
+                  className="ml-2 underline"
+                  onClick={props.onDismissUpdated}
+                >
+                  Dismiss
+                </button>
+              </span>
+            )}
           </div>
           <button
             type="button"
@@ -1097,44 +1279,71 @@ function ResultsDrawer(props: {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-body-sm min-w-[520px]">
+                <table className="w-full text-left text-body-sm min-w-[620px]">
                   <thead>
                     <tr className="font-mono text-data-label text-on-surface-variant">
                       <th className="py-2 pr-2">Rank</th>
                       <th className="pr-2">Candidate</th>
                       <th className="pr-2">Score</th>
                       <th className="pr-2">Capacity</th>
+                      {props.housingTarget != null && <th className="pr-2">vs goal</th>}
                       <th className="pr-2">Transit</th>
                       <th>Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {result.candidates.slice(0, 40).map((c) => (
+                    {visibleCandidates.map((c, rowIndex) => {
+                      const capacity = c.metrics.find((m) => m.key === "capacity")?.value;
+                      return (
                       <tr
                         key={c.id}
-                        tabIndex={0}
+                        tabIndex={props.focusedRowIndex === rowIndex ? 0 : -1}
+                        ref={(el) => {
+                          if (props.focusedRowIndex === rowIndex && el) el.focus();
+                        }}
                         role="button"
+                        aria-label={`Select candidate ${c.label}, rank ${c.rank}`}
                         onClick={() => {
+                          props.setFocusedRowIndex(rowIndex);
                           props.onSelect(c);
                           props.onPanelChange("evidence");
                         }}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
+                          if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            const next = Math.min(rowIndex + 1, visibleCandidates.length - 1);
+                            props.setFocusedRowIndex(next);
+                            const nextC = visibleCandidates[next];
+                            if (nextC) {
+                              props.onSelect(nextC);
+                              props.onPanelChange("evidence");
+                            }
+                          } else if (e.key === "ArrowUp") {
+                            e.preventDefault();
+                            const prev = Math.max(rowIndex - 1, 0);
+                            props.setFocusedRowIndex(prev);
+                            const prevC = visibleCandidates[prev];
+                            if (prevC) {
+                              props.onSelect(prevC);
+                              props.onPanelChange("evidence");
+                            }
+                          } else if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
                             props.onSelect(c);
                             props.onPanelChange("evidence");
                           }
                         }}
-                        className={`border-t border-outline-variant cursor-pointer hover:bg-surface-container-low ${
+                        className={`border-t border-outline-variant cursor-pointer hover:bg-surface-container-low outline-none focus:ring-2 focus:ring-primary/40 ${
                           selected?.id === c.id ? "bg-primary-fixed/25" : ""
                         } ${props.stale ? "opacity-60" : ""}`}
                       >
                         <td className="py-2 pr-2 font-mono">{c.rank}</td>
                         <td className="pr-2">{c.label}</td>
                         <td className="pr-2 font-mono">{c.score.toFixed(1)}</td>
-                        <td className="pr-2 font-mono">
-                          {c.metrics.find((m) => m.key === "capacity")?.value ?? "—"}
-                        </td>
+                        <td className="pr-2 font-mono">{capacity ?? "—"}</td>
+                        {props.housingTarget != null && (
+                          <td className="pr-2">{housingChip(capacity)}</td>
+                        )}
                         <td className="pr-2 font-mono">
                           {c.metrics.find((m) => m.key === "transit_distance_m")?.value ?? "—"}m
                         </td>
@@ -1142,7 +1351,7 @@ function ResultsDrawer(props: {
                           <span className="text-caption whitespace-nowrap">{c.status}</span>
                         </td>
                       </tr>
-                    ))}
+                    );})}
                   </tbody>
                 </table>
               </div>
@@ -1198,7 +1407,9 @@ function ResultsDrawer(props: {
                   <ul className="text-body-sm space-y-1">
                     {Object.entries(selected.provenance.scoreBreakdown).map(([k, v]) => (
                       <li key={k} className="flex justify-between gap-4">
-                        <span className="text-on-surface-variant">{k.replace(/_/g, " ")}</span>
+                        <span className="text-on-surface-variant">
+                          {k.replace(/_/g, " ")} (weighted contribution)
+                        </span>
                         <span className="font-mono">{v}</span>
                       </li>
                     ))}
@@ -1234,11 +1445,14 @@ function ResultsDrawer(props: {
                     <li>Datasets: {selected.provenance.datasets.join(", ") || "—"}</li>
                     <li>Assumptions: {selected.provenance.assumptions.join(", ")}</li>
                     <li>Constraints: {selected.provenance.constraints.join("; ")}</li>
-                    <li>
-                      Limitations: {selected.provenance.limitations.join("; ") || "None noted"}
-                    </li>
+                    <li>Limitations: {limitationText}</li>
                   </ul>
                 </div>
+                {selected.recommendationNote && (
+                  <p className="text-body-sm text-on-surface-variant border-l-2 border-primary pl-3">
+                    {selected.recommendationNote}
+                  </p>
+                )}
                 {selected.status !== "rejected" && (
                   <button
                     type="button"
@@ -1342,9 +1556,15 @@ function EvidenceView({
 
 const COMPARE_METRICS: Array<{ key: string; label: string }> = [
   { key: "eligible_count", label: "Eligible areas" },
+  { key: "meets_target_count", label: "Meet housing target alone" },
   { key: "total_capacity", label: "Est. housing capacity" },
   { key: "avg_transit_distance", label: "Avg transit distance (m)" },
-  { key: "top_score", label: "Top candidate score" },
+  { key: "median_transit_distance", label: "Median transit distance (m)" },
+  { key: "top_candidate", label: "Top candidate" },
+  { key: "top_candidate_capacity", label: "Top candidate capacity" },
+  { key: "top_rank_score", label: "Top rank score (scenario-local)" },
+  { key: "top_3", label: "Top 3 candidates" },
+  { key: "weight_profile", label: "Priority weights" },
 ];
 
 function CompareView(props: {
@@ -1352,41 +1572,76 @@ function CompareView(props: {
   compareIds: string[];
   setCompareIds: Dispatch<SetStateAction<string[]>>;
   comparison: Array<Record<string, string | number>> | null;
+  insights: Array<{ heading: string; body: string }> | null;
   busy?: boolean;
+  error?: string | null;
+  hint?: string | null;
+  onHint: (msg: string | null) => void;
   onCompare: () => Promise<void>;
   onPrefer: (id: string) => Promise<void>;
 }) {
   const { workspace } = props;
+
+  function toggleScenario(id: string) {
+    props.setCompareIds((prev) => {
+      const on = prev.includes(id);
+      if (on) {
+        if (prev.length <= 2) {
+          props.onHint("Keep at least two scenarios selected to compare.");
+          return prev;
+        }
+        props.onHint(null);
+        return prev.filter((x) => x !== id);
+      }
+      props.onHint(null);
+      return [...prev, id];
+    });
+  }
+
   return (
     <main className="flex-1 overflow-auto p-8">
       <h2 className="text-display mb-2">Scenario comparison</h2>
-      <p className="text-body-sm text-on-surface-variant mb-6">
-        Select two or more scenarios, then compare using consistent calculated metrics.
+      <p className="text-body-sm text-on-surface-variant mb-2">
+        Select two or more scenarios with completed analysis, then compare trade-offs.
       </p>
-      <div className="flex flex-wrap gap-3 mb-4">
+      <p className="text-caption text-on-surface-variant mb-6">
+        Rank scores are comparable within a scenario only — use ranking shifts and capacity metrics
+        to evaluate differences.
+      </p>
+      <div className="flex flex-wrap gap-3 mb-2" role="group" aria-label="Scenarios to compare">
         {workspace.scenarios.map((s) => {
           const on = props.compareIds.includes(s.id);
+          const hasResult = Boolean(s.latestResultId);
           return (
             <button
               key={s.id}
               type="button"
-              onClick={() =>
-                props.setCompareIds((prev) =>
-                  on ? prev.filter((id) => id !== s.id) : [...prev, s.id]
-                )
-              }
+              aria-pressed={on}
+              aria-label={`${on ? "Deselect" : "Select"} scenario ${s.name}`}
+              onClick={() => toggleScenario(s.id)}
               className={`px-3 py-1.5 border text-body-sm transition-colors ${
                 on ? "border-primary bg-primary-fixed/30 text-primary" : "border-outline-variant"
-              }`}
+              } ${!hasResult ? "opacity-60" : ""}`}
             >
               {s.name}
-              {on && (
-                <span className="ml-2 font-mono text-[10px] text-primary-container">✓</span>
+              {!hasResult && (
+                <span className="ml-1 text-caption text-on-surface-variant">(no results)</span>
               )}
+              {on && <span className="ml-2 font-mono text-[10px]">selected</span>}
             </button>
           );
         })}
       </div>
+      {props.hint && (
+        <p className="text-caption text-secondary mb-3" role="status">
+          {props.hint}
+        </p>
+      )}
+      {props.compareIds.length < 2 && (
+        <p className="text-caption text-on-surface-variant mb-3">
+          Select at least two scenarios to enable comparison.
+        </p>
+      )}
       <button
         type="button"
         disabled={props.compareIds.length < 2 || props.busy}
@@ -1395,12 +1650,25 @@ function CompareView(props: {
           e.stopPropagation();
           void props.onCompare();
         }}
-        className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40 mb-6"
+        className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40 mb-2"
       >
         {props.busy ? "Comparing…" : `Compare selected (${props.compareIds.length})`}
       </button>
+      {props.error && (
+        <p className="text-body-sm text-error mb-4" role="alert">
+          {props.error}
+        </p>
+      )}
+      {props.busy && !props.comparison && (
+        <p className="text-body-sm text-on-surface-variant mb-4 flex items-center gap-2">
+          <span className="material-symbols-outlined animate-spin text-primary text-[18px]">
+            progress_activity
+          </span>
+          Building comparison…
+        </p>
+      )}
       {props.comparison && props.comparison.length > 0 && (
-        <div className="overflow-auto border border-outline-variant bg-surface-container-lowest">
+        <div className="overflow-auto border border-outline-variant bg-surface-container-lowest mb-6">
           <table className="w-full text-body-sm">
             <thead className="bg-surface-container-low font-mono text-data-label">
               <tr>
@@ -1437,6 +1705,19 @@ function CompareView(props: {
               </button>
             ))}
           </div>
+        </div>
+      )}
+      {props.insights && props.insights.length > 0 && (
+        <div className="space-y-3 border border-outline-variant bg-surface-container-low p-4">
+          <h3 className="font-mono text-data-label uppercase text-on-surface-variant">
+            Trade-off insights
+          </h3>
+          {props.insights.map((item) => (
+            <div key={item.heading}>
+              <h4 className="text-body-sm font-medium">{item.heading}</h4>
+              <p className="text-body-sm text-on-surface-variant">{item.body}</p>
+            </div>
+          ))}
         </div>
       )}
     </main>
@@ -1625,10 +1906,13 @@ function ActivityView(props: {
 
 function ReportView(props: {
   workspace: WorkspaceSnapshot;
+  scenario: WorkspaceSnapshot["scenarios"][0];
+  result: WorkspaceSnapshot["analysisResults"][0] | undefined;
   report: WorkspaceSnapshot["reports"][0] | null;
   onGenerate: () => Promise<void>;
 }) {
   const latest = props.report ?? props.workspace.reports[0];
+  const canGenerate = Boolean(props.result && !props.result.stale);
 
   function downloadMarkdown() {
     if (!latest) return;
@@ -1648,7 +1932,7 @@ function ReportView(props: {
         );
         for (const row of s.data as Array<Record<string, string | number>>) {
           lines.push(
-            `| ${row.name} | ${row.eligible_count ?? "—"} | ${row.total_capacity ?? "—"} | ${row.avg_transit_distance ?? "—"} | ${row.top_score ?? "—"} |`
+            `| ${row.name} | ${row.eligible_count ?? "—"} | ${row.total_capacity ?? "—"} | ${row.avg_transit_distance ?? "—"} | ${row.top_rank_score ?? row.top_score ?? "—"} |`
           );
         }
         lines.push(``);
@@ -1680,14 +1964,34 @@ function ReportView(props: {
           <button
             type="button"
             onClick={props.onGenerate}
-            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm"
+            disabled={!canGenerate}
+            title={
+              canGenerate
+                ? undefined
+                : "Run analysis on the active scenario first"
+            }
+            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40"
           >
             Generate report
           </button>
         </div>
       </div>
+      {!canGenerate && (
+        <p className="text-body-sm text-on-surface-variant mb-4">
+          Reports summarize the active scenario <strong>{props.scenario.name}</strong>, its
+          evidence, constraints, and any recorded decision. Run analysis first — stale results must
+          be recalculated.
+        </p>
+      )}
+      {canGenerate && !latest && (
+        <p className="text-body-sm text-on-surface-variant mb-4">
+          Generate a markdown report for <strong>{props.scenario.name}</strong> including objective,
+          methodology, datasets, results ({props.result?.candidates.length ?? 0} candidates), and
+          decision history.
+        </p>
+      )}
       {!latest ? (
-        <p className="text-body-sm text-on-surface-variant">No reports yet.</p>
+        <p className="text-body-sm text-on-surface-variant">No reports yet for this scenario.</p>
       ) : (
         <article className="border border-outline-variant bg-surface-container-lowest p-8 space-y-6">
           <header>
@@ -1729,7 +2033,9 @@ function ReportView(props: {
                           <td className="p-2 text-right font-mono">
                             {row.avg_transit_distance ?? "—"}
                           </td>
-                          <td className="p-2 text-right font-mono">{row.top_score ?? "—"}</td>
+                          <td className="p-2 text-right font-mono">
+                            {row.top_rank_score ?? row.top_score ?? "—"}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

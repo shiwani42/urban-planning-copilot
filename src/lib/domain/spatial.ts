@@ -276,6 +276,37 @@ export interface AnalysisEngineInput {
   layers: Record<string, GeoJSON.FeatureCollection>;
   datasetIds: Record<string, string>;
   rejectedCandidateFeatureIds?: Set<string>;
+  /** Dataset / analysis limitations merged into result and candidate provenance */
+  externalLimitations?: string[];
+}
+
+function compositeScore(
+  componentScores: Record<string, number>,
+  weights: CriterionWeight[]
+): { score: number; breakdown: Record<string, number> } {
+  const active = weights.filter((w) => componentScores[w.key] != null);
+  const weightSum = active.reduce((s, w) => s + w.weight, 0);
+  if (!active.length || weightSum <= 0) {
+    return { score: 0, breakdown: {} };
+  }
+  const breakdown: Record<string, number> = {};
+  let score = 0;
+  for (const w of active) {
+    const normalizedWeight = w.weight / weightSum;
+    const part = componentScores[w.key]! * normalizedWeight;
+    breakdown[w.key] = Number(part.toFixed(2));
+    score += part;
+  }
+  return { score: Number(score.toFixed(1)), breakdown };
+}
+
+function median(values: number[]): number {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+    : sorted[mid];
 }
 
 export interface AnalysisEngineOutput {
@@ -333,8 +364,29 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
   if (!input.layers.flood) limitations.push("Flood dataset unavailable — flood resilience uncertain");
   if (!input.layers.population)
     limitations.push("Population dataset unavailable — coverage metrics limited");
+  if (input.externalLimitations?.length) {
+    for (const note of input.externalLimitations) {
+      if (!limitations.includes(note)) limitations.push(note);
+    }
+  }
+
+  const floodConstraint = input.constraints.find(
+    (c) => c.enabled && c.datasetKind === "flood" && c.operator === "not_intersects"
+  );
+  if (floodConstraint) {
+    const floodLog = stepLogs.find((l) => l.detail.toLowerCase().includes("flood"));
+    if (floodLog?.detail.includes("no high-risk flood overlap")) {
+      limitations.push(
+        "Flood exclusion constraint did not remove any parcels — high-risk overlap may be absent or incompletely mapped"
+      );
+    }
+  }
 
   const weights = normalizeWeights(input.weights);
+  const capacityScoreDenominator =
+    input.objective.intent === "housing_capacity" && input.objective.targetValue
+      ? input.objective.targetValue
+      : 800;
   const transitThreshold =
     Number(
       input.constraints.find((c) => c.operator === "within_distance")?.value ?? 800
@@ -363,7 +415,7 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
 
     const componentScores: Record<string, number> = {
       transit: transitScore,
-      capacity: Math.min(100, (capacityInfo.capacity / 800) * 100),
+      capacity: Math.min(100, (capacityInfo.capacity / capacityScoreDenominator) * 100),
       flood_resilience: floodScore,
       population_coverage: Math.min(100, (popCovered / 5000) * 100),
       accessibility: transitScore,
@@ -372,13 +424,7 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
       gap_severity: transitGapScore,
     };
 
-    let score = 0;
-    const breakdown: Record<string, number> = {};
-    for (const w of weights) {
-      const part = (componentScores[w.key] ?? 50) * w.weight;
-      breakdown[w.key] = Number(part.toFixed(2));
-      score += part;
-    }
+    const { score, breakdown } = compositeScore(componentScores, weights);
 
     const metrics: MetricValue[] = [
       {
@@ -434,6 +480,23 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
       },
     ];
 
+    if (input.objective.intent === "housing_capacity" && input.objective.targetValue) {
+      const target = input.objective.targetValue;
+      const cap = capacityInfo.capacity;
+      const meets = cap >= target;
+      metrics.push({
+        key: "housing_target_gap",
+        label: meets ? "Meets housing target" : "Shortfall vs housing target",
+        value: Math.abs(cap - target),
+        unit: "homes",
+        kind: "calculated",
+        method: meets
+          ? `Parcel capacity (${cap}) meets per-site target (${target})`
+          : `Parcel capacity (${cap}) is ${target - cap} homes below per-site target (${target})`,
+        inputs: { capacity: cap, target_homes: target, meets_alone: meets },
+      });
+    }
+
     const labelBase =
       (f.properties as FeatureProps | null)?.name ||
       `Area ${String.fromCharCode(65 + (i % 26))}${i >= 26 ? i : ""}`;
@@ -482,7 +545,12 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
   });
 
   // Intent-specific ranking adjustments / top-N
-  let ranked = [...enriched].sort((a, b) => b.score - a.score);
+  let ranked = [...enriched].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    const capA = a.metrics.find((m) => m.key === "capacity")?.value ?? 0;
+    const capB = b.metrics.find((m) => m.key === "capacity")?.value ?? 0;
+    return capB - capA;
+  });
 
   if (input.objective.intent === "emergency_shelter" && input.objective.targetValue) {
     ranked = ranked.slice(0, input.objective.targetValue);
@@ -502,6 +570,7 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
 
   ranked.forEach((c, i) => {
     c.rank = i + 1;
+    c.provenance.limitations = [...limitations];
     if (i === 0) {
       c.recommendationNote =
         "Highest-scoring eligible candidate under current weights and constraints.";
@@ -518,13 +587,14 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
     (s, c) => s + (c.metrics.find((m) => m.key === "capacity")?.value ?? 0),
     0
   );
+  const transitDistances = ranked
+    .map((c) => c.metrics.find((m) => m.key === "transit_distance_m")?.value ?? -1)
+    .filter((d) => d >= 0);
   const avgTransit =
-    ranked.length === 0
+    transitDistances.length === 0
       ? 0
-      : ranked.reduce(
-          (s, c) => s + (c.metrics.find((m) => m.key === "transit_distance_m")?.value ?? 0),
-          0
-        ) / ranked.length;
+      : transitDistances.reduce((s, d) => s + d, 0) / transitDistances.length;
+  const medianTransit = median(transitDistances);
 
   const aggregateMetrics: MetricValue[] = [
     {
@@ -548,8 +618,35 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
       value: Math.round(avgTransit),
       unit: "m",
       kind: "calculated",
+      method: "mean of eligible candidate transit distances",
+    },
+    {
+      key: "median_transit_distance",
+      label: "Median transit distance",
+      value: medianTransit,
+      unit: "m",
+      kind: "calculated",
+      method: "median of eligible candidate transit distances",
     },
   ];
+
+  if (
+    input.objective.intent === "housing_capacity" &&
+    input.objective.targetValue
+  ) {
+    const target = input.objective.targetValue;
+    const meetsAlone = ranked.filter(
+      (c) => (c.metrics.find((m) => m.key === "capacity")?.value ?? 0) >= target
+    ).length;
+    aggregateMetrics.push({
+      key: "meets_target_count",
+      label: "Candidates meeting housing target alone",
+      value: meetsAlone,
+      kind: "calculated",
+      method: `count of parcels with capacity ≥ ${target} homes`,
+      inputs: { target_homes: target },
+    });
+  }
 
   if (
     input.objective.intent === "housing_capacity" &&
@@ -595,19 +692,116 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
   return { candidates: ranked, aggregateMetrics, summary, limitations, stepLogs };
 }
 
+export interface ScenarioComparisonInput {
+  scenarioId: string;
+  name: string;
+  weights?: CriterionWeight[];
+  housingTarget?: number;
+  result: AnalysisEngineOutput | null;
+}
+
 export function compareScenarioMetrics(
-  results: Array<{ scenarioId: string; name: string; result: AnalysisEngineOutput | null }>
+  results: ScenarioComparisonInput[]
 ): Array<Record<string, string | number>> {
   return results.map((r) => {
     const ag = r.result?.aggregateMetrics ?? [];
     const get = (k: string) => ag.find((m) => m.key === k)?.value ?? 0;
+    const candidates = r.result?.candidates ?? [];
+    const top = candidates[0];
+    const topCap = top?.metrics.find((m) => m.key === "capacity")?.value ?? 0;
+    const meetsAlone =
+      r.housingTarget != null
+        ? candidates.filter(
+            (c) =>
+              (c.metrics.find((m) => m.key === "capacity")?.value ?? 0) >= r.housingTarget!
+          ).length
+        : get("meets_target_count");
+    const weightProfile = (r.weights ?? [])
+      .map((w) => `${w.label.replace(/ accessibility/i, "")} ${Math.round(w.weight * 100)}%`)
+      .join(" · ");
+
     return {
       scenarioId: r.scenarioId,
       name: r.name,
       eligible_count: get("eligible_count"),
       total_capacity: get("total_capacity"),
       avg_transit_distance: get("avg_transit_distance"),
-      top_score: r.result?.candidates[0]?.score ?? 0,
+      median_transit_distance: get("median_transit_distance"),
+      meets_target_count: meetsAlone,
+      top_candidate: top?.label ?? "—",
+      top_candidate_capacity: topCap,
+      top_rank_score: top?.score ?? 0,
+      top_3: candidates
+        .slice(0, 3)
+        .map((c) => c.label)
+        .join(", ") || "—",
+      weight_profile: weightProfile || "—",
     };
   });
+}
+
+export function buildComparisonInsights(
+  results: ScenarioComparisonInput[]
+): Array<{ heading: string; body: string }> {
+  const insights: Array<{ heading: string; body: string }> = [];
+  const withResults = results.filter((r) => r.result && r.result.candidates.length > 0);
+  if (withResults.length < 2) {
+    insights.push({
+      heading: "Insufficient data",
+      body: "Run analysis on at least two scenarios before comparing trade-offs.",
+    });
+    return insights;
+  }
+
+  if (results.length === 2) {
+    const [a, b] = results;
+    const candA = a.result!.candidates;
+    const candB = b.result!.candidates;
+    const topChanged = candA[0]?.id !== candB[0]?.id;
+    insights.push({
+      heading: "Top recommendation",
+      body: topChanged
+        ? `Changed from ${candA[0]?.label ?? "—"} (${a.name}) to ${candB[0]?.label ?? "—"} (${b.name}).`
+        : `Unchanged: ${candA[0]?.label ?? "—"} leads both scenarios.`,
+    });
+
+    const rankShifts: string[] = [];
+    const labelsA = candA.slice(0, 5).map((c) => c.label);
+    const labelsB = candB.slice(0, 5).map((c) => c.label);
+    for (let i = 0; i < 5; i++) {
+      if (labelsA[i] !== labelsB[i]) {
+        rankShifts.push(
+          `#${i + 1}: ${labelsA[i] ?? "—"} → ${labelsB[i] ?? "—"}`
+        );
+      }
+    }
+    insights.push({
+      heading: "Top-5 ranking shifts",
+      body: rankShifts.length
+        ? rankShifts.join("; ")
+        : "Top five candidate order is identical.",
+    });
+
+    const scoreDelta =
+      (candB[0]?.score ?? 0) - (candA[0]?.score ?? 0);
+    insights.push({
+      heading: "Rank score note",
+      body: `Absolute rank scores (${candA[0]?.score ?? "—"} vs ${candB[0]?.score ?? "—"}, Δ ${scoreDelta >= 0 ? "+" : ""}${scoreDelta.toFixed(1)}) reflect each scenario's weights — compare ranking and capacity trade-offs, not raw score magnitude across scenarios.`,
+    });
+
+    if (a.housingTarget) {
+      const meetsA = candA.filter(
+        (c) => (c.metrics.find((m) => m.key === "capacity")?.value ?? 0) >= a.housingTarget!
+      ).length;
+      const meetsB = candB.filter(
+        (c) => (c.metrics.find((m) => m.key === "capacity")?.value ?? 0) >= b.housingTarget!
+      ).length;
+      insights.push({
+        heading: "Housing target coverage",
+        body: `Parcels that alone meet ${a.housingTarget.toLocaleString()} homes: ${meetsA} (${a.name}) vs ${meetsB} (${b.name}).`,
+      });
+    }
+  }
+
+  return insights;
 }

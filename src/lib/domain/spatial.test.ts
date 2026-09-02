@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseObjective, normalizeWeights, buildAnalysisPlan, assessObjectiveQuality } from "./objective";
-import { runSpatialAnalysis } from "./spatial";
+import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
 import { generateSyntheticCity } from "./seed";
 
 describe("objective parsing", () => {
@@ -156,5 +156,99 @@ describe("spatial analysis", () => {
       population: "population",
     });
     assert.ok(plan.steps.some((s) => s.operation === "population_coverage"));
+  });
+
+  it("adds per-candidate housing target gap for housing objectives", () => {
+    const city = generateSyntheticCity(7);
+    const parsed = parseObjective(
+      "Identify areas capable of accommodating 2000 additional homes within 800m of transit outside flood-risk areas."
+    );
+    const layers: Record<string, GeoJSON.FeatureCollection> = {};
+    for (const d of city.datasets) layers[d.kind] = city.featuresByDataset[d.id];
+    const out = runSpatialAnalysis({
+      objective: parsed.objective,
+      constraints: parsed.constraints,
+      weights: parsed.weights,
+      assumptions: parsed.assumptions,
+      selections: [],
+      layers,
+      datasetIds: Object.fromEntries(city.datasets.map((d) => [d.kind, d.id])),
+      externalLimitations: ["Flood risk zones (Synthetic): Eastern uplands have incomplete flood mapping"],
+    });
+    const top = out.candidates[0];
+    assert.ok(top.metrics.some((m) => m.key === "housing_target_gap"));
+    assert.ok(top.provenance.limitations.some((l) => l.includes("incomplete flood")));
+    assert.ok(out.aggregateMetrics.some((m) => m.key === "meets_target_count"));
+  });
+
+  it("reweights change ranking more than inflating absolute scores", () => {
+    const city = generateSyntheticCity(7);
+    const parsed = parseObjective(
+      "Find 2000 homes within 800m of transit outside flood zones with residential zoning."
+    );
+    const layers: Record<string, GeoJSON.FeatureCollection> = {};
+    for (const d of city.datasets) layers[d.kind] = city.featuresByDataset[d.id];
+    const datasetIds = Object.fromEntries(city.datasets.map((d) => [d.kind, d.id]));
+    const baseInput = {
+      objective: parsed.objective,
+      constraints: parsed.constraints,
+      assumptions: parsed.assumptions,
+      selections: [],
+      layers,
+      datasetIds,
+    };
+    const transitHeavy = runSpatialAnalysis({
+      ...baseInput,
+      weights: normalizeWeights([
+        { id: "a", key: "transit", label: "Transit", weight: 0.8 },
+        { id: "b", key: "capacity", label: "Capacity", weight: 0.15 },
+        { id: "c", key: "flood_resilience", label: "Flood", weight: 0.05 },
+      ]),
+    });
+    const capacityHeavy = runSpatialAnalysis({
+      ...baseInput,
+      weights: normalizeWeights([
+        { id: "a", key: "transit", label: "Transit", weight: 0.1 },
+        { id: "b", key: "capacity", label: "Capacity", weight: 0.75 },
+        { id: "c", key: "flood_resilience", label: "Flood", weight: 0.15 },
+      ]),
+    });
+    assert.ok(transitHeavy.candidates.length > 0);
+    assert.ok(capacityHeavy.candidates.length > 0);
+    const orderA = transitHeavy.candidates.slice(0, 5).map((c) => c.id).join(",");
+    const orderB = capacityHeavy.candidates.slice(0, 5).map((c) => c.id).join(",");
+    assert.notEqual(orderA, orderB, "expected top-5 ordering to shift with weights");
+    const rows = compareScenarioMetrics([
+      {
+        scenarioId: "a",
+        name: "Transit-first",
+        housingTarget: 2000,
+        weights: transitHeavy.candidates.length ? parsed.weights : [],
+        result: transitHeavy,
+      },
+      {
+        scenarioId: "b",
+        name: "Capacity-first",
+        housingTarget: 2000,
+        weights: capacityHeavy.candidates.length ? parsed.weights : [],
+        result: capacityHeavy,
+      },
+    ]);
+    assert.notEqual(rows[0].top_3, rows[1].top_3);
+    const insights = buildComparisonInsights([
+      {
+        scenarioId: "a",
+        name: "Transit-first",
+        housingTarget: 2000,
+        result: transitHeavy,
+      },
+      {
+        scenarioId: "b",
+        name: "Capacity-first",
+        housingTarget: 2000,
+        result: capacityHeavy,
+      },
+    ]);
+    assert.ok(insights.some((i) => i.heading === "Top recommendation"));
   });
 });

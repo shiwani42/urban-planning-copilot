@@ -7,7 +7,7 @@ import {
   parseObjective,
   sha256Receipt,
 } from "./objective";
-import { runSpatialAnalysis, compareScenarioMetrics } from "./spatial";
+import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
 import { getStore, updateStore } from "./store";
 import { STUDY_BOUNDS } from "./seed";
 import type {
@@ -44,7 +44,7 @@ function defaultMapState(datasets: AppStore["datasets"]): MapState {
     },
     layers: datasets.map((d) => ({
       datasetId: d.id,
-      visible: ["parcels", "transit", "flood"].includes(d.kind),
+      visible: ["parcels", "transit", "flood", "population", "schools"].includes(d.kind),
     })),
     selectedFeatureIds: [],
     highlightFeatureIds: [],
@@ -535,6 +535,13 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
     layers: layersForScenario(live, sc),
     datasetIds: datasetIdsByKind(live),
     rejectedCandidateFeatureIds: rejected,
+    externalLimitations: live.datasets
+      .filter((d) => d.incompleteCoverage || d.stale)
+      .flatMap((d) =>
+        d.limitations.map((l) =>
+          d.incompleteCoverage ? `${d.name}: ${l}` : `${d.name}: ${l}`
+        )
+      ),
   });
 
   await updateStore((s) => {
@@ -617,6 +624,11 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
         c.status = "rejected";
         c.rejectionReason = rejectedDecision.reason;
       }
+    }
+
+    // Propagate analysis-level limitations onto each candidate
+    for (const c of result.candidates) {
+      c.provenance.limitations = [...result.limitations];
     }
 
     s.analysisResults.push(result);
@@ -714,6 +726,9 @@ export async function createScenario(
     store.scenarios.push(scenario);
     project.activeScenarioId = scenario.id;
     project.updatedAt = now();
+    project.resumeNote = fromScenarioId
+      ? `Duplicated "${source?.name ?? "scenario"}" — run analysis on "${name}" when ready.`
+      : project.resumeNote;
     logActivity(store, {
       projectId,
       scenarioId: scenario.id,
@@ -750,10 +765,16 @@ export async function saveScenario(projectId: string, scenarioId: string) {
 
 export async function setActiveScenario(projectId: string, scenarioId: string) {
   await updateStore((store) => {
-    requireScenario(store, projectId, scenarioId);
+    const scenario = requireScenario(store, projectId, scenarioId);
     const project = store.projects.find((p) => p.id === projectId)!;
     project.activeScenarioId = scenarioId;
     project.updatedAt = now();
+    const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
+    if (result) {
+      project.resumeNote = `Analysis complete — ${result.candidates.length} candidates (${scenario.name}).`;
+    } else {
+      project.resumeNote = `Scenario "${scenario.name}" — no analysis results yet.`;
+    }
     logActivity(store, {
       projectId,
       scenarioId,
@@ -761,6 +782,34 @@ export async function setActiveScenario(projectId: string, scenarioId: string) {
       category: "scenario",
       action: "activate_scenario",
       summary: "Switched active scenario",
+    });
+  });
+  return getWorkspace(projectId);
+}
+
+export async function renameScenario(
+  projectId: string,
+  scenarioId: string,
+  name: string,
+  description?: string
+) {
+  const trimmed = name.trim();
+  if (trimmed.length < 1) throw new Error("Scenario name is required");
+  await updateStore((store) => {
+    const scenario = requireScenario(store, projectId, scenarioId);
+    scenario.name = trimmed;
+    if (description !== undefined) {
+      scenario.description = description.trim() || undefined;
+    }
+    scenario.updatedAt = now();
+    touchProject(store, projectId, `Renamed scenario to "${trimmed}".`);
+    logActivity(store, {
+      projectId,
+      scenarioId,
+      actor: "human",
+      category: "scenario",
+      action: "rename_scenario",
+      summary: `Renamed scenario to "${trimmed}"`,
     });
   });
   return getWorkspace(projectId);
@@ -774,19 +823,25 @@ export async function compareScenarios(projectId: string, scenarioIds: string[])
     return {
       scenarioId: id,
       name: scenario?.name ?? id,
+      weights: scenario?.weights,
+      housingTarget:
+        scenario?.objective.intent === "housing_capacity"
+          ? scenario.objective.targetValue
+          : undefined,
       result: result
         ? {
             candidates: result.candidates,
             aggregateMetrics: result.aggregateMetrics,
             summary: result.summary,
             limitations: result.limitations,
-            stepLogs: [],
+            stepLogs: result.stepLogs ?? [],
           }
         : null,
     };
   });
   return {
     comparison: compareScenarioMetrics(rows),
+    insights: buildComparisonInsights(rows),
     scenarios: scenarioIds.map((id) => store.scenarios.find((s) => s.id === id)),
   };
 }
@@ -1322,6 +1377,47 @@ export async function verifyOperation(projectId: string, proposalId?: string) {
 export async function listDatasets() {
   const store = await getStore();
   return store.datasets;
+}
+
+/** In-memory explore investigation — does not create a persisted project. */
+export async function exploreScratch(question: string) {
+  const store = await getStore();
+  const parsed = parseObjective(question, "Study area");
+  const layers: Record<string, GeoJSON.FeatureCollection> = {};
+  for (const d of store.datasets) {
+    if (!d.enabled) continue;
+    const fc = store.featuresByDataset[d.id];
+    if (fc) layers[d.kind] = fc;
+  }
+
+  const exploreConstraints =
+    parsed.objective.intent === "transit_gap" || parsed.objective.intent === "explore"
+      ? parsed.constraints.filter((c) => c.datasetKind !== "flood" || c.enabled === false)
+      : parsed.constraints;
+
+  const output = runSpatialAnalysis({
+    objective: parsed.objective,
+    constraints: exploreConstraints,
+    weights: parsed.weights,
+    assumptions: parsed.assumptions,
+    selections: [],
+    layers,
+    datasetIds: datasetIdsByKind(store),
+    externalLimitations: store.datasets
+      .filter((d) => d.incompleteCoverage)
+      .flatMap((d) => d.limitations.map((l) => `${d.name}: ${l}`)),
+  });
+
+  return {
+    objective: parsed.objective,
+    constraints: exploreConstraints,
+    weights: parsed.weights,
+    summary: output.summary,
+    limitations: output.limitations,
+    candidates: output.candidates.slice(0, 25),
+    aggregateMetrics: output.aggregateMetrics,
+    stepLogs: output.stepLogs,
+  };
 }
 
 export async function getFeatures(datasetId: string) {

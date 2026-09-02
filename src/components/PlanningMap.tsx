@@ -146,6 +146,7 @@ export default function PlanningMap({
           <GeoJSON
             key={`flood-${layerData.flood.features.length}`}
             data={layerData.flood}
+            interactive={false}
             style={(f) => ({
               color: "#005e7d",
               weight: 1,
@@ -166,10 +167,13 @@ export default function PlanningMap({
               const candidate = candidates.find(
                 (c) => c.id === id || c.featureIds.includes(id)
               );
-              layer.on("click", (e) => {
-                L.DomEvent.stopPropagation(e);
-                if (candidate) onSelectCandidate(candidate);
-              });
+              if (candidate) {
+                layer.on("click", (e) => {
+                  L.DomEvent.stopPropagation(e);
+                  onSelectCandidate(candidate);
+                });
+                layer.bindTooltip(candidate.label, { sticky: true });
+              }
             }}
           />
         )}
@@ -182,6 +186,7 @@ export default function PlanningMap({
                 key={`t-${i}`}
                 center={[lat, lng]}
                 radius={6}
+                interactive={false}
                 pathOptions={{
                   color: "#00455d",
                   fillColor: "#005e7d",
@@ -201,6 +206,7 @@ export default function PlanningMap({
                 key={`s-${i}`}
                 center={[lat, lng]}
                 radius={7}
+                interactive={false}
                 pathOptions={{
                   color: "#815504",
                   fillColor: "#fdc26c",
@@ -222,6 +228,7 @@ export default function PlanningMap({
                 key={`p-${i}`}
                 center={[lat, lng]}
                 radius={radius}
+                interactive={false}
                 pathOptions={{
                   color: "#70787e",
                   fillColor: "#bfc8ce",
@@ -241,6 +248,7 @@ export default function PlanningMap({
                 key={`i-${i}`}
                 center={[lat, lng]}
                 radius={4}
+                interactive={false}
                 pathOptions={{
                   color: "#565756",
                   fillColor: "#3f403f",
