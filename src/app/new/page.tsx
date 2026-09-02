@@ -35,6 +35,10 @@ export default function NewProjectPage() {
   const [busy, setBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [objectiveError, setObjectiveError] = useState<string | null>(null);
+  const [submitStatus, setSubmitStatus] = useState<{
+    kind: "success" | "error";
+    message: string;
+  } | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const objectiveRef = useRef<HTMLTextAreaElement>(null);
 
@@ -112,6 +116,7 @@ export default function NewProjectPage() {
   async function create() {
     setNameError(null);
     setObjectiveError(null);
+    setSubmitStatus(null);
 
     let hasError = false;
     if (!name.trim()) {
@@ -149,12 +154,18 @@ export default function NewProjectPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to create");
+      if (!res.ok) throw new Error(data.error || "Failed to create workspace");
       sessionStorage.removeItem(DRAFT_KEY);
       sessionStorage.removeItem(EXPLORE_CONVERT_KEY);
+      setSubmitStatus({
+        kind: "success",
+        message: `Workspace "${name.trim()}" created — opening planner…`,
+      });
       router.push(`/workspace/${data.project.id}`);
     } catch (e) {
-      setObjectiveError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setSubmitStatus({ kind: "error", message });
+      setObjectiveError(message);
       setBusy(false);
     }
   }
@@ -176,6 +187,18 @@ export default function NewProjectPage() {
 
       <main className="flex-1 grid lg:grid-cols-2 gap-px bg-outline-variant">
         <section className="bg-surface p-8 overflow-y-auto">
+          {submitStatus && (
+            <div
+              role={submitStatus.kind === "error" ? "alert" : "status"}
+              className={`mb-6 px-4 py-3 rounded border text-body-sm ${
+                submitStatus.kind === "error"
+                  ? "border-error bg-error-container/30 text-error"
+                  : "border-secondary bg-secondary-fixed/20 text-secondary"
+              }`}
+            >
+              {submitStatus.message}
+            </div>
+          )}
           <div className="mb-6">
             <label
               htmlFor="project-name"

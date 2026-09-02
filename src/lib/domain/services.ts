@@ -390,6 +390,74 @@ export async function addGeographicSelection(
   return getWorkspace(projectId);
 }
 
+export async function removeGeographicSelection(
+  projectId: string,
+  scenarioId: string,
+  selectionId: string
+) {
+  await updateStore((store) => {
+    const scenario = requireScenario(store, projectId, scenarioId);
+    const idx = scenario.geographicSelections.findIndex((s) => s.id === selectionId);
+    if (idx < 0) throw new Error("Geographic selection not found");
+    const removed = scenario.geographicSelections[idx];
+    scenario.geographicSelections.splice(idx, 1);
+    scenario.updatedAt = now();
+    scenario.status = "draft";
+    markResultsStale(store, scenario.id, "Geographic selection removed");
+    touchProject(store, projectId, `Removed ${removed.type} "${removed.label}" — recalculate to restore candidates.`);
+    logActivity(store, {
+      projectId,
+      scenarioId,
+      actor: "human",
+      category: "map",
+      action: "remove_geographic_selection",
+      summary: `Removed ${removed.type} area "${removed.label}"`,
+      inputs: { selectionId, type: removed.type, label: removed.label },
+    });
+  });
+  return getWorkspace(projectId);
+}
+
+export async function updateGeographicSelection(
+  projectId: string,
+  scenarioId: string,
+  selectionId: string,
+  patch: {
+    label?: string;
+    geometry?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
+  }
+) {
+  await updateStore((store) => {
+    const scenario = requireScenario(store, projectId, scenarioId);
+    const sel = scenario.geographicSelections.find((s) => s.id === selectionId);
+    if (!sel) throw new Error("Geographic selection not found");
+    if (patch.label != null) {
+      const trimmed = patch.label.trim();
+      if (!trimmed) throw new Error("Geographic selection label is required");
+      const duplicate = scenario.geographicSelections.some(
+        (s) => s.id !== selectionId && s.label.toLowerCase() === trimmed.toLowerCase()
+      );
+      if (duplicate) throw new Error(`Another geographic area is already named "${trimmed}"`);
+      sel.label = trimmed;
+    }
+    if (patch.geometry) sel.geometry = patch.geometry;
+    scenario.updatedAt = now();
+    scenario.status = "draft";
+    markResultsStale(store, scenario.id, "Geographic selection updated");
+    touchProject(store, projectId, `Updated geographic area "${sel.label}" — recalculate.`);
+    logActivity(store, {
+      projectId,
+      scenarioId,
+      actor: "human",
+      category: "map",
+      action: "update_geographic_selection",
+      summary: `Updated ${sel.type} area "${sel.label}"`,
+      inputs: { selectionId, label: sel.label },
+    });
+  });
+  return getWorkspace(projectId);
+}
+
 export async function excludeFeatures(
   projectId: string,
   scenarioId: string,
@@ -1159,13 +1227,18 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
         .join("\n"),
     });
 
+    const geoLines = sc.geographicSelections.map(
+      (g) => `${g.label} (${g.type}, ${g.createdBy})`
+    );
     sections.push({
       heading: `Constraints — ${sc.name}`,
       kind: "calculated",
-      body: sc.constraints
-        .filter((c) => c.enabled)
-        .map((c) => `${c.label} (${c.hard ? "hard" : "soft"})`)
-        .join("\n"),
+      body: [
+        ...sc.constraints
+          .filter((c) => c.enabled)
+          .map((c) => `${c.label} (${c.hard ? "hard" : "soft"})`),
+        ...geoLines,
+      ].join("\n"),
     });
 
     const resultsBody = [

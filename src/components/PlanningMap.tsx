@@ -9,10 +9,14 @@ import {
   Polygon,
   ZoomControl,
   ScaleControl,
+  Marker,
 } from "react-leaflet";
 import type { WorkspaceSnapshot, Candidate, GeographicSelection } from "@/lib/domain/types";
+import { featureIdsInExclusions, ringFromPolygon } from "@/lib/domain/geographic";
 import { STUDY_BOUNDS } from "@/lib/domain/seed";
 import L from "leaflet";
+
+export type MapDrawMode = "none" | "exclude" | "include" | "edit";
 
 function FitBoundsOnce({
   bounds,
@@ -58,9 +62,12 @@ type Props = {
   layerData: Record<string, GeoJSON.FeatureCollection>;
   candidates: Candidate[];
   onSelectCandidate: (c: Candidate) => void;
-  onMapClickExclude?: (latlng: { lat: number; lng: number }) => void;
-  drawingExclusion?: boolean;
-  excludeClicks?: [number, number][];
+  drawMode?: MapDrawMode;
+  drawClicks?: [number, number][];
+  editingSelectionId?: string | null;
+  onMapClickDraw?: (latlng: { lat: number; lng: number }) => void;
+  onVertexDrag?: (index: number, lat: number, lng: number) => void;
+  onSelectGeographic?: (selection: GeographicSelection) => void;
   stale?: boolean;
 };
 
@@ -69,14 +76,18 @@ export default function PlanningMap({
   layerData,
   candidates,
   onSelectCandidate,
-  onMapClickExclude,
-  drawingExclusion,
-  excludeClicks = [],
+  drawMode = "none",
+  drawClicks = [],
+  editingSelectionId = null,
+  onMapClickDraw,
+  onVertexDrag,
+  onSelectGeographic,
   stale = false,
 }: Props) {
   const { mapState } = workspace.project;
   const selectedId = mapState.selectedCandidateId;
   const studyBounds = mapState.viewport.bounds ?? STUDY_BOUNDS;
+  const drawingActive = drawMode !== "none";
 
   const visibleKinds = useMemo(() => {
     const ids = new Set(
@@ -87,12 +98,52 @@ export default function PlanningMap({
     );
   }, [mapState.layers, workspace.datasets]);
 
+  const activeScenario = workspace.scenarios.find(
+    (s) => s.id === workspace.project.activeScenarioId
+  );
+
+  const excludedFeatureIds = useMemo(() => {
+    if (!layerData.parcels || !activeScenario) return new Set<string>();
+    return featureIdsInExclusions(
+      layerData.parcels.features,
+      activeScenario.geographicSelections
+    );
+  }, [layerData.parcels, activeScenario?.geographicSelections]);
+
+  const editingSelection = useMemo(() => {
+    if (!editingSelectionId || !activeScenario) return null;
+    return activeScenario.geographicSelections.find((s) => s.id === editingSelectionId) ?? null;
+  }, [editingSelectionId, activeScenario]);
+
+  const editVertices = useMemo((): [number, number][] => {
+    if (drawMode === "edit" && drawClicks.length >= 1) {
+      return drawClicks;
+    }
+    if (editingSelection) {
+      return ringFromPolygon(editingSelection.geometry) as [number, number][];
+    }
+    return [];
+  }, [drawMode, drawClicks, editingSelection]);
+
   const parcelStyle = (feature?: GeoJSON.Feature) => {
     const id = String(feature?.properties?.id ?? feature?.id ?? "");
     const candidate = candidates.find((c) => c.id === id || c.featureIds.includes(id));
     const selected = selectedId === id || selectedId === candidate?.id;
     const rejected = candidate?.status === "rejected";
+    const geoExcluded = excludedFeatureIds.has(id);
     const staleDim = stale && candidate ? 0.35 : 1;
+
+    if (geoExcluded && !drawingActive) {
+      return {
+        color: "#ba1a1a",
+        weight: selected ? 2.5 : 1.5,
+        fillColor: "#ba1a1a",
+        fillOpacity: 0.28 * staleDim,
+        opacity: 0.85 * staleDim,
+        dashArray: "4 3",
+      };
+    }
+
     return {
       color: selected ? "#00455d" : rejected ? "#ba1a1a" : "#70787e",
       weight: selected ? 2.5 : 1,
@@ -106,14 +157,14 @@ export default function PlanningMap({
     };
   };
 
-  const activeScenario = workspace.scenarios.find(
-    (s) => s.id === workspace.project.activeScenarioId
-  );
-
   const previewRing: [number, number][] | null =
-    excludeClicks.length >= 2
-      ? excludeClicks.map(([lng, lat]) => [lat, lng] as [number, number])
-      : null;
+    drawMode !== "edit" && drawClicks.length >= 2
+      ? drawClicks.map(([lng, lat]) => [lat, lng] as [number, number])
+      : drawMode === "edit" && editVertices.length >= 2
+        ? editVertices.map(([lng, lat]) => [lat, lng] as [number, number])
+        : null;
+
+  const previewColor = drawMode === "include" ? "#815504" : "#ba1a1a";
 
   return (
     <div className="absolute inset-0">
@@ -136,11 +187,13 @@ export default function PlanningMap({
         className="h-full w-full z-[1] bg-transparent"
         zoomControl={false}
         scrollWheelZoom
+        doubleClickZoom={!drawingActive}
       >
         <ZoomControl position="topright" />
         <ScaleControl position="bottomleft" imperial={false} />
         <FitBoundsOnce bounds={studyBounds} />
         <RestrictToStudyArea bounds={studyBounds} />
+        <DrawModeHandler enabled={drawingActive} />
 
         {visibleKinds.has("flood") && layerData.flood && (
           <GeoJSON
@@ -159,20 +212,28 @@ export default function PlanningMap({
 
         {visibleKinds.has("parcels") && layerData.parcels && (
           <GeoJSON
-            key={`parcels-${candidates.length}-${selectedId}-${stale}`}
+            key={`parcels-${candidates.length}-${selectedId}-${stale}-${excludedFeatureIds.size}-${drawingActive}`}
             data={layerData.parcels}
             style={parcelStyle}
+            interactive={!drawingActive}
             onEachFeature={(feature, layer) => {
+              if (drawingActive) return;
               const id = String(feature.properties?.id ?? feature.id ?? "");
               const candidate = candidates.find(
                 (c) => c.id === id || c.featureIds.includes(id)
               );
+              const geoExcluded = excludedFeatureIds.has(id);
               if (candidate) {
                 layer.on("click", (e) => {
                   L.DomEvent.stopPropagation(e);
                   onSelectCandidate(candidate);
                 });
-                layer.bindTooltip(candidate.label, { sticky: true });
+                const tooltip = geoExcluded
+                  ? `${candidate.label} (geographically excluded)`
+                  : candidate.label;
+                layer.bindTooltip(tooltip, { sticky: true });
+              } else if (geoExcluded) {
+                layer.bindTooltip("Geographically excluded parcel", { sticky: true });
               }
             }}
           />
@@ -260,16 +321,25 @@ export default function PlanningMap({
             );
           })}
 
-        {activeScenario?.geographicSelections.map((sel: GeographicSelection) => (
-          <SelectionPolygon key={sel.id} selection={sel} />
-        ))}
+        {activeScenario?.geographicSelections.map((sel: GeographicSelection) => {
+          if (drawMode === "edit" && sel.id === editingSelectionId) return null;
+          return (
+            <SelectionPolygon
+              key={sel.id}
+              selection={sel}
+              interactive={!drawingActive}
+              highlighted={sel.id === editingSelectionId}
+              onSelect={() => onSelectGeographic?.(sel)}
+            />
+          );
+        })}
 
         {previewRing && (
           <Polygon
             positions={previewRing}
             pathOptions={{
-              color: "#ba1a1a",
-              fillColor: "#ba1a1a",
+              color: previewColor,
+              fillColor: previewColor,
               fillOpacity: 0.12,
               weight: 2,
               dashArray: "6 4",
@@ -277,39 +347,111 @@ export default function PlanningMap({
           />
         )}
 
-        {excludeClicks.map(([lng, lat], i) => (
-          <CircleMarker
-            key={`ex-${i}`}
-            center={[lat, lng]}
-            radius={4}
-            pathOptions={{ color: "#ba1a1a", fillColor: "#fff", fillOpacity: 1, weight: 2 }}
+        {(drawMode === "edit" ? editVertices : drawClicks).map(([lng, lat], i) => (
+          <VertexHandle
+            key={`vx-${i}-${lng}-${lat}`}
+            index={i}
+            lat={lat}
+            lng={lng}
+            color={previewColor}
+            draggable={drawMode === "edit"}
+            onDrag={onVertexDrag}
           />
         ))}
 
         <ClickHandler
-          enabled={Boolean(drawingExclusion)}
-          onClick={(lat, lng) => onMapClickExclude?.({ lat, lng })}
+          enabled={drawMode === "exclude" || drawMode === "include"}
+          onClick={(lat, lng) => onMapClickDraw?.({ lat, lng })}
         />
       </MapContainer>
     </div>
   );
 }
 
-function SelectionPolygon({ selection }: { selection: GeographicSelection }) {
+function SelectionPolygon({
+  selection,
+  interactive,
+  highlighted,
+  onSelect,
+}: {
+  selection: GeographicSelection;
+  interactive?: boolean;
+  highlighted?: boolean;
+  onSelect?: () => void;
+}) {
   const geom = selection.geometry;
   if (geom.type !== "Polygon") return null;
   const ring = geom.coordinates[0] as number[][];
   const positions = ring.map(([lng, lat]) => [lat, lng] as [number, number]);
+  const isExclusion = selection.type === "exclusion";
+  const color = isExclusion ? "#ba1a1a" : "#815504";
+
   return (
     <Polygon
       positions={positions}
       pathOptions={{
-        color: selection.type === "exclusion" ? "#ba1a1a" : "#815504",
-        fillColor: selection.type === "exclusion" ? "#ba1a1a" : "#815504",
-        fillOpacity: 0.15,
-        weight: 2,
+        color: highlighted ? "#00455d" : color,
+        fillColor: color,
+        fillOpacity: highlighted ? 0.22 : 0.15,
+        weight: highlighted ? 3 : 2,
         dashArray: "6 4",
       }}
+      eventHandlers={
+        interactive && onSelect
+          ? {
+              click: (e) => {
+                L.DomEvent.stopPropagation(e);
+                onSelect();
+              },
+            }
+          : undefined
+      }
+    />
+  );
+}
+
+function VertexHandle({
+  index,
+  lat,
+  lng,
+  color,
+  draggable,
+  onDrag,
+}: {
+  index: number;
+  lat: number;
+  lng: number;
+  color: string;
+  draggable?: boolean;
+  onDrag?: (index: number, lat: number, lng: number) => void;
+}) {
+  const icon = L.divIcon({
+    className: "",
+    html: `<div style="width:10px;height:10px;border-radius:50%;background:#fff;border:2px solid ${color};box-shadow:0 0 0 1px rgba(0,0,0,0.2)"></div>`,
+    iconSize: [10, 10],
+    iconAnchor: [5, 5],
+  });
+
+  const eventHandlers = useMemo(
+    () =>
+      draggable
+        ? {
+            dragend: (e: L.LeafletEvent) => {
+              const marker = e.target as L.Marker;
+              const pos = marker.getLatLng();
+              onDrag?.(index, pos.lat, pos.lng);
+            },
+          }
+        : undefined,
+    [draggable, index, onDrag]
+  );
+
+  return (
+    <Marker
+      position={[lat, lng]}
+      icon={icon}
+      draggable={Boolean(draggable)}
+      eventHandlers={eventHandlers}
     />
   );
 }
@@ -322,25 +464,51 @@ function ClickHandler({
   onClick: (lat: number, lng: number) => void;
 }) {
   const map = useMap();
+  const onClickRef = useRef(onClick);
+  onClickRef.current = onClick;
+
   useEffect(() => {
     if (!enabled) return;
     const handler = (e: L.LeafletMouseEvent) => {
       L.DomEvent.stopPropagation(e);
-      onClick(e.latlng.lat, e.latlng.lng);
+      onClickRef.current(e.latlng.lat, e.latlng.lng);
+    };
+    const dblHandler = (e: L.LeafletMouseEvent) => {
+      L.DomEvent.stopPropagation(e);
     };
     map.on("click", handler);
+    map.on("dblclick", dblHandler);
     const container = map.getContainer();
     container.style.cursor = "crosshair";
     return () => {
       map.off("click", handler);
+      map.off("dblclick", dblHandler);
       container.style.cursor = "";
     };
-  }, [map, enabled, onClick]);
+  }, [map, enabled]);
+  return null;
+}
+
+function DrawModeHandler({ enabled }: { enabled: boolean }) {
+  const map = useMap();
+  useEffect(() => {
+    if (enabled) {
+      map.doubleClickZoom.disable();
+    } else {
+      map.doubleClickZoom.enable();
+    }
+  }, [map, enabled]);
   return null;
 }
 
 /** Legend entries for the workspace map overlay */
-export function MapLegend({ visibleKinds }: { visibleKinds: Set<string> }) {
+export function MapLegend({
+  visibleKinds,
+  hasExclusions,
+}: {
+  visibleKinds: Set<string>;
+  hasExclusions?: boolean;
+}) {
   const items: Array<{ label: string; swatch: ReactNode }> = [];
   if (visibleKinds.has("flood")) {
     items.push({
@@ -354,6 +522,20 @@ export function MapLegend({ visibleKinds }: { visibleKinds: Set<string> }) {
       swatch: <div className="w-3 h-3 bg-primary/30 border border-primary" />,
     });
   }
+  if (hasExclusions) {
+    items.push({
+      label: "Geographically excluded",
+      swatch: (
+        <div
+          className="w-3 h-3 border border-[#ba1a1a]"
+          style={{
+            background:
+              "repeating-linear-gradient(135deg, #ba1a1a33 0, #ba1a1a33 2px, transparent 2px, transparent 4px)",
+          }}
+        />
+      ),
+    });
+  }
   if (visibleKinds.has("transit")) {
     items.push({
       label: "Transit",
@@ -363,7 +545,9 @@ export function MapLegend({ visibleKinds }: { visibleKinds: Set<string> }) {
   if (visibleKinds.has("schools")) {
     items.push({
       label: "Schools",
-      swatch: <div className="w-2.5 h-2.5 bg-secondary-container rounded-full border border-secondary" />,
+      swatch: (
+        <div className="w-2.5 h-2.5 bg-secondary-container rounded-full border border-secondary" />
+      ),
     });
   }
   if (visibleKinds.has("population")) {

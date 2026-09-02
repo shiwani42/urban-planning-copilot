@@ -59,6 +59,23 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         return NextResponse.json(
           await services.addGeographicSelection(projectId, body.scenarioId, body.selection)
         );
+      case "remove_geo_selection":
+        return NextResponse.json(
+          await services.removeGeographicSelection(
+            projectId,
+            body.scenarioId,
+            body.selectionId
+          )
+        );
+      case "update_geo_selection":
+        return NextResponse.json(
+          await services.updateGeographicSelection(
+            projectId,
+            body.scenarioId,
+            body.selectionId,
+            body.patch ?? {}
+          )
+        );
       case "exclude_features":
         return NextResponse.json(
           await services.excludeFeatures(

@@ -14,8 +14,15 @@ import {
 import type {
   Candidate,
   CriterionWeight,
+  GeographicSelection,
   WorkspaceSnapshot,
 } from "@/lib/domain/types";
+import {
+  polygonFromRing,
+  ringFromPolygon,
+  uniqueGeographicLabel,
+} from "@/lib/domain/geographic";
+import type { MapDrawMode } from "@/components/PlanningMap";
 
 const PlanningMap = dynamic(
   () => import("@/components/PlanningMap").then((m) => m.default),
@@ -53,8 +60,13 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const [layerData, setLayerData] = useState<Record<string, GeoJSON.FeatureCollection>>({});
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerPanel, setDrawerPanel] = useState<DrawerPanel>("candidates");
-  const [drawingExclusion, setDrawingExclusion] = useState(false);
-  const [excludeClicks, setExcludeClicks] = useState<[number, number][]>([]);
+  const [drawMode, setDrawMode] = useState<MapDrawMode>("none");
+  const [drawClicks, setDrawClicks] = useState<[number, number][]>([]);
+  const [editingSelectionId, setEditingSelectionId] = useState<string | null>(null);
+  const [finishLabelDraft, setFinishLabelDraft] = useState("");
+  const [showFinishLabel, setShowFinishLabel] = useState(false);
+  const [renamingExclusionId, setRenamingExclusionId] = useState<string | null>(null);
+  const [exclusionLabelDraft, setExclusionLabelDraft] = useState("");
   const [weightDraft, setWeightDraft] = useState<CriterionWeight[] | null>(null);
   const [decisionReasonByScenario, setDecisionReasonByScenario] = useState<Record<string, string>>(
     {}
@@ -152,6 +164,23 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     return () => clearTimeout(t);
   }, [toast]);
 
+  const drawingActive = drawMode !== "none";
+
+  useEffect(() => {
+    if (!drawingActive) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelDrawing();
+      } else if (e.key === "Backspace" && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        e.preventDefault();
+        undoDrawVertex();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [drawingActive, drawMode, drawClicks.length, editingSelectionId]);
+
   const visibleLayerKinds = useMemo(() => {
     if (!workspace) return new Set<string>();
     const ids = new Set(
@@ -247,23 +276,105 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     await act("update_constraints", { scenarioId: scenario.id, constraints });
   }
 
-  async function finishExclusionPolygon() {
-    if (!scenario || excludeClicks.length < 3) return;
-    const ring = [...excludeClicks, excludeClicks[0]];
+  function cancelDrawing() {
+    setDrawMode("none");
+    setDrawClicks([]);
+    setEditingSelectionId(null);
+    setShowFinishLabel(false);
+    setFinishLabelDraft("");
+  }
+
+  function undoDrawVertex() {
+    setDrawClicks((prev) => (prev.length > 0 ? prev.slice(0, -1) : prev));
+  }
+
+  function startDraw(mode: "exclude" | "include") {
+    setDrawMode(mode);
+    setDrawClicks([]);
+    setEditingSelectionId(null);
+    setShowFinishLabel(false);
+    setDrawerOpen(false);
+  }
+
+  function beginEditSelection(sel: GeographicSelection) {
+    setDrawMode("edit");
+    setEditingSelectionId(sel.id);
+    setDrawClicks(ringFromPolygon(sel.geometry) as [number, number][]);
+    setShowFinishLabel(false);
+    setDrawerOpen(false);
+  }
+
+  async function finishDrawPolygon() {
+    if (!scenario || drawClicks.length < 3) return;
+    if (drawMode === "edit" && editingSelectionId) {
+      await act("update_geo_selection", {
+        scenarioId: scenario.id,
+        selectionId: editingSelectionId,
+        patch: { geometry: polygonFromRing(drawClicks) },
+      });
+      setToast("Geographic area updated — recalculate to apply.");
+      cancelDrawing();
+      return;
+    }
+    if (drawMode !== "exclude" && drawMode !== "include") return;
+    const defaultLabel = uniqueGeographicLabel(
+      scenario.geographicSelections,
+      drawMode === "include" ? "inclusion" : "exclusion"
+    );
+    setFinishLabelDraft(defaultLabel);
+    setShowFinishLabel(true);
+  }
+
+  async function confirmFinishPolygon() {
+    if (!scenario || drawClicks.length < 3) return;
+    if (drawMode !== "exclude" && drawMode !== "include") return;
+    const label = uniqueGeographicLabel(
+      scenario.geographicSelections,
+      drawMode === "include" ? "inclusion" : "exclusion",
+      finishLabelDraft
+    );
     await act("add_geo_selection", {
       scenarioId: scenario.id,
       selection: {
-        type: "exclusion",
-        label: `Human exclusion (${excludeClicks.length} pts)`,
-        geometry: {
-          type: "Polygon",
-          coordinates: [ring.map(([lng, lat]) => [lng, lat])],
-        },
+        type: drawMode === "include" ? "inclusion" : "exclusion",
+        label,
+        geometry: polygonFromRing(drawClicks),
         createdBy: "human",
       },
     });
-    setExcludeClicks([]);
-    setDrawingExclusion(false);
+    setToast(`${drawMode === "include" ? "Inclusion" : "Exclusion"} "${label}" added — recalculate.`);
+    cancelDrawing();
+  }
+
+  async function removeGeographicSelection(selectionId: string) {
+    if (!scenario) return;
+    const sel = scenario.geographicSelections.find((s) => s.id === selectionId);
+    await act("remove_geo_selection", { scenarioId: scenario.id, selectionId });
+    if (editingSelectionId === selectionId) cancelDrawing();
+    setToast(
+      sel
+        ? `Removed "${sel.label}" — recalculate to restore excluded candidates.`
+        : "Geographic area removed — recalculate."
+    );
+  }
+
+  async function renameGeographicSelection(selectionId: string, label: string) {
+    if (!scenario || !label.trim()) return;
+    await act("update_geo_selection", {
+      scenarioId: scenario.id,
+      selectionId,
+      patch: { label: label.trim() },
+    });
+    setRenamingExclusionId(null);
+    setToast("Geographic area renamed.");
+  }
+
+  function geographicFunnelDetail(label: string): string | null {
+    if (!result?.stepLogs) return null;
+    const match = result.stepLogs.find((log) =>
+      log.detail.includes(`"${label}"`)
+    );
+    return match?.detail ?? null;
   }
 
   async function duplicateScenario(name: string) {
@@ -557,6 +668,92 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         )}
                       </div>
                     );})}
+                  {scenario.geographicSelections.length > 0 && (
+                    <div className="pt-2 mt-2 border-t border-outline-variant space-y-2">
+                      <div className="font-mono text-[10px] uppercase text-on-surface-variant">
+                        Geographic areas
+                      </div>
+                      {scenario.geographicSelections.map((g) => {
+                        const funnel = geographicFunnelDetail(g.label);
+                        return (
+                          <div key={g.id} className="flex items-start justify-between gap-2">
+                            <span className="text-body-sm flex items-start gap-2 min-w-0">
+                              <span
+                                className={`material-symbols-outlined text-[18px] shrink-0 ${
+                                  g.type === "exclusion" ? "text-error" : "text-secondary"
+                                }`}
+                              >
+                                {g.type === "exclusion" ? "block" : "crop_free"}
+                              </span>
+                              <span className="min-w-0">
+                                {renamingExclusionId === g.id ? (
+                                  <div className="flex gap-1">
+                                    <input
+                                      className="flex-1 border border-outline-variant rounded px-1 py-0.5 text-body-sm"
+                                      value={exclusionLabelDraft}
+                                      onChange={(e) => setExclusionLabelDraft(e.target.value)}
+                                      aria-label="Geographic area name"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="text-caption text-primary"
+                                      onClick={() =>
+                                        void renameGeographicSelection(g.id, exclusionLabelDraft)
+                                      }
+                                    >
+                                      Save
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <span className="font-medium">{g.label}</span>
+                                    <span className="text-caption text-on-surface-variant ml-1">
+                                      ({g.type})
+                                    </span>
+                                  </>
+                                )}
+                                {funnel && (
+                                  <span className="block text-caption text-on-surface-variant mt-0.5">
+                                    {funnel}
+                                  </span>
+                                )}
+                              </span>
+                            </span>
+                            <div className="flex flex-col gap-1 shrink-0">
+                              {renamingExclusionId !== g.id && (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="text-caption text-primary hover:underline"
+                                    onClick={() => beginEditSelection(g)}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="text-caption text-primary hover:underline"
+                                    onClick={() => {
+                                      setRenamingExclusionId(g.id);
+                                      setExclusionLabelDraft(g.label);
+                                    }}
+                                  >
+                                    Rename
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                className="text-caption text-error hover:underline"
+                                onClick={() => void removeGeographicSelection(g.id)}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </section>
 
@@ -751,12 +948,26 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               workspace={workspace}
               layerData={layerData}
               candidates={candidates}
-              onSelectCandidate={(c) => selectCandidate(c, "evidence")}
-              drawingExclusion={drawingExclusion}
-              excludeClicks={excludeClicks}
+              onSelectCandidate={(c) => {
+                if (drawingActive) return;
+                void selectCandidate(c, "evidence");
+              }}
+              drawMode={drawMode}
+              drawClicks={drawClicks}
+              editingSelectionId={editingSelectionId}
               stale={Boolean(result?.stale)}
-              onMapClickExclude={({ lat, lng }) => {
-                setExcludeClicks((prev) => [...prev, [lng, lat]]);
+              onMapClickDraw={({ lat, lng }) => {
+                setDrawClicks((prev) => [...prev, [lng, lat]]);
+              }}
+              onVertexDrag={(index, lat, lng) => {
+                setDrawClicks((prev) => {
+                  const next = [...prev];
+                  next[index] = [lng, lat];
+                  return next;
+                });
+              }}
+              onSelectGeographic={(sel) => {
+                if (drawMode === "none") beginEditSelection(sel);
               }}
             />
 
@@ -768,52 +979,141 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               <button
                 type="button"
                 onClick={() => {
-                  setDrawingExclusion((v) => !v);
-                  setExcludeClicks([]);
+                  if (drawMode === "exclude") cancelDrawing();
+                  else startDraw("exclude");
                 }}
                 className={`glass-panel p-2 rounded border border-outline-variant pointer-events-auto ${
-                  drawingExclusion ? "bg-error-container" : ""
+                  drawMode === "exclude" ? "bg-error-container" : ""
                 }`}
-                title="Draw exclusion polygon on the map"
+                title="Draw exclusion polygon"
                 aria-label="Draw exclusion polygon"
+                aria-pressed={drawMode === "exclude"}
               >
                 <span className="material-symbols-outlined">block</span>
-                <span className="sr-only">Draw exclusion polygon</span>
               </button>
-              {drawingExclusion && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    void finishExclusionPolygon();
-                  }}
-                  disabled={excludeClicks.length < 3}
-                  className="glass-panel px-2 py-1 rounded border border-outline-variant text-caption disabled:opacity-40 pointer-events-auto"
-                >
-                  Finish ({excludeClicks.length})
-                </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (drawMode === "include") cancelDrawing();
+                  else startDraw("include");
+                }}
+                className={`glass-panel p-2 rounded border border-outline-variant pointer-events-auto ${
+                  drawMode === "include" ? "bg-secondary-fixed/40" : ""
+                }`}
+                title="Draw inclusion polygon (restrict analysis to area)"
+                aria-label="Draw inclusion polygon"
+                aria-pressed={drawMode === "include"}
+              >
+                <span className="material-symbols-outlined">crop_free</span>
+              </button>
+              {drawingActive && (
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void finishDrawPolygon();
+                    }}
+                    disabled={drawClicks.length < 3}
+                    className="glass-panel px-2 py-1 rounded border border-outline-variant text-caption disabled:opacity-40 pointer-events-auto"
+                  >
+                    {drawMode === "edit" ? "Save" : "Finish"} ({drawClicks.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      undoDrawVertex();
+                    }}
+                    disabled={drawClicks.length === 0}
+                    className="glass-panel px-2 py-1 rounded border border-outline-variant text-caption disabled:opacity-40 pointer-events-auto"
+                    title="Undo last vertex (Backspace)"
+                  >
+                    Undo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      cancelDrawing();
+                    }}
+                    className="glass-panel px-2 py-1 rounded border border-outline-variant text-caption pointer-events-auto"
+                    title="Cancel drawing (Escape)"
+                  >
+                    Cancel
+                  </button>
+                </>
               )}
             </div>
 
-            <div className="absolute left-4 top-16 z-[1001] max-w-[220px] pointer-events-auto">
+            {showFinishLabel && (
+              <div
+                className="absolute right-4 top-48 z-[1002] glass-panel p-3 rounded border border-outline-variant w-56 pointer-events-auto"
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <label className="block text-caption text-on-surface-variant mb-1">
+                  Area name
+                </label>
+                <input
+                  className="w-full border border-outline-variant rounded px-2 py-1 text-body-sm mb-2"
+                  value={finishLabelDraft}
+                  onChange={(e) => setFinishLabelDraft(e.target.value)}
+                  aria-label="Geographic area name"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="flex-1 bg-primary text-on-primary px-2 py-1 rounded text-caption"
+                    onClick={() => void confirmFinishPolygon()}
+                  >
+                    Add area
+                  </button>
+                  <button
+                    type="button"
+                    className="px-2 py-1 rounded text-caption border border-outline-variant"
+                    onClick={() => setShowFinishLabel(false)}
+                  >
+                    Back
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div
+              className={`absolute left-4 top-16 z-[1001] max-w-[220px] ${
+                drawingActive ? "pointer-events-none" : "pointer-events-auto"
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => setLegendOpen((v) => !v)}
-                className="glass-panel px-3 py-1.5 rounded border border-outline-variant text-caption font-mono uppercase text-on-surface-variant flex items-center gap-2 w-full"
+                className="glass-panel px-3 py-1.5 rounded border border-outline-variant text-caption font-mono uppercase text-on-surface-variant flex items-center gap-2 w-full pointer-events-auto"
                 aria-expanded={legendOpen}
               >
                 <span className="material-symbols-outlined text-[16px]">legend</span>
                 Legend {legendOpen ? "▾" : "▸"}
               </button>
               {legendOpen && (
-                <div className="glass-panel p-3 rounded border border-outline-variant mt-1">
-                  <MapLegend visibleKinds={visibleLayerKinds} />
+                <div className="glass-panel p-3 rounded border border-outline-variant mt-1 pointer-events-auto">
+                  <MapLegend
+                    visibleKinds={visibleLayerKinds}
+                    hasExclusions={scenario.geographicSelections.some(
+                      (g) => g.type === "exclusion"
+                    )}
+                  />
                 </div>
               )}
             </div>
 
-            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-[1001] pointer-events-auto">
+            <div
+              className={`absolute bottom-0 left-1/2 -translate-x-1/2 z-[1001] ${
+                drawingActive ? "pointer-events-none" : "pointer-events-auto"
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => {
@@ -1060,6 +1360,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           panel={drawerPanel}
           onPanelChange={setDrawerPanel}
           onClose={() => setDrawerOpen(false)}
+          drawingActive={drawingActive}
           result={result}
           stale={Boolean(result?.stale)}
           selected={selectedCandidate}
@@ -1189,6 +1490,7 @@ function ResultsDrawer(props: {
   panel: DrawerPanel;
   onPanelChange: (panel: DrawerPanel) => void;
   onClose: () => void;
+  drawingActive?: boolean;
   result: WorkspaceSnapshot["analysisResults"][0] | undefined;
   stale: boolean;
   selected: Candidate | null;
@@ -1228,8 +1530,16 @@ function ResultsDrawer(props: {
   }
 
   return (
-    <div className="absolute bottom-0 left-[300px] right-[360px] max-h-[42vh] z-[35] pointer-events-none">
-      <div className="max-h-[42vh] bg-surface border-t border-outline-variant flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.06)] pointer-events-auto">
+    <div
+      className={`absolute bottom-0 left-[300px] right-[360px] max-h-[42vh] z-[35] ${
+        props.drawingActive ? "pointer-events-none" : "pointer-events-none"
+      }`}
+    >
+      <div
+        className={`max-h-[42vh] bg-surface border-t border-outline-variant flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.06)] ${
+          props.drawingActive ? "pointer-events-none" : "pointer-events-auto"
+        }`}
+      >
         <div className="flex items-center justify-between px-4 py-2 border-b border-outline-variant bg-surface-container-low shrink-0">
           <div className="flex gap-4 items-center min-w-0">
             <button
@@ -1585,6 +1895,12 @@ function EvidenceView({
   );
 }
 
+function formatCompareCell(value: string | number | undefined): string {
+  if (value == null || value === "") return "—";
+  if (typeof value === "number") return value.toLocaleString();
+  return String(value);
+}
+
 const COMPARE_METRICS: Array<{ key: string; label: string }> = [
   { key: "eligible_count", label: "Eligible areas" },
   { key: "meets_target_count", label: "Meet housing target alone" },
@@ -1717,7 +2033,7 @@ function CompareView(props: {
                     <td className="p-3 font-mono text-caption">{label}</td>
                     {props.comparison!.map((row) => (
                       <td key={String(row.scenarioId)} className="p-3 font-mono">
-                        {row[key] ?? "—"}
+                        {formatCompareCell(row[key] as string | number | undefined)}
                       </td>
                     ))}
                   </tr>
@@ -2155,29 +2471,61 @@ function ReportView(props: {
                 ) : null}
               </div>
               <p className="text-body-sm whitespace-pre-wrap text-on-surface-variant">{s.body}</p>
-              {s.data != null && Array.isArray(s.data) && (
+              {s.data != null && Array.isArray(s.data) && s.kind === "comparison" && (
                 <div className="mt-3 overflow-auto border border-outline-variant">
                   <table className="w-full text-body-sm">
                     <thead className="bg-surface-container-low font-mono text-data-label">
                       <tr>
-                        <th className="p-2 text-left">Scenario</th>
-                        <th className="p-2 text-right">Eligible</th>
-                        <th className="p-2 text-right">Capacity</th>
-                        <th className="p-2 text-right">Avg transit (m)</th>
-                        <th className="p-2 text-right">Top score</th>
+                        <th className="p-2 text-left">Metric</th>
+                        {(s.data as Array<Record<string, string | number>>).map((row) => (
+                          <th key={String(row.scenarioId)} className="p-2 text-left">
+                            {row.name}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {(s.data as Array<Record<string, string | number>>).map((row) => (
-                        <tr key={String(row.scenarioId)} className="border-t border-outline-variant">
-                          <td className="p-2">{row.name}</td>
-                          <td className="p-2 text-right font-mono">{row.eligible_count ?? "—"}</td>
-                          <td className="p-2 text-right font-mono">{row.total_capacity ?? "—"}</td>
+                      {COMPARE_METRICS.map(({ key, label }) => (
+                        <tr key={key} className="border-t border-outline-variant">
+                          <td className="p-2 font-mono text-caption">{label}</td>
+                          {(s.data as Array<Record<string, string | number>>).map((row) => (
+                            <td key={String(row.scenarioId)} className="p-2 font-mono">
+                              {formatCompareCell(row[key])}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {s.data != null &&
+                Array.isArray(s.data) &&
+                s.kind === "calculated" &&
+                (s.data as Array<{ key?: string; label?: string; value?: number; unit?: string }>)[0]
+                  ?.key != null && (
+                <div className="mt-3 overflow-auto border border-outline-variant">
+                  <table className="w-full text-body-sm">
+                    <thead className="bg-surface-container-low font-mono text-data-label">
+                      <tr>
+                        <th className="p-2 text-left">Metric</th>
+                        <th className="p-2 text-right">Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(
+                        s.data as Array<{
+                          key: string;
+                          label: string;
+                          value: number;
+                          unit?: string;
+                        }>
+                      ).map((m) => (
+                        <tr key={m.key} className="border-t border-outline-variant">
+                          <td className="p-2">{m.label}</td>
                           <td className="p-2 text-right font-mono">
-                            {row.avg_transit_distance ?? "—"}
-                          </td>
-                          <td className="p-2 text-right font-mono">
-                            {row.top_rank_score ?? row.top_score ?? "—"}
+                            {m.value.toLocaleString()}
+                            {m.unit ? ` ${m.unit}` : ""}
                           </td>
                         </tr>
                       ))}

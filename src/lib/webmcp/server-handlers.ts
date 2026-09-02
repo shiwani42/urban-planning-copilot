@@ -250,6 +250,39 @@ export async function executePlanningTool(
       );
       return { excluded: input.label, note: "Results stale — call run_analysis" };
     }
+    case "remove_map_area": {
+      await services.removeGeographicSelection(
+        input.projectId as string,
+        input.scenarioId as string,
+        input.selectionId as string
+      );
+      return { removed: input.selectionId, note: "Results stale — call run_analysis" };
+    }
+    case "update_map_area": {
+      const patch: {
+        label?: string;
+        geometry?: GeoJSON.Polygon;
+      } = {};
+      if (input.label != null) patch.label = String(input.label);
+      if (input.coordinates) {
+        const ring = input.coordinates as number[][];
+        if (!Array.isArray(ring) || ring.length < 3) {
+          throw new Error("coordinates require at least 3 [lng,lat] pairs");
+        }
+        const closed =
+          ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1]
+            ? [...ring, ring[0]]
+            : ring;
+        patch.geometry = { type: "Polygon", coordinates: [closed] };
+      }
+      await services.updateGeographicSelection(
+        input.projectId as string,
+        input.scenarioId as string,
+        input.selectionId as string,
+        patch
+      );
+      return { updated: input.selectionId, note: "Results stale — call run_analysis" };
+    }
     case "stage_proposal":
       return services.stageProposal({
         projectId: input.projectId as string,
