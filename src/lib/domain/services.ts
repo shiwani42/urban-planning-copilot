@@ -13,7 +13,8 @@ import {
   getLatestFreshResult,
   topRankedCandidate,
 } from "./decision";
-import { formatReportDateTime, dedupeLimitations } from "../format";
+import { formatReportDateTime, dedupeLimitations, formatDecisionType } from "../format";
+import { cloneScenarioForBranch } from "./scenario-clone";
 import { isHousingIntent, isAccessIntent } from "./intent";
 import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
 import { getStore, updateStore, reloadStoreFromDisk } from "./store";
@@ -45,6 +46,27 @@ import type {
 
 function now() {
   return new Date().toISOString();
+}
+
+const analysisGateByProject = new Map<string, Promise<void>>();
+
+async function withAnalysisGate<T>(projectId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = analysisGateByProject.get(projectId) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const chained = prev.then(() => gate);
+  analysisGateByProject.set(projectId, chained);
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (analysisGateByProject.get(projectId) === chained) {
+      analysisGateByProject.delete(projectId);
+    }
+  }
 }
 
 function defaultMapState(datasets: AppStore["datasets"]): MapState {
@@ -784,9 +806,10 @@ export async function getAnalysisRunStatus(projectId: string, scenarioId: string
 }
 
 export async function runAnalysis(projectId: string, scenarioId: string) {
-  await requireProject(projectId);
-  const store = await reloadStoreFromDisk();
-  const scenario = requireScenario(store, projectId, scenarioId);
+  return withAnalysisGate(projectId, async () => {
+    await requireProject(projectId);
+    const store = await reloadStoreFromDisk();
+    const scenario = requireScenario(store, projectId, scenarioId);
   const missing: string[] = [];
   const layers = layersForScenario(store, scenario);
   if (!layers.parcels) missing.push("parcels");
@@ -864,7 +887,7 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
   });
 
   // Execute synchronously but expose stepwise activity (deterministic engine)
-  const live = await getStore();
+  const live = await reloadStoreFromDisk();
   const sc = requireScenario(live, projectId, scenarioId);
   const rejected = new Set(
     live.decisions
@@ -1039,7 +1062,8 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
     );
   });
 
-  return getWorkspace(projectId);
+    return getWorkspace(projectId);
+  });
 }
 
 export async function createScenario(
@@ -1051,23 +1075,18 @@ export async function createScenario(
     const project = store.projects.find((p) => p.id === projectId);
     if (!project) throw new Error("Project not found");
     const source = fromScenarioId
-      ? store.scenarios.find((s) => s.id === fromScenarioId)
+      ? store.scenarios.find(
+          (s) => s.id === fromScenarioId && s.projectId === projectId
+        )
       : store.scenarios.find((s) => s.id === project.activeScenarioId);
 
+    if (fromScenarioId && !source) {
+      throw new Error("Source scenario not found");
+    }
+
+    const createdAt = now();
     const scenario: Scenario = source
-      ? {
-          ...structuredClone(source),
-          id: nanoid(),
-          name,
-          status: "draft",
-          parentScenarioId: source.id,
-          latestResultId: undefined,
-          decisionStatus: "none",
-          preferredCandidateId: undefined,
-          createdAt: now(),
-          updatedAt: now(),
-          savedAt: undefined,
-        }
+      ? cloneScenarioForBranch(source, nanoid(), name, createdAt)
       : (() => {
           const parsed = parseForStore(store, "Explore planning options", project.geographyLabel);
           return {
@@ -1347,7 +1366,7 @@ export async function recordDecision(input: {
       summary: `Human decision: ${input.type}${input.reason ? ` — ${input.reason}` : ""}`,
       inputs: { subjectId: input.subjectId, reason: input.reason },
     });
-    touchProject(s, input.projectId, `Decision recorded: ${input.type}`);
+    touchProject(s, input.projectId, `Decision recorded: ${formatDecisionType(input.type)}`);
   });
   return getWorkspace(input.projectId);
 }
@@ -1541,10 +1560,13 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
       ].join("\n"),
     });
 
+    const targetGap = result.aggregateMetrics.find((m) => m.key === "housing_target_gap");
     const resultsBody = [
       result.summary,
       housingTarget != null && totalCapacity != null
-        ? `Aggregate capacity: ${totalCapacity.toLocaleString()} homes vs ${housingTarget.toLocaleString()}-home target (${Number(meetsTarget ?? 0)} candidates meet target alone).`
+        ? totalCapacity >= housingTarget
+          ? `Housing goal: ${totalCapacity.toLocaleString()} estimated homes — meets ${housingTarget.toLocaleString()}-home target.`
+          : `Housing goal: ${totalCapacity.toLocaleString()} estimated homes — ${(housingTarget - totalCapacity).toLocaleString()} short of ${housingTarget.toLocaleString()}-home target${targetGap ? ` (${targetGap.method})` : ""}.`
         : isAccessIntent(sc.objective.intent) && schoolUnderserved != null
           ? `School access gap: ${schoolUnderserved.toLocaleString()} people lack adequate school access across ranked areas.`
           : isAccessIntent(sc.objective.intent) && parkUnderserved != null

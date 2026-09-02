@@ -7,6 +7,10 @@ import { AppHeader } from "@/components/AppHeader";
 import { PlannerGreeting } from "@/components/PlannerGreeting";
 import { ProvenanceChip } from "@/components/workspace-hooks";
 import { formatRelativeTime, projectRecencyIso } from "@/lib/format";
+import {
+  getRecentProjectHints,
+  type RecentProjectHint,
+} from "@/lib/project-recency";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
 
 type Project = {
@@ -82,6 +86,9 @@ export default function HomePage() {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
+  const [recentHints, setRecentHints] = useState<RecentProjectHint[]>([]);
+  const [recoverableIds, setRecoverableIds] = useState<string[]>([]);
+  const [recoveryChecked, setRecoveryChecked] = useState(false);
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -100,10 +107,45 @@ export default function HomePage() {
 
   useEffect(() => {
     loadProjects();
+    setRecentHints(getRecentProjectHints());
     return onWorkspaceMutated(() => {
       loadProjects();
     });
   }, [loadProjects]);
+
+  useEffect(() => {
+    if (loading || projects.length > 0) {
+      setRecoveryChecked(true);
+      setRecoverableIds([]);
+      return;
+    }
+    const hints = getRecentProjectHints();
+    setRecentHints(hints);
+    if (hints.length === 0) {
+      setRecoveryChecked(true);
+      setRecoverableIds([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const found: string[] = [];
+      for (const hint of hints.slice(0, 5)) {
+        try {
+          const res = await fetch(`/api/projects/${hint.id}`, { cache: "no-store" });
+          if (res.ok) found.push(hint.id);
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!cancelled) {
+        setRecoverableIds(found);
+        setRecoveryChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, projects.length]);
 
   const sortedProjects = useMemo(
     () => projects.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
@@ -470,17 +512,75 @@ export default function HomePage() {
                   </div>
                   {sortedProjects.length === 0 ? (
                     <div className="border border-outline-variant bg-surface-container-lowest p-10 text-center">
-                      <p className="text-headline-md text-on-surface mb-2">No projects yet</p>
-                      <p className="text-body-sm text-on-surface-variant mb-6">
-                        Create a workspace and describe your planning question in natural language.
-                        Your projects will appear here once saved.
-                      </p>
-                      <Link
-                        href="/new"
-                        className="inline-block bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium"
-                      >
-                        Create your first project
-                      </Link>
+                      {recentHints.length > 0 && recoveryChecked && recoverableIds.length === 0 ? (
+                        <>
+                          <p className="text-headline-md text-on-surface mb-2">
+                            Projects not found on server
+                          </p>
+                          <p className="text-body-sm text-on-surface-variant mb-4 max-w-lg mx-auto">
+                            This browser recently opened{" "}
+                            {recentHints
+                              .slice(0, 3)
+                              .map((h) => h.name)
+                              .join(", ")}
+                            , but the server store no longer has them. That can happen after a
+                            deploy without a persistent disk, a store reset, or switching
+                            environments. Your prior work may be unrecoverable from this session.
+                          </p>
+                          <div className="flex flex-wrap justify-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => void loadProjects()}
+                              className="border border-outline-variant px-5 py-2.5 rounded text-body-sm"
+                            >
+                              Reload projects
+                            </button>
+                            <Link
+                              href="/new"
+                              className="inline-block bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium"
+                            >
+                              Start new project
+                            </Link>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-headline-md text-on-surface mb-2">No projects yet</p>
+                          <p className="text-body-sm text-on-surface-variant mb-6">
+                            Create a workspace and describe your planning question in natural
+                            language. Projects are saved on the server and persist across sessions
+                            when the Render data disk is attached.
+                          </p>
+                          <Link
+                            href="/new"
+                            className="inline-block bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium"
+                          >
+                            Create your first project
+                          </Link>
+                        </>
+                      )}
+                      {recoverableIds.length > 0 && (
+                        <div className="mt-8 text-left border-t border-outline-variant pt-6">
+                          <p className="font-mono text-data-label uppercase text-on-surface-variant mb-3">
+                            Recovered from server
+                          </p>
+                          <ul className="space-y-2">
+                            {recentHints
+                              .filter((h) => recoverableIds.includes(h.id))
+                              .map((h) => (
+                                <li key={h.id}>
+                                  <button
+                                    type="button"
+                                    onClick={() => openProject(h.id)}
+                                    className="text-body-sm text-primary hover:underline"
+                                  >
+                                    Open {h.name}
+                                  </button>
+                                </li>
+                              ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   ) : filteredProjects.length === 0 ? (
                     <div className="border border-outline-variant bg-surface-container-lowest p-8 text-center">

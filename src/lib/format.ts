@@ -67,6 +67,44 @@ export function formatActivityActorLabel(actor: ActivityLike["actor"]): string {
   }
 }
 
+export function formatDecisionType(type: string): string {
+  switch (type) {
+    case "approve_scenario":
+      return "Approved";
+    case "reject_scenario":
+      return "Rejected";
+    case "request_changes":
+      return "Changes requested";
+    case "prefer_scenario":
+      return "Preferred";
+    case "reject_candidate":
+      return "Candidate rejected";
+    case "prefer_candidate":
+      return "Preferred candidate";
+    default:
+      return type
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+}
+
+export function formatDecisionStatus(status: string): string {
+  switch (status) {
+    case "approved":
+      return "Approved";
+    case "rejected":
+      return "Rejected";
+    case "changes_requested":
+      return "Changes requested";
+    case "pending":
+      return "Pending review";
+    case "none":
+      return "No decision";
+    default:
+      return status.replace(/_/g, " ");
+  }
+}
+
 export function formatActivitySummary(event: ActivityLike): string {
   const who = formatActivityActorLabel(event.actor);
   switch (event.action) {
