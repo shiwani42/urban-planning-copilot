@@ -65,7 +65,7 @@ export function generateSyntheticCity(seed = 42): {
         r > 6 && c < 4
           ? `Riverside ${String.fromCharCode(65 + (idx % 8))}-${r}${c}`
           : r < 3 && c > 7
-            ? `Upland ${String.fromCharCode(65 + (idx % 8))}`
+            ? `Upland ${String.fromCharCode(65 + (c % 8))}-${r}${c}`
             : `Block ${r}-${c}`;
       feature.properties = {
         id: `parcel-${idx}`,

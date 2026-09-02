@@ -52,7 +52,7 @@ function parseDistanceMeters(raw: string, unit?: string): number {
 }
 
 const PLANNING_SIGNAL_RE =
-  /\b(housing|homes?|units?|dwellings?|transit|station|bus|rail|flood|school|shelter|zoning|capacity|neighborhood|development|residential|population|accessibility|parcel|site|area|accommodat|growth|planning|locat)\b/i;
+  /\b(housing|homes?|units?|dwellings?|transit|station|bus|rail|flood|schools?|shelter|zoning|capacity|neighborhood|development|residential|population|accessibility|underserved|parcel|site|area|accommodat|growth|planning|locat|gap)\b/i;
 
 /** Score how interpretable a free-text objective is for planning analysis. */
 export function assessObjectiveQuality(text: string): {
