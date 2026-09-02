@@ -121,6 +121,30 @@ describe("store persistence", () => {
     assert.ok(branchResult!.candidates.length > 0);
   });
 
+  it("scenario branch does not inherit parent decision or resume note", async () => {
+    const ws = await services.createProject({
+      name: "Branch decision reset",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const baselineId = ws.project.activeScenarioId!;
+    await services.runAnalysis(ws.project.id, baselineId);
+    await services.recordDecision({
+      projectId: ws.project.id,
+      scenarioId: baselineId,
+      reason: "Meets housing target with acceptable flood risk.",
+      type: "approve_scenario",
+    });
+    const approved = await services.getWorkspace(ws.project.id);
+    assert.match(approved!.project.resumeNote ?? "", /Decision recorded/);
+
+    const branched = await services.createScenario(ws.project.id, "Branch without analysis");
+    const branch = branched.scenarios.find((s) => s.name === "Branch without analysis")!;
+    assert.equal(branch.decisionStatus, "none");
+    assert.equal(branch.latestResultId, undefined);
+    assert.match(branched.project.resumeNote ?? "", /no analysis yet/i);
+    assert.doesNotMatch(branched.project.resumeNote ?? "", /Decision recorded/);
+  });
+
   it("createProject is visible via getStore, listProjects, getWorkspace, and reload", async () => {
     const ws = await services.createProject({
       name: "Round trip create",

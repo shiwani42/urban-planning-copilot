@@ -232,6 +232,14 @@ export interface ExploreMethodology {
   sortKey: string;
 }
 
+export interface ExploreCandidateRow {
+  id: string;
+  label: string;
+  rank: number;
+  score: number;
+  metrics: MetricValue[];
+}
+
 export interface ExploreInvestigationResult {
   question: string;
   investigatedAt: string;
@@ -244,7 +252,10 @@ export interface ExploreInvestigationResult {
   summary: string;
   limitations: string[];
   methodology: ExploreMethodology;
+  /** Top page with full geometry for map interaction. */
   candidates: Candidate[];
+  /** All ranked rows (no geometry) for paginated tables. */
+  candidateRows: ExploreCandidateRow[];
   aggregateMetrics: MetricValue[];
   totalCandidates: number;
   displayedCount: number;
@@ -338,6 +349,13 @@ export function runExploreInvestigation(
   };
 
   const displayed = output.candidates.slice(0, DISPLAY_LIMIT);
+  const candidateRows: ExploreCandidateRow[] = output.candidates.map((c) => ({
+    id: c.id,
+    label: c.label,
+    rank: c.rank,
+    score: c.score,
+    metrics: c.metrics,
+  }));
 
   return {
     question: input.question,
@@ -351,6 +369,7 @@ export function runExploreInvestigation(
     limitations,
     methodology,
     candidates: displayed,
+    candidateRows,
     aggregateMetrics: output.aggregateMetrics,
     totalCandidates: output.candidates.length,
     displayedCount: displayed.length,

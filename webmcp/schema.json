@@ -336,14 +336,16 @@
         "type": "object",
         "properties": {
           "projectId": {
-            "type": "string"
+            "type": "string",
+            "description": "Planning project id. Optional when a workspace tab is open — defaults to the active project."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Display name for the new scenario branch (e.g. \"Transit 900m variant\")."
           },
           "fromScenarioId": {
             "type": "string",
-            "description": "Source scenario to duplicate"
+            "description": "Source scenario to duplicate; defaults to active scenario"
           }
         },
         "required": [

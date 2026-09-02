@@ -189,8 +189,20 @@ export default function NewProjectPage() {
           geographyLabel: "San Francisco — Mission & SoMa demo area",
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to create workspace");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message =
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to create workspace — server returned an error.";
+        throw new Error(message);
+      }
+      const projectId = data?.project?.id as string | undefined;
+      if (!projectId) {
+        throw new Error(
+          "Workspace was created but the server response did not include a project id. Retry from Projects or contact support."
+        );
+      }
       sessionStorage.removeItem(DRAFT_KEY);
       localStorage.removeItem(LOCAL_DRAFT_KEY);
       sessionStorage.removeItem(EXPLORE_CONVERT_KEY);
@@ -198,7 +210,15 @@ export default function NewProjectPage() {
         kind: "success",
         message: `Workspace "${name.trim()}" created — opening planner…`,
       });
-      router.push(`/workspace/${data.project.id}`);
+      try {
+        await router.push(`/workspace/${projectId}`);
+      } catch {
+        setSubmitStatus({
+          kind: "error",
+          message: `Workspace created but navigation failed. Open /workspace/${projectId} from Projects.`,
+        });
+        setBusy(false);
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       try {

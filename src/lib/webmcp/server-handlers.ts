@@ -127,8 +127,14 @@ export async function executePlanningTool(
       if (!scenario) throw new ToolError("NOT_FOUND", "Scenario not found", "scenarioId");
       const result = ws.analysisResults.find((r) => r.id === scenario.latestResultId);
       const entries = services.getShortlistForScenario(scenario, result);
+      const ids = entries.map((entry) => entry.candidateId);
       return {
         count: entries.length,
+        candidateIds: ids,
+        message:
+          entries.length > 0
+            ? `Shortlist has ${entries.length} site(s): ${ids.join(", ")}`
+            : "Shortlist is empty (0 sites).",
         shortlist: entries.map((entry) => ({
           candidateId: entry.candidateId,
           label: entry.label,
@@ -304,6 +310,8 @@ export async function executePlanningTool(
       return {
         activeScenarioId: ws?.project.activeScenarioId,
         name,
+        note: "Scenario duplicated — analysis results and decision status were not copied.",
+        message: `Created scenario branch "${name}". No analysis yet — run analysis on the new branch.`,
       };
     }
     case "select_candidate": {
