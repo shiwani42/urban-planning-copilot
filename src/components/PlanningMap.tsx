@@ -83,6 +83,7 @@ type Props = {
   workspace: WorkspaceSnapshot;
   layerData: Record<string, GeoJSON.FeatureCollection>;
   candidates: Candidate[];
+  shortlistedFeatureIds?: Set<string>;
   onSelectCandidate: (c: Candidate) => void;
   drawMode?: MapDrawMode;
   drawClicks?: [number, number][];
@@ -97,6 +98,7 @@ export default function PlanningMap({
   workspace,
   layerData,
   candidates,
+  shortlistedFeatureIds,
   onSelectCandidate,
   drawMode = "none",
   drawClicks = [],
@@ -170,6 +172,10 @@ export default function PlanningMap({
     const candidate = candidates.find((c) => c.id === id || c.featureIds.includes(id));
     const selected = selectedId === id || selectedId === candidate?.id;
     const rejected = candidate?.status === "rejected";
+    const shortlisted =
+      candidate &&
+      shortlistedFeatureIds &&
+      candidate.featureIds.some((fid) => shortlistedFeatureIds.has(fid));
     const geoExcluded = excludedFeatureIds.has(id);
     const staleDim = stale && candidate ? 0.35 : 1;
 
@@ -185,12 +191,14 @@ export default function PlanningMap({
     }
 
     return {
-      color: selected ? "#00455d" : rejected ? "#ba1a1a" : "#70787e",
-      weight: selected ? 2.5 : 1,
+      color: selected ? "#00455d" : rejected ? "#ba1a1a" : shortlisted ? "#815504" : "#70787e",
+      weight: selected ? 2.5 : shortlisted ? 2 : 1,
       fillColor: candidate
         ? rejected
           ? "#ba1a1a"
-          : `rgba(0, 94, 125, ${(0.15 + Math.min(candidate.score, 100) / 250) * staleDim})`
+          : shortlisted
+            ? `rgba(129, 85, 4, ${0.22 * staleDim})`
+            : `rgba(0, 94, 125, ${(0.15 + Math.min(candidate.score, 100) / 250) * staleDim})`
         : "#e8eef0",
       fillOpacity: candidate ? 0.55 * staleDim : 0.35,
       opacity: staleDim,

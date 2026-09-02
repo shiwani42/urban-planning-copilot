@@ -84,6 +84,53 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
   },
   {
     layer: "answer",
+    name: "list_shortlist",
+    description:
+      "List planner-pinned candidates on the scenario shortlist with pin reasons and notes.",
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "add_to_shortlist",
+    description: "Pin a ranked candidate to the scenario shortlist for decision review.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
+        candidateId: { type: "string" },
+        reason: { type: "string", description: "Why this site was pinned" },
+        note: { type: "string", description: "Optional one-line planner note" },
+      },
+      required: ["candidateId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "remove_from_shortlist",
+    description: "Remove a candidate from the scenario shortlist.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
+        candidateId: { type: "string" },
+      },
+      required: ["candidateId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "answer",
     name: "list_datasets",
     description: "List datasets with version, freshness, coverage, and limitations.",
     annotations: { readOnlyHint: true, untrustedContentHint: true },

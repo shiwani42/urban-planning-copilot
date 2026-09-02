@@ -55,6 +55,12 @@ import {
 import { filterAnalysisCaveats } from "@/lib/domain/caveats";
 import { layerSwatch } from "@/lib/domain/layer-styles";
 import { rebalanceWeights } from "@/lib/domain/weights";
+import {
+  isCandidateShortlisted,
+  resolveShortlist,
+  shortlistPinReason,
+  type ResolvedShortlistEntry,
+} from "@/lib/domain/shortlist";
 import type { MapDrawMode } from "@/components/PlanningMap";
 
 const PlanningMap = dynamic(
@@ -195,6 +201,14 @@ export default function WorkspaceClient({
       [...result.candidates].sort((a, b) => a.rank - b.rank)[0]
     );
   }, [result]);
+  const shortlist = useMemo(
+    () => (scenario ? resolveShortlist(scenario, result) : []),
+    [scenario, result]
+  );
+  const shortlistedFeatureIds = useMemo(
+    () => new Set(shortlist.flatMap((e) => e.featureIds)),
+    [shortlist]
+  );
   const selectedCandidate = useMemo(() => {
     const id = workspace?.project?.mapState.selectedCandidateId;
     const selectionScenarioId = workspace?.project?.mapState.selectedCandidateScenarioId;
@@ -397,6 +411,44 @@ export default function WorkspaceClient({
       });
     },
     [act, candidates, scenario, setTab]
+  );
+
+  const pinToShortlist = useCallback(
+    async (c: Candidate, reason?: string) => {
+      if (!scenario) return;
+      await act("add_to_shortlist", {
+        scenarioId: scenario.id,
+        candidateId: c.id,
+        reason: reason ?? "Pinned from Results",
+      });
+      await refresh();
+    },
+    [act, refresh, scenario]
+  );
+
+  const unpinFromShortlist = useCallback(
+    async (candidateId: string) => {
+      if (!scenario) return;
+      await act("remove_from_shortlist", {
+        scenarioId: scenario.id,
+        candidateId,
+      });
+      await refresh();
+    },
+    [act, refresh, scenario]
+  );
+
+  const saveShortlistNote = useCallback(
+    async (candidateId: string, note: string) => {
+      if (!scenario) return;
+      await act("update_shortlist_note", {
+        scenarioId: scenario.id,
+        candidateId,
+        note,
+      });
+      await refresh();
+    },
+    [act, refresh, scenario]
   );
 
   const weightSum = useMemo(() => {
@@ -1405,6 +1457,7 @@ export default function WorkspaceClient({
               workspace={workspace}
               layerData={layerData}
               candidates={candidates}
+              shortlistedFeatureIds={shortlistedFeatureIds}
               onSelectCandidate={(c) => {
                 if (drawingActive) return;
                 void selectCandidate(c, "evidence");
@@ -1870,6 +1923,8 @@ export default function WorkspaceClient({
           result={result}
           stale={Boolean(result?.stale)}
           selected={selectedCandidate}
+          shortlist={shortlist}
+          scenario={scenario}
           datasets={workspace.datasets}
           onInspectDataset={(datasetId) => openDatasetInspect(datasetId)}
           floodCoverageWarning={floodCoverageWarning}
@@ -1885,6 +1940,16 @@ export default function WorkspaceClient({
           resultLimitations={result?.limitations ?? []}
           topCandidateId={topCandidate?.id}
           onSelect={(c) => selectCandidate(c, "evidence")}
+          onToggleShortlist={async (c) => {
+            if (!scenario) return;
+            if (isCandidateShortlisted(scenario, c)) {
+              await unpinFromShortlist(c.id);
+            } else {
+              await pinToShortlist(c);
+            }
+          }}
+          onUnpinShortlist={unpinFromShortlist}
+          onUpdateShortlistNote={saveShortlistNote}
           onReject={async (c, reason) => {
             await act("record_decision", {
               scenarioId: scenario.id,
@@ -1963,7 +2028,15 @@ export default function WorkspaceClient({
           scenario={scenario}
           result={result}
           topCandidate={topCandidate}
+          shortlist={shortlist}
+          shortlistedFeatureIds={shortlistedFeatureIds}
           layerData={layerData}
+          onSelectShortlist={(candidateId) => {
+            const c = candidates.find((x) => x.id === candidateId);
+            if (c) void selectCandidate(c, "evidence");
+          }}
+          onUnpinShortlist={unpinFromShortlist}
+          onUpdateShortlistNote={saveShortlistNote}
           reason={decisionReason}
           setReason={(v) => {
             if (!scenario) return;
@@ -2002,6 +2075,13 @@ export default function WorkspaceClient({
           workspace={workspace}
           scenario={scenario}
           result={result}
+          shortlist={shortlist}
+          onSelectShortlist={(candidateId) => {
+            const c = candidates.find((x) => x.id === candidateId);
+            if (c) void selectCandidate(c, "evidence");
+          }}
+          onUnpinShortlist={unpinFromShortlist}
+          onUpdateShortlistNote={saveShortlistNote}
           selectedReportId={reportId}
           onSelectReport={setReportId}
           onDownload={(message) => setToast(message)}
@@ -2042,6 +2122,103 @@ export default function WorkspaceClient({
   );
 }
 
+function ShortlistPanel(props: {
+  entries: ResolvedShortlistEntry[];
+  onUnpin: (candidateId: string) => void | Promise<void>;
+  onUpdateNote: (candidateId: string, note: string) => void | Promise<void>;
+  onSelect?: (candidateId: string) => void;
+  compact?: boolean;
+}) {
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+
+  if (props.entries.length === 0) {
+    return (
+      <p className="text-body-sm text-on-surface-variant">
+        Pin sites from Results to build a package for decision.
+      </p>
+    );
+  }
+
+  return (
+    <section className={props.compact ? "space-y-2" : "space-y-3"}>
+      <h4 className="font-mono text-data-label uppercase">
+        Candidate shortlist ({props.entries.length})
+      </h4>
+      <ul className="space-y-2">
+        {props.entries.map((entry) => {
+          const id = entry.candidateId ?? entry.featureIds[0] ?? entry.label;
+          const draft = noteDrafts[id] ?? entry.note ?? "";
+          return (
+            <li key={id} className="border border-outline-variant rounded p-3 text-body-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-medium flex items-center gap-2 flex-wrap">
+                    <ProvenanceChip kind="planner_decision" />
+                    {props.onSelect && entry.candidateId ? (
+                      <button
+                        type="button"
+                        className="text-left hover:text-primary underline-offset-2 hover:underline"
+                        onClick={() => props.onSelect!(entry.candidateId!)}
+                      >
+                        {entry.label}
+                      </button>
+                    ) : (
+                      <span>{entry.label}</span>
+                    )}
+                    {entry.candidate && (
+                      <span className="font-mono text-caption text-on-surface-variant">
+                        Rank {entry.candidate.rank} · {entry.candidate.score.toFixed(1)}
+                      </span>
+                    )}
+                    {entry.missing && (
+                      <span className="text-caption text-secondary">Not in current results</span>
+                    )}
+                  </div>
+                  <p className="text-caption text-on-surface-variant mt-1">
+                    Why pinned: {shortlistPinReason(entry)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label={`Remove ${entry.label} from shortlist`}
+                  onClick={() => void props.onUnpin(id)}
+                  className="shrink-0 p-1 hover:bg-surface-variant rounded text-on-surface-variant"
+                >
+                  <span className="material-symbols-outlined text-[18px]">keep_off</span>
+                </button>
+              </div>
+              <label className="block mt-2">
+                <span className="font-mono text-[10px] uppercase text-on-surface-variant">
+                  Note
+                </span>
+                <input
+                  type="text"
+                  value={draft}
+                  maxLength={120}
+                  placeholder="Optional one-line note"
+                  onChange={(e) =>
+                    setNoteDrafts((prev) => ({ ...prev, [id]: e.target.value }))
+                  }
+                  onBlur={() => {
+                    const next = (noteDrafts[id] ?? draft).trim();
+                    if (next !== (entry.note ?? "")) {
+                      void props.onUpdateNote(id, next);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                  className="mt-1 w-full border border-outline-variant rounded px-2 py-1 text-body-sm"
+                />
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function ResultsDrawer(props: {
   open: boolean;
   panel: DrawerPanel;
@@ -2051,6 +2228,8 @@ function ResultsDrawer(props: {
   result: WorkspaceSnapshot["analysisResults"][0] | undefined;
   stale: boolean;
   selected: Candidate | null;
+  shortlist: ResolvedShortlistEntry[];
+  scenario: WorkspaceSnapshot["scenarios"][0];
   topCandidateId?: string;
   housingTarget?: number;
   totalCapacity?: number;
@@ -2066,9 +2245,12 @@ function ResultsDrawer(props: {
   onInspectDataset: (datasetId: string) => void;
   floodCoverageWarning?: string | null;
   onSelect: (c: Candidate) => void;
+  onToggleShortlist: (c: Candidate) => void | Promise<void>;
+  onUnpinShortlist: (candidateId: string) => void | Promise<void>;
+  onUpdateShortlistNote: (candidateId: string, note: string) => void | Promise<void>;
   onReject: (c: Candidate, reason: string) => Promise<void>;
 }) {
-  const { result, selected, panel, intent } = props;
+  const { result, selected, panel, intent, scenario, shortlist } = props;
   if (!props.open) return null;
 
   const showEvidence = panel === "evidence" || Boolean(selected);
@@ -2152,6 +2334,11 @@ function ResultsDrawer(props: {
                 </button>
               </span>
             )}
+            {shortlist.length > 0 && (
+              <span className="font-mono text-[10px] uppercase px-2 py-0.5 rounded border border-[#815504] text-[#815504] whitespace-nowrap">
+                Shortlist: {shortlist.length}
+              </span>
+            )}
           </div>
           <button
             type="button"
@@ -2184,10 +2371,24 @@ function ResultsDrawer(props: {
                 <p className="text-caption text-on-surface-variant">{result.summary}</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="space-y-4">
+                <ShortlistPanel
+                  entries={shortlist}
+                  compact
+                  onUnpin={props.onUnpinShortlist}
+                  onUpdateNote={props.onUpdateShortlistNote}
+                  onSelect={(candidateId) => {
+                    const c = result?.candidates.find((x) => x.id === candidateId);
+                    if (c) props.onSelect(c);
+                  }}
+                />
+                <div className="overflow-x-auto">
                 <table className="w-full text-left text-body-sm min-w-[620px]">
                   <thead>
                     <tr className="font-mono text-data-label text-on-surface-variant">
+                      <th className="py-2 pr-2 w-8" aria-label="Pin to shortlist">
+                        Pin
+                      </th>
                       {props.resultsColumns.map((col) => (
                         <th key={col.key} className="py-2 pr-2">
                           {col.label}
@@ -2196,7 +2397,9 @@ function ResultsDrawer(props: {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleCandidates.map((c, rowIndex) => (
+                    {visibleCandidates.map((c, rowIndex) => {
+                      const pinned = isCandidateShortlisted(scenario, c);
+                      return (
                       <tr
                         key={c.id}
                         tabIndex={props.focusedRowIndex === rowIndex ? 0 : -1}
@@ -2241,17 +2444,41 @@ function ResultsDrawer(props: {
                         }}
                         className={`border-t border-outline-variant cursor-pointer hover:bg-surface-container-low outline-none focus:ring-2 focus:ring-primary/40 ${
                           selected?.id === c.id ? "bg-primary-fixed/25" : ""
-                        } ${props.stale ? "opacity-60" : ""}`}
+                        } ${pinned ? "bg-[#815504]/5" : ""} ${props.stale ? "opacity-60" : ""}`}
                       >
+                        <td className="py-2 pr-2">
+                          <button
+                            type="button"
+                            aria-label={pinned ? `Unpin ${c.label}` : `Pin ${c.label} to shortlist`}
+                            title={pinned ? "Remove from shortlist" : "Pin to shortlist"}
+                            disabled={c.status === "rejected"}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void props.onToggleShortlist(c);
+                            }}
+                            className="p-1 rounded hover:bg-surface-variant disabled:opacity-30"
+                          >
+                            <span
+                              className={`material-symbols-outlined text-[18px] ${
+                                pinned ? "text-[#815504]" : "text-on-surface-variant"
+                              }`}
+                              style={{ fontVariationSettings: pinned ? "'FILL' 1" : "'FILL' 0" }}
+                            >
+                              keep
+                            </span>
+                          </button>
+                        </td>
                         {props.resultsColumns.map((col) => (
                           <td key={col.key} className="py-2 pr-2 font-mono">
                             {col.format(c)}
                           </td>
                         ))}
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
+              </div>
               </div>
             )}
             {result && (
@@ -2740,7 +2967,12 @@ function DecisionView(props: {
   scenario: WorkspaceSnapshot["scenarios"][0];
   result: WorkspaceSnapshot["analysisResults"][0] | undefined;
   topCandidate: Candidate | null;
+  shortlist: ResolvedShortlistEntry[];
+  shortlistedFeatureIds: Set<string>;
   layerData: Record<string, GeoJSON.FeatureCollection>;
+  onSelectShortlist: (candidateId: string) => void;
+  onUnpinShortlist: (candidateId: string) => void | Promise<void>;
+  onUpdateShortlistNote: (candidateId: string, note: string) => void | Promise<void>;
   reason: string;
   setReason: (v: string) => void;
   error: string | null;
@@ -2799,6 +3031,14 @@ function DecisionView(props: {
             : "No recommendation available yet."}
         </p>
       </div>
+      <section className="mb-6 border border-outline-variant p-4">
+        <ShortlistPanel
+          entries={props.shortlist}
+          onSelect={props.onSelectShortlist}
+          onUnpin={props.onUnpinShortlist}
+          onUpdateNote={props.onUpdateShortlistNote}
+        />
+      </section>
       <section className="mb-6 border border-outline-variant p-4 space-y-3">
         <h4 className="font-mono text-data-label uppercase">Evidence summary</h4>
         <p className="text-body-sm">
@@ -2959,6 +3199,7 @@ function DecisionView(props: {
             workspace={props.workspace}
             layerData={props.layerData}
             candidates={mapCandidates}
+            shortlistedFeatureIds={props.shortlistedFeatureIds}
             onSelectCandidate={() => undefined}
             stale={Boolean(result?.stale)}
           />
@@ -3141,6 +3382,10 @@ function ReportView(props: {
   workspace: WorkspaceSnapshot;
   scenario: WorkspaceSnapshot["scenarios"][0];
   result: WorkspaceSnapshot["analysisResults"][0] | undefined;
+  shortlist: ResolvedShortlistEntry[];
+  onSelectShortlist: (candidateId: string) => void;
+  onUnpinShortlist: (candidateId: string) => void | Promise<void>;
+  onUpdateShortlistNote: (candidateId: string, note: string) => void | Promise<void>;
   selectedReportId: string | null;
   onSelectReport: (id: string) => void;
   onGenerate: () => Promise<void>;
@@ -3274,6 +3519,14 @@ function ReportView(props: {
             {housingGoal}
           </p>
         )}
+      <section className="mb-6 border border-outline-variant p-4">
+        <ShortlistPanel
+          entries={props.shortlist}
+          onSelect={props.onSelectShortlist}
+          onUnpin={props.onUnpinShortlist}
+          onUpdateNote={props.onUpdateShortlistNote}
+        />
+      </section>
       {scenarioReports.length > 1 && (
         <div className="mb-6">
           <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">

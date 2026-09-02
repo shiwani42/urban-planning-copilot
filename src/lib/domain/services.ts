@@ -15,6 +15,15 @@ import {
 } from "./decision";
 import { formatReportDateTime, dedupeLimitations, formatDecisionType } from "../format";
 import { cloneScenarioForBranch } from "./scenario-clone";
+import {
+  findCandidateInResult,
+  findShortlistEntry,
+  featureIdsOverlap,
+  remapShortlistAfterAnalysis,
+  resolveShortlist,
+  shortlistEntries,
+  shortlistPinReason,
+} from "./shortlist";
 import { isHousingIntent, isAccessIntent } from "./intent";
 import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
 import { getStore, updateStore, reloadStoreFromDisk } from "./store";
@@ -765,6 +774,150 @@ export async function selectCandidate(
   return getWorkspace(projectId);
 }
 
+export async function addToShortlist(
+  projectId: string,
+  scenarioId: string,
+  candidateId: string,
+  options?: { reason?: string; note?: string }
+) {
+  const store = await getStore();
+  const scenario = requireScenario(store, projectId, scenarioId);
+  const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
+  const candidate = findCandidateInResult(result, candidateId);
+  if (!candidate) {
+    throw new ToolError("NOT_FOUND", `Candidate not found: ${candidateId}`, "candidateId");
+  }
+  if (candidate.status === "rejected") {
+    throw new ToolError(
+      "INVALID_INPUT",
+      "Cannot shortlist a rejected candidate",
+      "candidateId"
+    );
+  }
+
+  await updateStore((s) => {
+    const scenarioLive = requireScenario(s, projectId, scenarioId);
+    if (!scenarioLive.shortlist) scenarioLive.shortlist = [];
+    const existing = findShortlistEntry(
+      scenarioLive.shortlist,
+      candidate.id,
+      candidate.featureIds
+    );
+    if (existing) {
+      existing.candidateId = candidate.id;
+      existing.label = candidate.label;
+      existing.featureIds = [...candidate.featureIds];
+      if (options?.reason?.trim()) existing.reason = options.reason.trim();
+      if (options?.note !== undefined) existing.note = options.note.trim() || undefined;
+    } else {
+      scenarioLive.shortlist.push({
+        featureIds: [...candidate.featureIds],
+        candidateId: candidate.id,
+        label: candidate.label,
+        pinnedAt: now(),
+        reason: options?.reason?.trim() || undefined,
+        note: options?.note?.trim() || undefined,
+      });
+    }
+    scenarioLive.updatedAt = now();
+    logActivity(s, {
+      projectId,
+      scenarioId,
+      actor: "human",
+      category: "decision",
+      action: "shortlist_added",
+      summary: `Pinned ${candidate.label} to candidate shortlist`,
+      inputs: { candidateId: candidate.id, reason: options?.reason },
+      relatedCandidateIds: [candidate.id],
+    });
+    touchProject(s, projectId, `Shortlist: ${candidate.label} pinned`);
+  });
+  return getWorkspace(projectId);
+}
+
+export async function removeFromShortlist(
+  projectId: string,
+  scenarioId: string,
+  candidateId: string
+) {
+  const store = await getStore();
+  const scenario = requireScenario(store, projectId, scenarioId);
+  const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
+  const candidate = findCandidateInResult(result, candidateId);
+  const entries = shortlistEntries(scenario);
+  const entry = findShortlistEntry(
+    entries,
+    candidateId,
+    candidate?.featureIds
+  );
+  if (!entry) {
+    throw new ToolError("NOT_FOUND", `Candidate not on shortlist: ${candidateId}`, "candidateId");
+  }
+
+  await updateStore((s) => {
+    const scenarioLive = requireScenario(s, projectId, scenarioId);
+    scenarioLive.shortlist = shortlistEntries(scenarioLive).filter(
+      (e) =>
+        e.candidateId !== entry.candidateId &&
+        !featureIdsOverlap(e.featureIds, entry.featureIds)
+    );
+    scenarioLive.updatedAt = now();
+    logActivity(s, {
+      projectId,
+      scenarioId,
+      actor: "human",
+      category: "decision",
+      action: "shortlist_removed",
+      summary: `Removed ${entry.label} from candidate shortlist`,
+      inputs: { candidateId },
+      relatedCandidateIds: entry.candidateId ? [entry.candidateId] : undefined,
+    });
+    touchProject(s, projectId, `Shortlist: ${entry.label} removed`);
+  });
+  return getWorkspace(projectId);
+}
+
+export async function updateShortlistNote(
+  projectId: string,
+  scenarioId: string,
+  candidateId: string,
+  note: string
+) {
+  const store = await getStore();
+  const scenario = requireScenario(store, projectId, scenarioId);
+  const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
+  const candidate = findCandidateInResult(result, candidateId);
+  const entry = findShortlistEntry(
+    shortlistEntries(scenario),
+    candidateId,
+    candidate?.featureIds
+  );
+  if (!entry) {
+    throw new ToolError("NOT_FOUND", `Candidate not on shortlist: ${candidateId}`, "candidateId");
+  }
+
+  await updateStore((s) => {
+    const scenarioLive = requireScenario(s, projectId, scenarioId);
+    const liveEntry = findShortlistEntry(
+      shortlistEntries(scenarioLive),
+      candidateId,
+      candidate?.featureIds
+    );
+    if (!liveEntry) return;
+    liveEntry.note = note.trim() || undefined;
+    scenarioLive.updatedAt = now();
+    touchProject(s, projectId, `Shortlist note updated for ${liveEntry.label}`);
+  });
+  return getWorkspace(projectId);
+}
+
+export function getShortlistForScenario(
+  scenario: Scenario,
+  result: AnalysisResult | undefined
+) {
+  return resolveShortlist(scenario, result);
+}
+
 function requireScenario(store: AppStore, projectId: string, scenarioId: string): Scenario {
   const scenario = store.scenarios.find((s) => s.id === scenarioId && s.projectId === projectId);
   if (!scenario) throw new Error("Scenario not found");
@@ -1021,6 +1174,13 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
         c.status = "rejected";
         c.rejectionReason = rejectedDecision.reason;
       }
+    }
+
+    if (scenarioLive.shortlist?.length) {
+      scenarioLive.shortlist = remapShortlistAfterAnalysis(
+        scenarioLive.shortlist,
+        result.candidates
+      );
     }
 
     // Propagate analysis-level limitations onto each candidate
@@ -1371,6 +1531,13 @@ export async function recordDecision(input: {
         if (scenario.preferredCandidateId === candidate.id) {
           scenario.preferredCandidateId = undefined;
         }
+        if (scenario.shortlist?.length) {
+          scenario.shortlist = scenario.shortlist.filter(
+            (e) =>
+              e.candidateId !== candidate.id &&
+              !candidate.featureIds.some((fid) => e.featureIds.includes(fid))
+          );
+        }
       }
     } else if (input.type === "prefer_candidate" && input.subjectId) {
       scenario.preferredCandidateId = input.subjectId;
@@ -1618,6 +1785,26 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
         heading: `Copilot recommendation — ${sc.name}`,
         kind: "copilot_recommendation",
         body: `Copilot ranked ${top.label} highest (score ${top.score.toFixed(1)}). This is an AI recommendation, not a planning decision.`,
+      });
+    }
+
+    const shortlist = resolveShortlist(sc, result);
+    if (shortlist.length > 0) {
+      sections.push({
+        heading: `Candidate shortlist — ${sc.name}`,
+        kind: "planner_decision",
+        body: shortlist
+          .map((entry) => {
+            const rank = entry.candidate?.rank;
+            const score = entry.candidate?.score;
+            const rankLine =
+              rank != null && score != null
+                ? `Rank ${rank}, score ${score.toFixed(1)}`
+                : "Not in current results";
+            const noteLine = entry.note ? `\nNote: ${entry.note}` : "";
+            return `• ${entry.label} — ${rankLine}\n  Why pinned: ${shortlistPinReason(entry)}${noteLine}`;
+          })
+          .join("\n\n"),
       });
     }
 
