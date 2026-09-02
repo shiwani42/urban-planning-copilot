@@ -10,6 +10,7 @@ import {
   reloadStoreFromDisk,
   resetStore,
   updateStore,
+  verifyWritableDataDir,
 } from "./store";
 
 const HOUSING_OBJECTIVE =
@@ -184,6 +185,36 @@ describe("store persistence", () => {
     assert.match(after!.project.resumeNote ?? "", /Decision recorded/);
     const activities = after!.activities.filter((a) => a.action === "activate_scenario");
     assert.equal(activities.length, 0);
+  });
+
+  it("concurrent verifyWritableDataDir calls do not throw ENOENT", async () => {
+    const probeDir = path.join(tmpDir, "probe-race");
+    await Promise.all([
+      verifyWritableDataDir(probeDir),
+      verifyWritableDataDir(probeDir),
+      verifyWritableDataDir(probeDir),
+      verifyWritableDataDir(probeDir),
+      verifyWritableDataDir(probeDir),
+    ]);
+  });
+
+  it("updateStore still works when a shared write-probe file is already gone", async () => {
+    const ws = await services.createProject({
+      name: "Probe race survivor",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const legacyProbe = path.join(tmpDir, ".write-probe");
+    await fs.writeFile(legacyProbe, "stale", "utf8");
+    await fs.unlink(legacyProbe);
+    await updateStore((store) => {
+      const project = store.projects.find((p) => p.id === ws.project.id);
+      if (project) project.resumeNote = "probe unlink race ok";
+    });
+    const reloaded = await reloadStoreFromDisk();
+    assert.equal(
+      reloaded.projects.find((p) => p.id === ws.project.id)?.resumeNote,
+      "probe unlink race ok"
+    );
   });
 });
 

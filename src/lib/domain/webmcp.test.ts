@@ -389,4 +389,39 @@ describe("WebMCP pass 10 hardening", () => {
     const err = new ToolError("NOT_FOUND", "Project not found", "projectId");
     assert.equal(err.toJSON().field, "projectId");
   });
+
+  it("parses nested executeTool argument envelopes for add_to_shortlist", async () => {
+    const ws = await services.createProject({
+      name: "Shortlist envelope",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const scenarioId = ws.project.activeScenarioId!;
+    await services.runAnalysis(ws.project.id, scenarioId);
+    const loaded = await services.getWorkspace(ws.project.id);
+    const candidateId = loaded!.analysisResults.find(
+      (r) => r.id === loaded!.scenarios[0]?.latestResultId
+    )!.candidates[0]!.id;
+    const result = await invokeTool(
+      "add_to_shortlist",
+      { arguments: { candidateId, reason: "Strong transit" } },
+      { projectId: ws.project.id, scenarioId }
+    );
+    assert.equal(result.ok, true);
+  });
+
+  it("parses JSON string arguments for create_scenario_branch", async () => {
+    const ws = await services.createProject({
+      name: "Branch envelope",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const result = await invokeTool(
+      "create_scenario_branch",
+      JSON.stringify({ name: "Transit sensitivity" }),
+      { projectId: ws.project.id, scenarioId: ws.project.activeScenarioId! }
+    );
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal((result.result as { name?: string }).name, "Transit sensitivity");
+    }
+  });
 });

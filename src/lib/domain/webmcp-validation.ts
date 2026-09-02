@@ -21,17 +21,19 @@ export function parseToolArguments(raw: unknown): Record<string, unknown> {
     if (!trimmed) return {};
     try {
       const parsed = JSON.parse(trimmed) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-      throw new ToolError("INVALID_INPUT", "arguments must be a JSON object", "arguments");
+      return parseToolArguments(parsed);
     } catch (err) {
       if (err instanceof ToolError) throw err;
       throw new ToolError("INVALID_INPUT", "arguments must be valid JSON", "arguments");
     }
   }
   if (typeof raw === "object" && !Array.isArray(raw)) {
-    return raw as Record<string, unknown>;
+    const record = raw as Record<string, unknown>;
+    const nested = record.arguments ?? record.args ?? record.input ?? record.params;
+    if (nested !== undefined && nested !== raw) {
+      return { ...record, ...parseToolArguments(nested) };
+    }
+    return record;
   }
   throw new ToolError("INVALID_INPUT", "arguments must be an object", "arguments");
 }
