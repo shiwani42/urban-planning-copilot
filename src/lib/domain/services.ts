@@ -940,6 +940,25 @@ function touchProject(store: AppStore, projectId: string, resumeNote?: string) {
   if (resumeNote) project.resumeNote = resumeNote;
 }
 
+export function resumeNoteForScenario(
+  scenario: Scenario,
+  result: AnalysisResult | undefined
+): string {
+  if (scenario.decisionStatus === "approved" && !scenario.decisionStale) {
+    return `Decision recorded: ${formatDecisionType("approve_scenario")}`;
+  }
+  if (scenario.decisionStatus === "rejected" && !scenario.decisionStale) {
+    return `Decision recorded: ${formatDecisionType("reject_scenario")}`;
+  }
+  if (scenario.decisionStatus === "changes_requested") {
+    return `Decision recorded: ${formatDecisionType("request_changes")}`;
+  }
+  if (result) {
+    return `Analysis complete — ${result.candidates.length} candidates (${scenario.name}).`;
+  }
+  return `Scenario "${scenario.name}" — no analysis results yet.`;
+}
+
 export async function requireProject(projectId: string): Promise<Project> {
   const store = await reloadStoreFromDisk();
   const project = store.projects.find((p) => p.id === projectId);
@@ -1396,26 +1415,29 @@ export async function saveScenario(projectId: string, scenarioId: string) {
 }
 
 export async function setActiveScenario(projectId: string, scenarioId: string) {
+  const current = await reloadStoreFromDisk();
+  const project = current.projects.find((p) => p.id === projectId);
+  if (!project) throw new Error("Project not found");
+  if (project.activeScenarioId === scenarioId) {
+    return getWorkspace(projectId);
+  }
+
   await updateStore((store) => {
     const scenario = requireScenario(store, projectId, scenarioId);
-    const project = store.projects.find((p) => p.id === projectId)!;
-    project.activeScenarioId = scenarioId;
+    const activeProject = store.projects.find((p) => p.id === projectId)!;
+    activeProject.activeScenarioId = scenarioId;
     if (
-      project.mapState.selectedCandidateScenarioId &&
-      project.mapState.selectedCandidateScenarioId !== scenarioId
+      activeProject.mapState.selectedCandidateScenarioId &&
+      activeProject.mapState.selectedCandidateScenarioId !== scenarioId
     ) {
-      project.mapState.selectedCandidateId = undefined;
-      project.mapState.selectedCandidateScenarioId = undefined;
-      project.mapState.selectedFeatureIds = [];
-      project.mapState.highlightFeatureIds = [];
+      activeProject.mapState.selectedCandidateId = undefined;
+      activeProject.mapState.selectedCandidateScenarioId = undefined;
+      activeProject.mapState.selectedFeatureIds = [];
+      activeProject.mapState.highlightFeatureIds = [];
     }
-    project.updatedAt = now();
+    activeProject.updatedAt = now();
     const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
-    if (result) {
-      project.resumeNote = `Analysis complete — ${result.candidates.length} candidates (${scenario.name}).`;
-    } else {
-      project.resumeNote = `Scenario "${scenario.name}" — no analysis results yet.`;
-    }
+    activeProject.resumeNote = resumeNoteForScenario(scenario, result);
     logActivity(store, {
       projectId,
       scenarioId,

@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import type { AppStore } from "./types";
@@ -135,11 +136,24 @@ async function upgradeCatalog(store: AppStore): Promise<boolean> {
   return upgraded;
 }
 
-async function verifyWritableDataDir(dir: string): Promise<void> {
+async function safeUnlinkProbe(file: string): Promise<void> {
+  try {
+    await fs.unlink(file);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code !== "ENOENT") throw err;
+  }
+}
+
+/** Write+unlink a unique probe file — safe under concurrent health/persist checks. */
+export async function verifyWritableDataDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
-  const probe = path.join(dir, ".write-probe");
+  const probe = path.join(
+    dir,
+    `.write-probe-${process.pid}-${randomBytes(8).toString("hex")}`
+  );
   await fs.writeFile(probe, "ok", "utf8");
-  await fs.unlink(probe);
+  await safeUnlinkProbe(probe);
 }
 
 async function syncFile(filePath: string): Promise<void> {

@@ -12,8 +12,8 @@ import {
   updateStore,
   setPersistFailureInjector,
   StorePersistError,
+  verifyWritableDataDir,
 } from "./store";
-import { promises as fs } from "fs";
 
 const HOUSING_OBJECTIVE =
   "Identify areas capable of accommodating 600 additional homes while maximizing transit access and avoiding flood-risk areas.";
@@ -240,6 +240,59 @@ describe("store persistence", () => {
     } finally {
       setPersistFailureInjector(null);
     }
+  });
+
+  it("setActiveScenario is a no-op when scenario is already active", async () => {
+    const ws = await services.createProject({
+      name: "Active scenario no-op",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const baselineId = ws.project.activeScenarioId!;
+    await services.runAnalysis(ws.project.id, baselineId);
+    await services.recordDecision({
+      projectId: ws.project.id,
+      scenarioId: baselineId,
+      reason: "Meets housing target with acceptable flood risk.",
+      type: "approve_scenario",
+    });
+    const before = await services.getWorkspace(ws.project.id);
+    assert.match(before!.project.resumeNote ?? "", /Decision recorded/);
+
+    const after = await services.setActiveScenario(ws.project.id, baselineId);
+    assert.equal(after!.project.activeScenarioId, baselineId);
+    assert.match(after!.project.resumeNote ?? "", /Decision recorded/);
+    const activities = after!.activities.filter((a) => a.action === "activate_scenario");
+    assert.equal(activities.length, 0);
+  });
+
+  it("concurrent verifyWritableDataDir calls do not throw ENOENT", async () => {
+    const probeDir = path.join(tmpDir, "probe-race");
+    await Promise.all([
+      verifyWritableDataDir(probeDir),
+      verifyWritableDataDir(probeDir),
+      verifyWritableDataDir(probeDir),
+      verifyWritableDataDir(probeDir),
+      verifyWritableDataDir(probeDir),
+    ]);
+  });
+
+  it("updateStore still works when a shared write-probe file is already gone", async () => {
+    const ws = await services.createProject({
+      name: "Probe race survivor",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const legacyProbe = path.join(tmpDir, ".write-probe");
+    await fs.writeFile(legacyProbe, "stale", "utf8");
+    await fs.unlink(legacyProbe);
+    await updateStore((store) => {
+      const project = store.projects.find((p) => p.id === ws.project.id);
+      if (project) project.resumeNote = "probe unlink race ok";
+    });
+    const reloaded = await reloadStoreFromDisk();
+    assert.equal(
+      reloaded.projects.find((p) => p.id === ws.project.id)?.resumeNote,
+      "probe unlink race ok"
+    );
   });
 });
 

@@ -1,198 +1,184 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import * as services from "@/lib/domain/services";
+import type { Assumption, Constraint, CriterionWeight, GeographicSelection, MapState } from "@/lib/domain/types";
+import { apiError, runApiHandler } from "@/lib/api-route";
 
 type Ctx = { params: Promise<{ projectId: string }> };
 
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const { projectId } = await ctx.params;
-  const ws = await services.getWorkspace(projectId);
-  if (!ws) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(ws);
+  return runApiHandler(async () => {
+    const ws = await services.getWorkspace(projectId);
+    if (!ws) throw new Error("Project not found");
+    return ws;
+  });
 }
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {
   const { projectId } = await ctx.params;
-  try {
+  return runApiHandler(async () => {
     await services.deleteProject(projectId);
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const status = message.includes("not found") ? 404 : 400;
-    return NextResponse.json({ error: message }, { status });
-  }
+    return { ok: true };
+  });
 }
 
 export async function PATCH(req: NextRequest, ctx: Ctx) {
   const { projectId } = await ctx.params;
-  const body = await req.json();
-  const action = body.action as string;
-
+  let body: Record<string, unknown>;
   try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return apiError("Invalid JSON body", 400);
+  }
+
+  const action = body.action as string;
+  if (!action) {
+    return apiError("Missing action", 400);
+  }
+
+  return runApiHandler(async () => {
     switch (action) {
       case "record_open":
         await services.recordProjectOpen(projectId);
-        return NextResponse.json({ ok: true });
+        return { ok: true };
       case "rename_project":
-        return NextResponse.json({
-          project: await services.renameProject(projectId, body.name),
-        });
+        return { project: await services.renameProject(projectId, body.name as string) };
       case "update_objective":
-        return NextResponse.json(
-          await services.updateObjective(projectId, body.objectiveText)
-        );
+        return services.updateObjective(projectId, body.objectiveText as string);
       case "update_constraints":
-        return NextResponse.json(
-          await services.updateConstraints(projectId, body.scenarioId, body.constraints)
+        return services.updateConstraints(
+          projectId,
+          body.scenarioId as string,
+          body.constraints as Constraint[]
         );
       case "update_weights":
-        return NextResponse.json(
-          await services.updateWeights(projectId, body.scenarioId, body.weights)
+        return services.updateWeights(
+          projectId,
+          body.scenarioId as string,
+          body.weights as CriterionWeight[]
         );
       case "update_assumptions":
-        return NextResponse.json(
-          await services.updateAssumptions(projectId, body.scenarioId, body.assumptions)
+        return services.updateAssumptions(
+          projectId,
+          body.scenarioId as string,
+          body.assumptions as Assumption[]
         );
       case "run_analysis":
-        return NextResponse.json(
-          await services.runAnalysis(projectId, body.scenarioId)
-        );
+        return services.runAnalysis(projectId, body.scenarioId as string);
       case "create_scenario":
-        return NextResponse.json(
-          await services.createScenario(projectId, body.name, body.fromScenarioId)
+        return services.createScenario(
+          projectId,
+          body.name as string,
+          body.fromScenarioId as string | undefined
         );
       case "save_scenario":
-        return NextResponse.json(
-          await services.saveScenario(projectId, body.scenarioId)
-        );
+        return services.saveScenario(projectId, body.scenarioId as string);
       case "activate_scenario":
-        return NextResponse.json(
-          await services.setActiveScenario(projectId, body.scenarioId)
-        );
+        return services.setActiveScenario(projectId, body.scenarioId as string);
       case "select_candidate":
-        return NextResponse.json(
-          await services.selectCandidate(
-            projectId,
-            body.candidateId,
-            body.featureIds,
-            body.scenarioId
-          )
+        return services.selectCandidate(
+          projectId,
+          body.candidateId as string,
+          body.featureIds as string[] | undefined,
+          body.scenarioId as string | undefined
         );
       case "update_map":
-        return NextResponse.json(await services.updateMapState(projectId, body.mapState));
+        return services.updateMapState(projectId, body.mapState as Partial<MapState>);
       case "add_geo_selection":
-        return NextResponse.json(
-          await services.addGeographicSelection(projectId, body.scenarioId, body.selection)
+        return services.addGeographicSelection(
+          projectId,
+          body.scenarioId as string,
+          body.selection as Omit<GeographicSelection, "id" | "createdAt">
         );
       case "remove_geo_selection":
-        return NextResponse.json(
-          await services.removeGeographicSelection(
-            projectId,
-            body.scenarioId,
-            body.selectionId
-          )
+        return services.removeGeographicSelection(
+          projectId,
+          body.scenarioId as string,
+          body.selectionId as string
         );
       case "update_geo_selection":
-        return NextResponse.json(
-          await services.updateGeographicSelection(
-            projectId,
-            body.scenarioId,
-            body.selectionId,
-            body.patch ?? {}
-          )
+        return services.updateGeographicSelection(
+          projectId,
+          body.scenarioId as string,
+          body.selectionId as string,
+          (body.patch ?? {}) as Parameters<typeof services.updateGeographicSelection>[3]
         );
       case "exclude_features":
-        return NextResponse.json(
-          await services.excludeFeatures(
-            projectId,
-            body.scenarioId,
-            body.featureIds,
-            body.label
-          )
+        return services.excludeFeatures(
+          projectId,
+          body.scenarioId as string,
+          body.featureIds as string[],
+          body.label as string
         );
       case "record_decision":
-        return NextResponse.json(
-          await services.recordDecision({
-            projectId,
-            scenarioId: body.scenarioId,
-            type: body.type,
-            subjectId: body.subjectId,
-            reason: body.reason,
-          })
-        );
+        return services.recordDecision({
+          projectId,
+          scenarioId: body.scenarioId as string,
+          type: body.type as Parameters<typeof services.recordDecision>[0]["type"],
+          subjectId: body.subjectId as string | undefined,
+          reason: body.reason as string | undefined,
+        });
       case "add_to_shortlist":
-        return NextResponse.json(
-          await services.addToShortlist(
-            projectId,
-            body.scenarioId,
-            body.candidateId,
-            { reason: body.reason, note: body.note }
-          )
+        return services.addToShortlist(
+          projectId,
+          body.scenarioId as string,
+          body.candidateId as string,
+          { reason: body.reason as string | undefined, note: body.note as string | undefined }
         );
       case "remove_from_shortlist":
-        return NextResponse.json(
-          await services.removeFromShortlist(
-            projectId,
-            body.scenarioId,
-            body.candidateId
-          )
+        return services.removeFromShortlist(
+          projectId,
+          body.scenarioId as string,
+          body.candidateId as string
         );
       case "update_shortlist_note":
-        return NextResponse.json(
-          await services.updateShortlistNote(
-            projectId,
-            body.scenarioId,
-            body.candidateId,
-            body.note ?? ""
-          )
+        return services.updateShortlistNote(
+          projectId,
+          body.scenarioId as string,
+          body.candidateId as string,
+          (body.note as string) ?? ""
         );
       case "resolve_confirmation":
-        return NextResponse.json(
-          await services.resolveConfirmation(projectId, body.confirmationId, body.status)
+        return services.resolveConfirmation(
+          projectId,
+          body.confirmationId as string,
+          body.status as Parameters<typeof services.resolveConfirmation>[2]
         );
       case "stage_proposal":
-        return NextResponse.json(
-          await services.stageProposal({
-            projectId,
-            scenarioId: body.scenarioId,
-            title: body.title,
-            description: body.description,
-            action: body.action,
-            payload: body.payload,
-            createdBy: body.createdBy ?? "human",
-          })
-        );
+        return services.stageProposal({
+          projectId,
+          scenarioId: body.scenarioId as string,
+          title: body.title as string,
+          description: body.description as string,
+          action: body.action as string,
+          payload: body.payload as Record<string, unknown>,
+          createdBy: (body.createdBy as "human" | "agent") ?? "human",
+        });
       case "approve_proposal":
-        return NextResponse.json(
-          await services.approveProposal(projectId, body.proposalId)
-        );
+        return services.approveProposal(projectId, body.proposalId as string);
       case "reject_proposal":
-        return NextResponse.json(
-          await services.rejectProposal(projectId, body.proposalId, body.reason)
+        return services.rejectProposal(
+          projectId,
+          body.proposalId as string,
+          body.reason as string | undefined
         );
       case "generate_report":
-        return NextResponse.json(
-          await services.generateReport(projectId, body.scenarioIds, body.title)
+        return services.generateReport(
+          projectId,
+          body.scenarioIds as string[],
+          body.title as string | undefined
         );
       case "compare_scenarios":
-        return NextResponse.json(
-          await services.compareScenarios(projectId, body.scenarioIds)
-        );
+        return services.compareScenarios(projectId, body.scenarioIds as string[]);
       case "rename_scenario":
-        return NextResponse.json(
-          await services.renameScenario(
-            projectId,
-            body.scenarioId,
-            body.name,
-            body.description
-          )
+        return services.renameScenario(
+          projectId,
+          body.scenarioId as string,
+          body.name as string,
+          body.description as string | undefined
         );
       default:
-        return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
+        throw new Error(`Unknown action: ${action}`);
     }
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 400 }
-    );
-  }
+  });
 }

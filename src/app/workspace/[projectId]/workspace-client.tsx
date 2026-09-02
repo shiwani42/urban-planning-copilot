@@ -54,6 +54,7 @@ import {
   type ResultsColumn,
 } from "@/lib/domain/results-display";
 import { filterAnalysisCaveats } from "@/lib/domain/caveats";
+import { objectiveTitleMismatchWarning } from "@/lib/objective-display";
 import { layerSwatch } from "@/lib/domain/layer-styles";
 import { rebalanceWeights } from "@/lib/domain/weights";
 import {
@@ -162,6 +163,9 @@ export default function WorkspaceClient({
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const [pendingPlannerActions, setPendingPlannerActions] = useState<PendingPlannerAction[]>([]);
   const [pendingBusy, setPendingBusy] = useState(false);
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
+  const [duplicateNameDraft, setDuplicateNameDraft] = useState("");
+  const [duplicateBusy, setDuplicateBusy] = useState(false);
 
   const setTab = useCallback(
     (next: Tab) => {
@@ -309,6 +313,10 @@ export default function WorkspaceClient({
       setCompareIds([scenario.id]);
     }
   }, [tab, workspace, scenario?.id, scenario?.parentScenarioId, compareIds.length]);
+
+  useEffect(() => {
+    if (tab === "results") setDrawerOpen(true);
+  }, [tab]);
 
   useEffect(() => {
     if (!toast) return;
@@ -553,7 +561,7 @@ export default function WorkspaceClient({
     setCriteriaStaleHint(true);
   }
 
-  async function commitTransitThreshold(rawText: string) {
+  async function commitTransitThreshold(constraintId: string, rawText: string) {
     if (!scenario) return;
     const parsed = Number(rawText.replace(/,/g, "").trim());
     if (!Number.isFinite(parsed)) {
@@ -562,13 +570,10 @@ export default function WorkspaceClient({
     }
     const normalized = normalizeTransitThresholdMeters(parsed);
     setTransitThresholdWarning(normalized.warning ?? null);
-    if (normalized.adjusted && normalized.warning) {
-      setTransitDraftText((prev) => ({
-        ...prev,
-        [scenario.constraints.find((c) => c.operator === "within_distance")?.id ?? "transit"]:
-          String(normalized.meters),
-      }));
-    }
+    setTransitDraftText((prev) => ({
+      ...prev,
+      [constraintId]: String(normalized.meters),
+    }));
     setCriteriaStaleHint(true);
     const constraints = scenario.constraints.map((c) =>
       c.operator === "within_distance"
@@ -579,9 +584,16 @@ export default function WorkspaceClient({
           }
         : c
     );
-    await act("update_constraints", { scenarioId: scenario.id, constraints });
-    if (normalized.adjusted || normalized.warning) {
-      setToast(normalized.warning ?? `Transit threshold set to ${normalized.meters}m`);
+    try {
+      await act("update_constraints", { scenarioId: scenario.id, constraints });
+      if (normalized.adjusted || normalized.warning) {
+        setToast(normalized.warning ?? `Transit threshold set to ${normalized.meters}m`);
+      }
+    } catch {
+      setTransitDraftText((prev) => ({
+        ...prev,
+        [constraintId]: String(Number(scenario.constraints.find((c) => c.id === constraintId)?.value ?? normalized.meters)),
+      }));
     }
   }
 
@@ -691,21 +703,43 @@ export default function WorkspaceClient({
 
   async function duplicateScenario(name: string) {
     if (!scenario) return;
-    await act("create_scenario", { name, fromScenarioId: scenario.id });
-    setCriteriaStaleHint(true);
+    setDuplicateBusy(true);
+    try {
+      await act("create_scenario", { name, fromScenarioId: scenario.id });
+      setCriteriaStaleHint(true);
+      setDuplicateDialogOpen(false);
+      setToast(`Created scenario "${name}" — run analysis when ready.`);
+    } catch (e) {
+      setToast(
+        e instanceof Error ? e.message : "Could not duplicate scenario — try again."
+      );
+    } finally {
+      setDuplicateBusy(false);
+    }
   }
 
-  function promptDuplicateScenario() {
+  function openDuplicateDialog() {
     if (!workspace || !scenario) return;
-    const defaultName = `Branch ${workspace.scenarios.length + 1}`;
-    const entered = window.prompt("Name for duplicated scenario:", defaultName);
-    if (entered == null) return;
-    const trimmed = entered.trim();
+    setDuplicateNameDraft(`Branch ${workspace.scenarios.length + 1}`);
+    setDuplicateDialogOpen(true);
+  }
+
+  async function confirmDuplicateScenario() {
+    const trimmed = duplicateNameDraft.trim();
     if (trimmed.length < 2) {
       setToast("Scenario name must be at least 2 characters.");
       return;
     }
-    void duplicateScenario(trimmed);
+    await duplicateScenario(trimmed);
+  }
+
+  async function activateScenario(scenarioId: string) {
+    if (!scenario || scenario.id === scenarioId) return;
+    try {
+      await act("activate_scenario", { scenarioId });
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Could not switch scenario.");
+    }
   }
 
   async function saveScenario() {
@@ -728,7 +762,7 @@ export default function WorkspaceClient({
     );
   }
 
-  if (!workspace || !scenario) {
+  if (!loading && !workspace) {
     return (
       <div className="h-screen flex flex-col bg-background">
         <StorageBanner />
@@ -777,7 +811,65 @@ export default function WorkspaceClient({
     );
   }
 
+  if (workspace && !scenario) {
+    return (
+      <div className="h-screen flex flex-col bg-background">
+        <StorageBanner />
+        <header className="bg-surface-container-high border-b border-outline-variant px-section-padding h-14 flex items-center">
+          <Link href="/" className="font-display text-[18px] font-semibold text-primary">
+            Urban Planning Copilot
+          </Link>
+        </header>
+        <main className="flex-1 flex items-center justify-center p-8">
+          <div className="max-w-lg text-center border border-outline-variant bg-surface-container-lowest p-10">
+            <h1 className="text-headline-md text-on-surface mb-3">Active scenario unavailable</h1>
+            <p className="text-body-sm text-on-surface-variant mb-4">
+              Project <span className="font-mono text-caption">{workspace.project.name}</span> loaded,
+              but its active scenario could not be resolved.
+              {error ? ` ${error}` : ""}
+            </p>
+            {workspace.scenarios.length > 0 && (
+              <div className="space-y-2 mb-6 text-left">
+                <p className="text-caption text-on-surface-variant">Switch to another scenario:</p>
+                {workspace.scenarios.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => void activateScenario(s.id)}
+                    className="w-full text-left px-3 py-2 border border-outline-variant rounded text-body-sm hover:bg-surface-container"
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex flex-wrap justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                className="bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium"
+              >
+                Retry load
+              </button>
+              <Link href="/" className="text-primary text-body-sm hover:underline py-2.5">
+                Back to projects
+              </Link>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (!workspace || !scenario) {
+    return null;
+  }
+
   const activeActivity = workspace.activities.find((a) => a.id === activityId);
+  const titleObjectiveMismatch = objectiveTitleMismatchWarning(
+    workspace.project.name,
+    housingTarget
+  );
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background relative">
@@ -1031,11 +1123,32 @@ export default function WorkspaceClient({
             {workspace.project.resumeNote}
           </span>
         )}
+        {titleObjectiveMismatch && (
+          <span
+            className="shrink-0 px-2 py-0.5 rounded border border-secondary text-secondary text-caption whitespace-nowrap"
+            title={titleObjectiveMismatch}
+          >
+            Title vs objective mismatch
+          </span>
+        )}
       </div>
 
-      {error && (
-        <div className="bg-error-container text-on-error-container px-4 py-2 text-body-sm">
-          {error}
+      {titleObjectiveMismatch && (
+        <div className="bg-secondary-fixed/15 border-b border-secondary/30 px-section-padding py-2 text-caption text-secondary shrink-0">
+          {titleObjectiveMismatch}
+        </div>
+      )}
+
+      {error && workspace && (
+        <div className="bg-error-container text-on-error-container px-4 py-2 text-body-sm flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="underline text-body-sm"
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -1158,10 +1271,11 @@ export default function WorkspaceClient({
                               }
                               onFocus={(e) => {
                                 e.target.select();
-                                setTransitDraftText((prev) => ({
-                                  ...prev,
-                                  [c.id]: String(Number(c.value)),
-                                }));
+                                setTransitDraftText((prev) =>
+                                  prev[c.id] !== undefined
+                                    ? prev
+                                    : { ...prev, [c.id]: String(Number(c.value)) }
+                                );
                               }}
                               onChange={(e) => {
                                 const digits = e.target.value.replace(/[^\d]/g, "");
@@ -1169,17 +1283,13 @@ export default function WorkspaceClient({
                                 setTransitThresholdWarning(null);
                               }}
                               onBlur={(e) => {
-                                void commitTransitThreshold(e.target.value);
-                                setTransitDraftText((prev) => {
-                                  const next = { ...prev };
-                                  delete next[c.id];
-                                  return next;
-                                });
+                                void commitTransitThreshold(c.id, e.target.value);
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
                                   e.preventDefault();
                                   void commitTransitThreshold(
+                                    c.id,
                                     (e.target as HTMLInputElement).value
                                   );
                                   (e.target as HTMLInputElement).blur();
@@ -1405,7 +1515,9 @@ export default function WorkspaceClient({
                         </div>
                       ) : (
                         <button
-                          onClick={() => act("activate_scenario", { scenarioId: s.id })}
+                          type="button"
+                          onClick={() => void activateScenario(s.id)}
+                          aria-current={s.id === scenario.id ? "true" : undefined}
                           className={`w-full text-left px-2 py-1.5 text-body-sm rounded border ${
                             s.id === scenario.id
                               ? "border-primary bg-primary-fixed/30"
@@ -1444,7 +1556,8 @@ export default function WorkspaceClient({
                     </div>
                   );})}
                   <button
-                    onClick={() => promptDuplicateScenario()}
+                    type="button"
+                    onClick={() => openDuplicateDialog()}
                     className="text-body-sm text-primary hover:underline"
                   >
                     + Duplicate scenario
@@ -1606,7 +1719,7 @@ export default function WorkspaceClient({
 
             <div
               className={`absolute bottom-20 right-4 z-[1001] max-w-[200px] ${
-                drawingActive ? "pointer-events-none" : "pointer-events-auto"
+                drawingActive || drawerOpen ? "pointer-events-none opacity-60" : "pointer-events-auto"
               }`}
             >
               <button
@@ -1650,7 +1763,7 @@ export default function WorkspaceClient({
             </div>
 
             <div
-              className={`absolute bottom-0 left-1/2 -translate-x-1/2 z-[1001] ${
+              className={`absolute bottom-0 left-1/2 -translate-x-1/2 z-[1010] ${
                 drawingActive ? "pointer-events-none" : "pointer-events-auto"
               }`}
             >
@@ -1666,6 +1779,11 @@ export default function WorkspaceClient({
                 <span className="font-mono text-data-label text-on-surface-variant">
                   Analysis results ({candidates.length})
                 </span>
+                {shortlist.length > 0 && (
+                  <span className="font-mono text-[10px] uppercase mt-0.5 px-2 py-0.5 rounded border border-[#815504] text-[#815504]">
+                    Shortlist: {shortlist.length}
+                  </span>
+                )}
               </button>
             </div>
           </section>
@@ -1924,6 +2042,60 @@ export default function WorkspaceClient({
         </div>
       )}
 
+      {duplicateDialogOpen && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/40 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="duplicate-scenario-title"
+        >
+          <div className="bg-surface max-w-md w-full rounded-lg border border-outline-variant p-6 shadow-xl">
+            <h4 id="duplicate-scenario-title" className="text-headline-md mb-2">
+              Duplicate scenario
+            </h4>
+            <p className="text-body-sm text-on-surface-variant mb-4">
+              Create a named copy of <strong>{scenario.name}</strong> to explore alternatives
+              (e.g. flood-weight sensitivity). The copy starts without results — run analysis when
+              ready.
+            </p>
+            <label className="block mb-4">
+              <span className="font-mono text-data-label uppercase text-on-surface-variant">
+                Scenario name
+              </span>
+              <input
+                type="text"
+                value={duplicateNameDraft}
+                onChange={(e) => setDuplicateNameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void confirmDuplicateScenario();
+                  if (e.key === "Escape") setDuplicateDialogOpen(false);
+                }}
+                className="mt-2 w-full border border-outline-variant rounded px-3 py-2 text-body-sm"
+                autoFocus
+              />
+            </label>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setDuplicateDialogOpen(false)}
+                className="border border-outline-variant px-4 py-2 rounded text-body-sm"
+                disabled={duplicateBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDuplicateScenario()}
+                disabled={duplicateBusy}
+                className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-50"
+              >
+                {duplicateBusy ? "Duplicating…" : "Duplicate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {drawerOpen && (tab === "workspace" || tab === "results") ? (
         <ResultsDrawer
           open={drawerOpen}
@@ -2021,11 +2193,20 @@ export default function WorkspaceClient({
             setCompareBusy(true);
             setCompareError(null);
             try {
-              const data = await act("compare_scenarios", { scenarioIds: ids });
+              const data = (await act("compare_scenarios", { scenarioIds: ids })) as {
+                status?: string;
+                message?: string;
+                comparison?: Array<Record<string, string | number>> | null;
+                insights?: Array<{ heading: string; body: string }> | null;
+              };
               if (data.status === "incomplete") {
                 setComparison(null);
                 setCompareInsights(null);
-                setCompareHint(data.message ?? "Run analysis first for selected scenarios.");
+                setCompareHint(
+                  typeof data.message === "string"
+                    ? data.message
+                    : "Run analysis first for selected scenarios."
+                );
               } else {
                 setComparison(data.comparison ?? null);
                 setCompareInsights(data.insights ?? null);
@@ -2111,11 +2292,11 @@ export default function WorkspaceClient({
           onSelectReport={setReportId}
           onDownload={(message) => setToast(message)}
           onGenerate={async () => {
-            const data = await act("generate_report", {
+            const data = (await act("generate_report", {
               scenarioIds: [scenario.id],
               title: `${workspace.project.name} — ${scenario.name} Planning Report`,
-            });
-            setReportId(data.reportId);
+            })) as { reportId?: string };
+            if (data.reportId) setReportId(data.reportId);
             await refresh();
           }}
           generating={busy}
@@ -2292,7 +2473,7 @@ function ResultsDrawer(props: {
 
   return (
     <div
-      className={`absolute bottom-0 left-[300px] right-[360px] max-h-[42vh] z-[35] ${
+      className={`absolute bottom-0 left-[300px] right-[360px] max-h-[42vh] z-[1010] ${
         props.drawingActive ? "pointer-events-none" : "pointer-events-none"
       }`}
     >
@@ -3195,7 +3376,7 @@ function DecisionView(props: {
                 <strong>Your reason:</strong> {props.reason.trim() || "(none entered)"}
               </p>
               <p>
-                <strong>Limitations:</strong> {result?.limitations.slice(0, 2).join("; ") || "None"}
+                <strong>Limitations:</strong> {(result?.limitations ?? []).slice(0, 2).join("; ") || "None"}
               </p>
             </div>
             <div className="flex gap-3 justify-end">
@@ -3532,7 +3713,7 @@ function ReportView(props: {
             {generating && (
               <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
             )}
-            {generating ? "Generating…" : "Generate report"}
+            {generating ? "Generating…" : scenarioReports.length > 0 ? "Update report" : "Generate report"}
           </button>
         </div>
       </div>
