@@ -15,6 +15,7 @@ import {
   plannerSuggestions,
   routePlannerQuery,
   summarizeToolResult,
+  type PlannerRouteContext,
   type PlannerSuggestion,
 } from "@/lib/copilot/planner-query";
 import {
@@ -27,6 +28,10 @@ import { formatLocaleTime } from "@/lib/format";
 type UrbanPlanningCopilotProps = {
   projectId?: string | null;
   scenarioId?: string | null;
+  scenarioCount?: number;
+  scenarioIds?: string[];
+  topCandidateId?: string | null;
+  topCandidateLabel?: string | null;
   variant?: "sidebar" | "home";
   showActivityFeed?: boolean;
   onToolComplete?: () => void;
@@ -37,9 +42,17 @@ function toolDescription(name: string): string {
   return PLANNING_TOOL_META.find((t) => t.name === name)?.description ?? name;
 }
 
+function isKnownPlanningTool(name: string): boolean {
+  return PLANNING_TOOL_META.some((t) => t.name === name);
+}
+
 export function UrbanPlanningCopilot({
   projectId,
   scenarioId,
+  scenarioCount = 0,
+  scenarioIds = [],
+  topCandidateId,
+  topCandidateLabel,
   variant = "sidebar",
   showActivityFeed = true,
   onToolComplete,
@@ -50,19 +63,40 @@ export function UrbanPlanningCopilot({
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [activity, setActivity] = useState<CopilotActivityEntry[]>(() =>
     typeof window !== "undefined" ? listCopilotActivity() : []
   );
 
   const hasProject = Boolean(projectId);
-  const suggestions = useMemo(() => plannerSuggestions(hasProject), [hasProject]);
+  const routeContext = useMemo<PlannerRouteContext>(
+    () => ({
+      hasProject,
+      scenarioCount,
+      scenarioIds,
+      topCandidateId: topCandidateId ?? undefined,
+      topCandidateLabel: topCandidateLabel ?? undefined,
+    }),
+    [hasProject, scenarioCount, scenarioIds, topCandidateId, topCandidateLabel]
+  );
+
+  const suggestions = useMemo(
+    () => plannerSuggestions(routeContext),
+    [routeContext]
+  );
   const toolGroups = useMemo(
     () => buildCopilotToolGroups({ includeProjects: !hasProject }),
     [hasProject]
   );
 
   useEffect(() => onCopilotActivity((detail) => setActivity(detail.entries)), []);
+
+  useEffect(() => {
+    if (!statusMessage) return;
+    const timer = window.setTimeout(() => setStatusMessage(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [statusMessage]);
 
   const runTool = useCallback(
     async (tool: string, args: Record<string, unknown> = {}, userQuery?: string) => {
@@ -75,8 +109,61 @@ export function UrbanPlanningCopilot({
           status: "success",
           summary: `Opened ${href === "/explore" ? "Explore" : "New project"}.`,
         });
+        setStatusMessage(`Opened ${href === "/explore" ? "Explore" : "New project"}.`);
         return;
       }
+
+      if (!isKnownPlanningTool(tool)) {
+        const message = `There is no “${tool.replace(/_/g, " ")}” tool in this workspace — pick a tool from the list below or rephrase your request.`;
+        appendCopilotActivity({
+          tool: "planner",
+          query: userQuery,
+          status: "error",
+          summary: message,
+        });
+        setError(message);
+        return;
+      }
+
+      const mergedArgs: Record<string, unknown> = {
+        ...args,
+        ...(projectId && !args.projectId ? { projectId } : {}),
+        ...(scenarioId && !args.scenarioId ? { scenarioId } : {}),
+      };
+
+      if (tool === "add_to_shortlist" && !mergedArgs.candidateId) {
+        if (topCandidateId) {
+          mergedArgs.candidateId = topCandidateId;
+        } else {
+          const message =
+            "Run analysis first so I can rank candidates, then ask to pin or shortlist the top site.";
+          appendCopilotActivity({
+            tool: "planner",
+            query: userQuery,
+            status: "error",
+            summary: message,
+          });
+          setError(message);
+          return;
+        }
+      }
+
+      if (tool === "create_scenario_branch" && !mergedArgs.name) {
+        mergedArgs.name = "Scenario branch";
+      }
+
+      if (tool === "compare_scenarios" && !Array.isArray(mergedArgs.scenarioIds)) {
+        if (scenarioIds.length >= 2) {
+          mergedArgs.scenarioIds = scenarioIds;
+        }
+      }
+
+      const candidateLabel =
+        tool === "add_to_shortlist" &&
+        mergedArgs.candidateId === topCandidateId &&
+        topCandidateLabel
+          ? topCandidateLabel
+          : undefined;
 
       const entry = appendCopilotActivity({
         tool,
@@ -86,19 +173,15 @@ export function UrbanPlanningCopilot({
       });
       setBusy(true);
       setError(null);
+      setStatusMessage(`Running ${toolLabel(tool)}…`);
       try {
-        const mergedArgs = {
-          ...args,
-          ...(projectId && !args.projectId ? { projectId } : {}),
-          ...(scenarioId && !args.scenarioId ? { scenarioId } : {}),
-        };
         const result = await invokePlanningTool(tool, mergedArgs);
-        const summary = summarizeToolResult(tool, result);
+        const summary = summarizeToolResult(tool, result, { candidateLabel, query: userQuery });
         updateCopilotActivity(entry.id, {
           status: "success",
           summary,
-          detail: typeof result === "string" ? result : JSON.stringify(result, null, 2),
         });
+        setStatusMessage(summary);
         onToolComplete?.();
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
@@ -107,18 +190,27 @@ export function UrbanPlanningCopilot({
           summary: message,
         });
         setError(message);
+        setStatusMessage(message);
       } finally {
         setBusy(false);
       }
     },
-    [onToolComplete, projectId, router, scenarioId]
+    [
+      onToolComplete,
+      projectId,
+      router,
+      scenarioId,
+      scenarioIds,
+      topCandidateId,
+      topCandidateLabel,
+    ]
   );
 
   async function handleSubmit(event?: React.FormEvent) {
     event?.preventDefault();
     const trimmed = query.trim();
     if (!trimmed || busy) return;
-    const route = routePlannerQuery(trimmed, { hasProject });
+    const route = routePlannerQuery(trimmed, routeContext);
     setQuery("");
     if (route.kind === "message") {
       appendCopilotActivity({
@@ -127,6 +219,8 @@ export function UrbanPlanningCopilot({
         status: "success",
         summary: route.message,
       });
+      setStatusMessage(route.message);
+      setError(null);
       return;
     }
     await runTool(route.tool, route.args, trimmed);
@@ -295,6 +389,11 @@ export function UrbanPlanningCopilot({
             {error}
           </p>
         )}
+        {statusMessage && !error && (
+          <p role="status" className="text-caption text-primary">
+            {statusMessage}
+          </p>
+        )}
         <label className="sr-only" htmlFor="urban-planning-copilot-input">
           Ask Urban Planning Copilot
         </label>
@@ -316,9 +415,19 @@ export function UrbanPlanningCopilot({
           <button
             type="submit"
             disabled={busy || !query.trim()}
-            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm font-medium disabled:opacity-50 shrink-0"
+            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm font-medium disabled:opacity-50 shrink-0 flex items-center gap-1.5 min-w-[5.5rem] justify-center"
+            aria-busy={busy}
           >
-            {busy ? "…" : "Ask"}
+            {busy ? (
+              <>
+                <span className="material-symbols-outlined text-[16px] animate-spin">
+                  progress_activity
+                </span>
+                Working…
+              </>
+            ) : (
+              "Ask"
+            )}
           </button>
         </div>
         <p className="text-[10px] text-on-surface-variant">
@@ -352,7 +461,7 @@ export function CopilotActivityFeed({
       <h3 className="font-mono text-data-label text-on-surface-variant uppercase mb-2 border-b border-outline-variant pb-2">
         Copilot tool runs
       </h3>
-      <ul className="space-y-2">
+      <ul className="space-y-2" aria-live="polite">
         {recent.map((entry) => (
           <li key={entry.id} className="text-body-sm">
             <div className="font-mono text-[10px] text-on-surface-variant mb-0.5">

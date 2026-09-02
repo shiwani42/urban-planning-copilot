@@ -276,6 +276,7 @@ export function summarizeProjectForList(
   | "actionRequiredLabel"
   | "actionRequiredKind"
   | "resumeNote"
+  | "shortlistCount"
 > {
   const scenarios = store.scenarios.filter((s) => s.projectId === project.id);
   const approved = scenarios.find(
@@ -283,6 +284,7 @@ export function summarizeProjectForList(
   );
   const active =
     scenarios.find((s) => s.id === project.activeScenarioId) ?? scenarios[0];
+  const shortlistCount = active?.shortlist?.length ?? 0;
   const activeResult = active
     ? store.analysisResults.find((r) => r.id === active.latestResultId)
     : undefined;
@@ -345,6 +347,7 @@ export function summarizeProjectForList(
     actionRequiredLabel,
     actionRequiredKind,
     resumeNote,
+    shortlistCount: shortlistCount > 0 ? shortlistCount : undefined,
   };
 }
 
@@ -428,6 +431,7 @@ export async function listProjects(): Promise<ProjectListItem[]> {
         activeScenarioNote: summary.activeScenarioNote,
         actionRequiredLabel: summary.actionRequiredLabel,
         actionRequiredKind: summary.actionRequiredKind,
+        shortlistCount: summary.shortlistCount,
       };
     });
 }
