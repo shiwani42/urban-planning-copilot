@@ -10,6 +10,18 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   return NextResponse.json(ws);
 }
 
+export async function DELETE(_req: NextRequest, ctx: Ctx) {
+  const { projectId } = await ctx.params;
+  try {
+    await services.deleteProject(projectId);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const status = message.includes("not found") ? 404 : 400;
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
 export async function PATCH(req: NextRequest, ctx: Ctx) {
   const { projectId } = await ctx.params;
   const body = await req.json();
@@ -17,6 +29,13 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 
   try {
     switch (action) {
+      case "record_open":
+        await services.recordProjectOpen(projectId);
+        return NextResponse.json({ ok: true });
+      case "rename_project":
+        return NextResponse.json({
+          project: await services.renameProject(projectId, body.name),
+        });
       case "update_objective":
         return NextResponse.json(
           await services.updateObjective(projectId, body.objectiveText)

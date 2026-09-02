@@ -380,11 +380,21 @@ export interface Project {
   description?: string;
   createdAt: string;
   updatedAt: string;
+  lastOpenedAt?: string;
   activeScenarioId?: string;
   geographyLabel: string;
   mapState: MapState;
   mode: "explore" | "planning";
   resumeNote?: string;
+}
+
+export interface ProjectListItem {
+  id: string;
+  name: string;
+  updatedAt: string;
+  lastOpenedAt?: string;
+  resumeNote?: string;
+  geographyLabel: string;
 }
 
 export interface WorkspaceSnapshot {
