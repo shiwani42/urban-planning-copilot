@@ -12,6 +12,7 @@ import {
   type ExploreAnalysisType,
   type ExploreInvestigationResult,
 } from "@/lib/domain/explore";
+import { filterAnalysisCaveats } from "@/lib/domain/caveats";
 import { formatLocaleDateTime } from "@/lib/format";
 import type { Candidate, DatasetMeta } from "@/lib/domain/types";
 
@@ -316,13 +317,21 @@ export default function ExplorePage() {
             </div>
 
             <p className="text-body-sm">{result.summary}</p>
-            {result.limitations.length > 0 && (
+            {result.limitations.length > 0 && (() => {
+              const filtered = filterAnalysisCaveats(result.limitations, { max: 5 });
+              return (
               <ul className="text-caption text-secondary list-disc pl-5 space-y-1">
-                {result.limitations.map((l) => (
+                {filtered.map((l) => (
                   <li key={l}>{l}</li>
                 ))}
+                {result.limitations.length > filtered.length && (
+                  <li className="text-on-surface-variant list-none -ml-5">
+                    +{result.limitations.length - filtered.length} additional caveats in methodology
+                  </li>
+                )}
               </ul>
-            )}
+              );
+            })()}
 
             {showMethodology && (
               <div className="border border-outline-variant bg-surface p-4 space-y-3 text-body-sm">

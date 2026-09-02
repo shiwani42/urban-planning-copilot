@@ -6,6 +6,12 @@ import {
   loadSanFranciscoCity,
   syntheticSupplementDatasets,
 } from "./sf-data";
+import {
+  getStorageHealth,
+  markStorageDegraded,
+  markStorageHealthy,
+  type StorageHealth,
+} from "./storage-health";
 
 function dataDir(): string {
   return process.env.DATA_DIR ?? path.join(process.cwd(), "data");
@@ -108,17 +114,29 @@ async function upgradeCatalog(store: AppStore): Promise<boolean> {
   return upgraded;
 }
 
+async function verifyWritableDataDir(dir: string): Promise<void> {
+  await fs.mkdir(dir, { recursive: true });
+  const probe = path.join(dir, ".write-probe");
+  await fs.writeFile(probe, "ok", "utf8");
+  await fs.unlink(probe);
+}
+
 async function readStoreFromDisk(): Promise<AppStore> {
   const dir = dataDir();
-  await fs.mkdir(dir, { recursive: true });
+  await verifyWritableDataDir(dir);
   const pathToStore = storePath();
   const pathToBackup = backupPath();
 
   if (await fileExists(pathToStore)) {
     try {
       const raw = await fs.readFile(pathToStore, "utf8");
+      if (!raw.trim()) {
+        throw new Error("store.json is empty");
+      }
       const store = await parseStoreFile(raw, pathToStore);
-      await upgradeCatalog(store);
+      const upgraded = await upgradeCatalog(store);
+      markStorageHealthy(dir);
+      if (upgraded) await persist(store);
       return store;
     } catch (primaryErr) {
       if (await fileExists(pathToBackup)) {
@@ -127,11 +145,16 @@ async function readStoreFromDisk(): Promise<AppStore> {
           const store = await parseStoreFile(raw, pathToBackup);
           await upgradeCatalog(store);
           await persist(store);
+          markStorageHealthy(dir, "Recovered workspace from backup after primary store read failed.");
           return store;
         } catch {
           /* fall through */
         }
       }
+      markStorageDegraded(
+        dir,
+        primaryErr instanceof Error ? primaryErr.message : String(primaryErr)
+      );
       throw primaryErr;
     }
   }
@@ -141,11 +164,13 @@ async function readStoreFromDisk(): Promise<AppStore> {
     const store = await parseStoreFile(raw, pathToBackup);
     await upgradeCatalog(store);
     await persist(store);
+    markStorageHealthy(dir, "Restored workspace from backup.");
     return store;
   }
 
   const store = await buildDefaultStore();
   await persist(store);
+  markStorageHealthy(dir);
   return store;
 }
 
@@ -190,15 +215,24 @@ export async function persist(store: AppStore): Promise<void> {
   memory = store;
   memoryDataDir = dir;
   writeQueue = writeQueue.then(async () => {
-    await fs.mkdir(dir, { recursive: true });
-    const payload = JSON.stringify(store, null, 2);
-    const tmp = `${pathToStore}.tmp`;
-    await fs.writeFile(tmp, payload, "utf8");
-    if (await fileExists(pathToStore)) {
+    try {
+      await verifyWritableDataDir(dir);
+      const payload = JSON.stringify(store, null, 2);
+      const tmp = `${pathToStore}.tmp`;
+      await fs.writeFile(tmp, payload, "utf8");
+      if (await fileExists(pathToStore)) {
+        await fs.copyFile(pathToStore, pathToBackup);
+      }
+      await fs.rename(tmp, pathToStore);
       await fs.copyFile(pathToStore, pathToBackup);
+      markStorageHealthy(dir);
+    } catch (err) {
+      markStorageDegraded(
+        dir,
+        err instanceof Error ? err.message : String(err)
+      );
+      throw err;
     }
-    await fs.rename(tmp, pathToStore);
-    await fs.copyFile(pathToStore, pathToBackup);
   });
   await writeQueue;
 }
@@ -232,4 +266,12 @@ export async function resetStore(): Promise<AppStore> {
 
 export function getStorePath(): string {
   return storePath();
+}
+
+export function getConfiguredDataDir(): string {
+  return dataDir();
+}
+
+export function readStorageHealth(): StorageHealth {
+  return getStorageHealth(dataDir());
 }

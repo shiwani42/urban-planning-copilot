@@ -1,7 +1,12 @@
 import type { Scenario } from "./types";
 
 /** Copy a scenario for branching without structuredClone edge cases. */
-export function cloneScenarioForBranch(source: Scenario, id: string, name: string, at: string): Scenario {
+export function cloneScenarioForBranch(
+  source: Scenario,
+  id: string,
+  name: string,
+  at: string
+): Scenario {
   return {
     id,
     projectId: source.projectId,

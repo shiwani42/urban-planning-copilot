@@ -69,6 +69,22 @@ async function withAnalysisGate<T>(projectId: string, fn: () => Promise<T>): Pro
   }
 }
 
+function syncMapLayers(
+  mapState: MapState,
+  datasets: AppStore["datasets"]
+): MapState {
+  const existing = new Map(mapState.layers.map((l) => [l.datasetId, l]));
+  const layers = datasets.map((d) => {
+    const prior = existing.get(d.id);
+    if (prior) return prior;
+    return {
+      datasetId: d.id,
+      visible: ["parcels", "transit", "flood", "population", "schools", "parks"].includes(d.kind),
+    };
+  });
+  return { ...mapState, layers };
+}
+
 function defaultMapState(datasets: AppStore["datasets"]): MapState {
   return {
     viewport: {
@@ -316,8 +332,11 @@ export async function getWorkspace(projectId: string): Promise<WorkspaceSnapshot
   const store = await reloadStoreFromDisk();
   const project = store.projects.find((p) => p.id === projectId);
   if (!project) return null;
+  const syncedMap = syncMapLayers(project.mapState, store.datasets);
   return {
-    project,
+    project: syncedMap.layers.length !== project.mapState.layers.length
+      ? { ...project, mapState: syncedMap }
+      : project,
     scenarios: store.scenarios.filter((s) => s.projectId === projectId),
     decisions: store.decisions.filter((d) => d.projectId === projectId),
     activities: store.activities.filter((a) => a.projectId === projectId).slice(0, 200),
@@ -410,7 +429,14 @@ export async function createProject(input: {
     projectId = project.id;
   });
   const ws = await getWorkspace(projectId);
-  if (!ws) throw new Error("Failed to create project");
+  if (!ws) {
+    const listed = await listProjects();
+    throw new Error(
+      listed.length
+        ? "Project was created but could not be loaded — storage may be degraded. Retry or check /api/health."
+        : "Failed to create project — workspace storage may be unavailable."
+    );
+  }
   return duplicateNameWarning ? { ...ws, duplicateNameWarning: true } : ws;
 }
 

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as services from "@/lib/domain/services";
+import { readStorageHealth } from "@/lib/domain/store";
 
 export async function GET() {
   const projects = await services.listProjects();
-  return NextResponse.json({ projects });
+  return NextResponse.json({ projects, storage: readStorageHealth() });
 }
 
 export async function POST(req: NextRequest) {

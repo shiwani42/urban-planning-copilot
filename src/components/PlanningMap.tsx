@@ -16,6 +16,7 @@ import { featureIdsInExclusions, ringFromPolygon } from "@/lib/domain/geographic
 import { STUDY_BOUNDS } from "@/lib/domain/study-bounds";
 import BasemapLayer from "@/components/BasemapLayer";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
+import { layerSwatch } from "@/lib/domain/layer-styles";
 import L from "leaflet";
 
 export type MapDrawMode = "none" | "exclude" | "include" | "edit";
@@ -539,29 +540,38 @@ function DrawModeHandler({ enabled }: { enabled: boolean }) {
 export function MapLegend({
   visibleKinds,
   hasExclusions,
+  compact,
 }: {
   visibleKinds: Set<string>;
   hasExclusions?: boolean;
+  compact?: boolean;
 }) {
   const items: Array<{ label: string; swatch: ReactNode }> = [];
-  if (visibleKinds.has("flood")) {
+  const push = (kind: string) => {
+    const style = layerSwatch(kind);
+    const rounded =
+      kind === "transit" || kind === "schools" || kind === "population" || kind === "parks"
+        ? "rounded-full"
+        : kind === "infrastructure"
+          ? "rounded-sm"
+          : "";
     items.push({
-      label: "Flood risk",
-      swatch: <div className="w-3 h-3 bg-[#8ccff3]/70 border border-[#005e7d]" />,
+      label: style.label,
+      swatch: (
+        <div
+          className={`w-3 h-3 shrink-0 ${style.className} ${rounded}`}
+        />
+      ),
     });
-  }
-  if (visibleKinds.has("parcels")) {
-    items.push({
-      label: "Parcels / candidates",
-      swatch: <div className="w-3 h-3 bg-primary/30 border border-primary" />,
-    });
-  }
+  };
+  if (visibleKinds.has("flood")) push("flood");
+  if (visibleKinds.has("parcels")) push("parcels");
   if (hasExclusions) {
     items.push({
       label: "Geographically excluded",
       swatch: (
         <div
-          className="w-3 h-3 border border-[#ba1a1a]"
+          className="w-3 h-3 border border-[#ba1a1a] shrink-0"
           style={{
             background:
               "repeating-linear-gradient(135deg, #ba1a1a33 0, #ba1a1a33 2px, transparent 2px, transparent 4px)",
@@ -570,52 +580,85 @@ export function MapLegend({
       ),
     });
   }
-  if (visibleKinds.has("transit")) {
-    items.push({
-      label: "Transit",
-      swatch: <div className="w-2.5 h-2.5 bg-primary-container rounded-full" />,
-    });
-  }
-  if (visibleKinds.has("schools")) {
-    items.push({
-      label: "Schools",
-      swatch: (
-        <div className="w-2.5 h-2.5 bg-secondary-container rounded-full border border-secondary" />
-      ),
-    });
-  }
-  if (visibleKinds.has("population")) {
-    items.push({
-      label: "Population",
-      swatch: <div className="w-3 h-3 bg-outline-variant/50 rounded-full" />,
-    });
-  }
-  if (visibleKinds.has("parks")) {
-    items.push({
-      label: "Parks",
-      swatch: <div className="w-2.5 h-2.5 bg-tertiary-container rounded-full border border-tertiary" />,
-    });
-  }
-  if (visibleKinds.has("infrastructure")) {
-    items.push({
-      label: "Infrastructure",
-      swatch: <div className="w-2 h-2 bg-tertiary rounded-sm" />,
-    });
-  }
+  if (visibleKinds.has("transit")) push("transit");
+  if (visibleKinds.has("schools")) push("schools");
+  if (visibleKinds.has("population")) push("population");
+  if (visibleKinds.has("parks")) push("parks");
+  if (visibleKinds.has("infrastructure")) push("infrastructure");
   if (items.length === 0) {
     items.push({
       label: "No layers visible",
-      swatch: <div className="w-3 h-3 border border-outline-variant" />,
+      swatch: <div className="w-3 h-3 border border-outline-variant shrink-0" />,
     });
   }
   return (
-    <div className="space-y-1.5 text-caption">
+    <div className={`space-y-1.5 ${compact ? "text-[10px]" : "text-caption"}`}>
       {items.map((item) => (
         <div key={item.label} className="flex items-center gap-2">
           {item.swatch}
-          {item.label}
+          <span className="truncate">{item.label}</span>
         </div>
       ))}
     </div>
   );
+}
+
+export function captureMapPng(container: HTMLElement | null, filename: string): void {
+  if (!container) return;
+  const rect = container.getBoundingClientRect();
+  const canvas = document.createElement("canvas");
+  const scale = 2;
+  canvas.width = Math.max(1, Math.floor(rect.width * scale));
+  canvas.height = Math.max(1, Math.floor(rect.height * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.fillStyle = "#f0eded";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.scale(scale, scale);
+  const origin = container.getBoundingClientRect();
+  container.querySelectorAll("img.leaflet-tile").forEach((node) => {
+    const img = node as HTMLImageElement;
+    if (!img.complete || !img.naturalWidth) return;
+    const box = img.getBoundingClientRect();
+    ctx.drawImage(
+      img,
+      box.left - origin.left,
+      box.top - origin.top,
+      box.width,
+      box.height
+    );
+  });
+  const svg = container.querySelector("svg.leaflet-zoom-animated") as SVGSVGElement | null;
+  if (svg) {
+    const svgBox = svg.getBoundingClientRect();
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const blob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const overlay = new Image();
+    overlay.onload = () => {
+      ctx.drawImage(
+        overlay,
+        svgBox.left - origin.left,
+        svgBox.top - origin.top,
+        svgBox.width,
+        svgBox.height
+      );
+      URL.revokeObjectURL(url);
+      triggerDownload(canvas, filename);
+    };
+    overlay.onerror = () => {
+      URL.revokeObjectURL(url);
+      triggerDownload(canvas, filename);
+    };
+    overlay.src = url;
+    return;
+  }
+  triggerDownload(canvas, filename);
+}
+
+function triggerDownload(canvas: HTMLCanvasElement, filename: string) {
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
 }

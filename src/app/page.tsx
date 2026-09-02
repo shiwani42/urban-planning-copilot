@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppHeader } from "@/components/AppHeader";
+import { StorageBanner } from "@/components/StorageBanner";
 import { PlannerGreeting } from "@/components/PlannerGreeting";
 import { ProvenanceChip } from "@/components/workspace-hooks";
 import { formatRelativeTime, projectRecencyIso } from "@/lib/format";
@@ -414,6 +415,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-background flex flex-col" onClick={() => setMenuId(null)}>
       <AppHeader active="projects" />
+      <StorageBanner />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-section-padding py-10">
         <div className="flex flex-col lg:flex-row lg:items-start gap-10">
