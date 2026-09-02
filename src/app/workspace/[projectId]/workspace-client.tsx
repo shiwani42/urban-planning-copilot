@@ -19,10 +19,17 @@ import { resolvePendingPlannerAction } from "@/lib/webmcp/register-browser";
 import {
   dedupeLimitations,
   formatActivitySummary,
+  formatDecisionStatus,
+  formatDecisionType,
   formatLocaleDateTime,
   formatLocaleTime,
   formatReportDateTime,
 } from "@/lib/format";
+import { trackRecentProject } from "@/lib/project-recency";
+import {
+  normalizeTransitThresholdMeters,
+  TRANSIT_WALK_MAX_M,
+} from "@/lib/domain/transit-threshold";
 import type {
   Candidate,
   CriterionWeight,
@@ -134,6 +141,8 @@ export default function WorkspaceClient({
   const [activityId, setActivityId] = useState<string | null>(null);
   const [assumptionsOpen, setAssumptionsOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [transitDraftMeters, setTransitDraftMeters] = useState<number | null>(null);
+  const [transitThresholdWarning, setTransitThresholdWarning] = useState<string | null>(null);
   const [criteriaStaleHint, setCriteriaStaleHint] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const [pendingPlannerActions, setPendingPlannerActions] = useState<PendingPlannerAction[]>([]);
@@ -157,10 +166,19 @@ export default function WorkspaceClient({
     }
   }, [initialTab, tab]);
 
-  const scenario = workspace?.scenarios.find(
-    (s) => s.id === workspace.project.activeScenarioId
-  );
-  const result = workspace?.analysisResults.find((r) => r.id === scenario?.latestResultId);
+  const scenario = useMemo(() => {
+    const activeId = workspace?.project?.activeScenarioId;
+    if (!workspace || !activeId) return undefined;
+    return workspace.scenarios.find((s) => s.id === activeId);
+  }, [workspace]);
+
+  const result = useMemo(() => {
+    if (!workspace || !scenario?.latestResultId) return undefined;
+    return workspace.analysisResults.find((r) => r.id === scenario.latestResultId);
+  }, [workspace, scenario?.latestResultId]);
+
+  const hasAnyResult = Boolean(result);
+  const isFreshResult = Boolean(result && result.status === "completed" && !result.stale);
   const candidates = result?.candidates ?? [];
   const topCandidate = useMemo(() => {
     if (!result?.candidates.length) return null;
@@ -170,14 +188,14 @@ export default function WorkspaceClient({
     );
   }, [result]);
   const selectedCandidate = useMemo(() => {
-    const id = workspace?.project.mapState.selectedCandidateId;
-    const selectionScenarioId = workspace?.project.mapState.selectedCandidateScenarioId;
+    const id = workspace?.project?.mapState.selectedCandidateId;
+    const selectionScenarioId = workspace?.project?.mapState.selectedCandidateScenarioId;
     if (!id || !candidates.length || !scenario) return null;
     if (selectionScenarioId && selectionScenarioId !== scenario.id) return null;
     return candidates.find((x) => x.id === id || x.featureIds.includes(id)) ?? null;
   }, [
-    workspace?.project.mapState.selectedCandidateId,
-    workspace?.project.mapState.selectedCandidateScenarioId,
+    workspace?.project?.mapState.selectedCandidateId,
+    workspace?.project?.mapState.selectedCandidateScenarioId,
     candidates,
     scenario?.id,
   ]);
@@ -214,12 +232,22 @@ export default function WorkspaceClient({
   }, [workspace?.datasets]);
 
   useEffect(() => {
-    if (!workspace?.project.mapState.selectedCandidateId) return;
+    if (!workspace?.project) return;
+    trackRecentProject(workspace.project.id, workspace.project.name);
+  }, [workspace?.project?.id, workspace?.project?.name]);
+
+  useEffect(() => {
+    if (!workspace?.project?.mapState.selectedCandidateId) return;
     if (selectedCandidate && result?.id && result.id !== lastResultId) {
       setSelectionUpdated(true);
       setLastResultId(result.id);
     }
-  }, [workspace?.project.mapState.selectedCandidateId, selectedCandidate, result?.id, lastResultId]);
+  }, [
+    workspace?.project?.mapState.selectedCandidateId,
+    selectedCandidate,
+    result?.id,
+    lastResultId,
+  ]);
 
   useEffect(() => {
     if (!scenario) return;
@@ -231,10 +259,32 @@ export default function WorkspaceClient({
   }, [scenario?.id, scenario?.updatedAt]);
 
   useEffect(() => {
-    if (tab === "compare" && scenario && compareIds.length === 0) {
+    if (!scenario) return;
+    setTransitDraftMeters(null);
+    setTransitThresholdWarning(null);
+  }, [scenario?.id, scenario?.updatedAt]);
+
+  useEffect(() => {
+    if (tab !== "compare" || !workspace) return;
+    const withResults = workspace.scenarios.filter((s) =>
+      workspace.analysisResults.some((r) => r.id === s.latestResultId)
+    );
+    if (withResults.length >= 2) {
+      setCompareIds(withResults.map((s) => s.id));
+      return;
+    }
+    if (!scenario) return;
+    const parent = scenario.parentScenarioId
+      ? workspace.scenarios.find((s) => s.id === scenario.parentScenarioId)
+      : undefined;
+    const ids = new Set<string>([scenario.id]);
+    if (parent) ids.add(parent.id);
+    if (ids.size >= 2) {
+      setCompareIds([...ids]);
+    } else if (compareIds.length === 0) {
       setCompareIds([scenario.id]);
     }
-  }, [tab, scenario?.id, compareIds.length]);
+  }, [tab, workspace, scenario?.id, scenario?.parentScenarioId, compareIds.length]);
 
   useEffect(() => {
     if (!toast) return;
@@ -381,20 +431,33 @@ export default function WorkspaceClient({
 
   function scenarioStatusLabel(): string {
     if (runningJob) return runningJob.currentStep ?? "Analysis running…";
-    if (result) {
+    if (isFreshResult && result) {
       return `Analysis complete — ${result.candidates.length} candidates`;
+    }
+    if (hasAnyResult && result && (result.stale || result.status === "stale")) {
+      return `Results stale — ${result.candidates.length} candidates from last run (recalculate to apply changes)`;
     }
     return "No results yet — run analysis for this scenario";
   }
 
-  async function updateTransitThreshold(meters: number) {
+  async function commitTransitThreshold(rawMeters: number) {
     if (!scenario) return;
+    const normalized = normalizeTransitThresholdMeters(rawMeters);
+    setTransitDraftMeters(normalized.meters);
+    setTransitThresholdWarning(normalized.warning ?? null);
     const constraints = scenario.constraints.map((c) =>
       c.operator === "within_distance"
-        ? { ...c, value: meters, label: `Within ${meters}m of transit` }
+        ? {
+            ...c,
+            value: normalized.meters,
+            label: `Within ${normalized.meters}m of transit`,
+          }
         : c
     );
     await act("update_constraints", { scenarioId: scenario.id, constraints });
+    if (normalized.adjusted || normalized.warning) {
+      setToast(normalized.warning ?? `Transit threshold set to ${normalized.meters}m`);
+    }
   }
 
   function cancelDrawing() {
@@ -757,7 +820,12 @@ export default function WorkspaceClient({
             {accessHeadline.label}: {accessHeadline.value}
           </div>
         )}
-        {!result && scenario && (
+        {!hasAnyResult && scenario && (
+          <span className="shrink-0 text-caption text-on-surface-variant">
+            {scenarioStatusLabel()}
+          </span>
+        )}
+        {hasAnyResult && !isFreshResult && !runningJob && (
           <span className="shrink-0 text-caption text-on-surface-variant">
             {scenarioStatusLabel()}
           </span>
@@ -787,6 +855,39 @@ export default function WorkspaceClient({
       {error && (
         <div className="bg-error-container text-on-error-container px-4 py-2 text-body-sm">
           {error}
+        </div>
+      )}
+
+      {isFreshResult && topCandidate && !runningJob && (tab === "workspace" || tab === "results") && (
+        <div className="bg-primary-fixed/15 border-b border-primary-fixed/40 px-section-padding py-3 flex flex-wrap items-center gap-3 text-body-sm shrink-0">
+          <span className="font-medium text-primary">
+            Analysis complete — {result!.candidates.length} candidates. What&apos;s next?
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void selectCandidate(topCandidate, "evidence")}
+              className="bg-primary text-on-primary px-3 py-1.5 rounded text-caption font-medium"
+            >
+              Inspect top site
+            </button>
+            {workspace.scenarios.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setTab("compare")}
+                className="border border-primary text-primary px-3 py-1.5 rounded text-caption font-medium"
+              >
+                Compare scenarios
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setTab("decision")}
+              className="border border-outline-variant px-3 py-1.5 rounded text-caption"
+            >
+              Record decision
+            </button>
+          </div>
         </div>
       )}
 
@@ -856,18 +957,46 @@ export default function WorkspaceClient({
                           </span>
                         </span>
                         {c.operator === "within_distance" && (
-                          <label className="flex flex-col items-end gap-0.5 shrink-0">
+                          <label className="flex flex-col items-end gap-0.5 shrink-0 max-w-[11rem]">
                             <span className="sr-only">Transit proximity threshold in meters</span>
                             <span className="font-mono text-[10px] text-on-surface-variant uppercase">
-                              Meters
+                              Meters (walk ≤ {TRANSIT_WALK_MAX_M})
                             </span>
                             <input
                               type="number"
+                              min={100}
+                              max={2400}
                               aria-label="Transit proximity threshold in meters"
+                              aria-describedby={
+                                transitThresholdWarning ? "transit-threshold-warning" : undefined
+                              }
                               className="w-20 font-mono text-data-label bg-primary-fixed px-1.5 py-0.5 rounded text-primary"
-                              value={Number(c.value)}
-                              onChange={(e) => updateTransitThreshold(Number(e.target.value))}
+                              value={transitDraftMeters ?? Number(c.value)}
+                              onChange={(e) => {
+                                setTransitDraftMeters(Number(e.target.value));
+                                setTransitThresholdWarning(null);
+                              }}
+                              onBlur={(e) => {
+                                void commitTransitThreshold(Number(e.target.value));
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  void commitTransitThreshold(
+                                    Number((e.target as HTMLInputElement).value)
+                                  );
+                                }
+                              }}
                             />
+                            {transitThresholdWarning && (
+                              <span
+                                id="transit-threshold-warning"
+                                className="text-[10px] text-secondary text-right leading-tight"
+                                role="status"
+                              >
+                                {transitThresholdWarning}
+                              </span>
+                            )}
                           </label>
                         )}
                       </div>
@@ -1674,6 +1803,7 @@ export default function WorkspaceClient({
           scenario={scenario}
           result={result}
           topCandidate={topCandidate}
+          layerData={layerData}
           reason={decisionReason}
           setReason={(v) => {
             if (!scenario) return;
@@ -1693,7 +1823,7 @@ export default function WorkspaceClient({
                 reason: decisionReason.trim() || undefined,
               });
               setConfirmDecision(null);
-              setToast(`Decision recorded: ${type.replace(/_/g, " ")}`);
+              setToast(`Decision recorded: ${formatDecisionType(type)}`);
             } catch (e) {
               setDecisionError(e instanceof Error ? e.message : String(e));
             }
@@ -2407,6 +2537,7 @@ function DecisionView(props: {
   scenario: WorkspaceSnapshot["scenarios"][0];
   result: WorkspaceSnapshot["analysisResults"][0] | undefined;
   topCandidate: Candidate | null;
+  layerData: Record<string, GeoJSON.FeatureCollection>;
   reason: string;
   setReason: (v: string) => void;
   error: string | null;
@@ -2422,11 +2553,13 @@ function DecisionView(props: {
   const hasFreshAnalysis = analysisReady && !result?.stale;
   const decisionLabel =
     scenario.decisionStatus === "approved" && scenario.decisionStale
-      ? "approved (stale)"
-      : scenario.decisionStatus;
+      ? "Approved (stale)"
+      : formatDecisionStatus(scenario.decisionStatus);
+  const mapCandidates = result?.candidates ?? [];
 
   return (
-    <main className="flex-1 overflow-auto p-8 max-w-3xl">
+    <main className="flex-1 flex overflow-hidden min-h-0">
+      <div className="flex-1 overflow-auto p-8 max-w-3xl min-h-0">
       <h2 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">
         Review decision
       </h2>
@@ -2542,7 +2675,7 @@ function DecisionView(props: {
                   {formatLocaleDateTime(d.createdAt)}
                 </span>
                 <div>
-                  <ProvenanceChip kind="planner_decision" /> {d.type.replace(/_/g, " ")}
+                  <ProvenanceChip kind="planner_decision" /> {formatDecisionType(d.type)}
                   {d.reason ? ` — ${d.reason}` : ""}
                 </div>
               </li>
@@ -2559,7 +2692,7 @@ function DecisionView(props: {
         >
           <div className="bg-surface max-w-lg w-full rounded-lg border border-outline-variant p-6 shadow-xl">
             <h4 id="confirm-decision-title" className="text-headline-md mb-3">
-              Confirm {props.confirmType.replace(/_/g, " ")}
+              Confirm {formatDecisionType(props.confirmType)}
             </h4>
             <p className="text-body-sm text-on-surface-variant mb-4">
               You are about to record a planner decision on <strong>{scenario.name}</strong>.
@@ -2596,6 +2729,29 @@ function DecisionView(props: {
           </div>
         </div>
       )}
+      </div>
+
+      <aside className="hidden lg:flex flex-1 min-w-[300px] max-w-[50%] flex-col border-l border-outline-variant bg-surface-container-low min-h-0">
+        <div className="p-4 border-b border-outline-variant shrink-0">
+          <h4 className="font-mono text-data-label uppercase text-on-surface-variant">
+            Scenario map
+          </h4>
+          <p className="text-caption text-on-surface-variant mt-1">
+            {mapCandidates.length > 0
+              ? `${mapCandidates.length} candidates from ${result?.stale ? "last" : "current"} analysis`
+              : "Run analysis to see candidate sites on the map"}
+          </p>
+        </div>
+        <div className="flex-1 relative min-h-[280px]">
+          <PlanningMap
+            workspace={props.workspace}
+            layerData={props.layerData}
+            candidates={mapCandidates}
+            onSelectCandidate={() => undefined}
+            stale={Boolean(result?.stale)}
+          />
+        </div>
+      </aside>
     </main>
   );
 }

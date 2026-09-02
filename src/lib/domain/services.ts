@@ -864,7 +864,7 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
   });
 
   // Execute synchronously but expose stepwise activity (deterministic engine)
-  const live = await getStore();
+  const live = await reloadStoreFromDisk();
   const sc = requireScenario(live, projectId, scenarioId);
   const rejected = new Set(
     live.decisions
