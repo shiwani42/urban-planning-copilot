@@ -25,7 +25,20 @@ import {
   shortlistPinReason,
 } from "./shortlist";
 import { isHousingIntent, isAccessIntent } from "./intent";
-import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
+import {
+  buildComparisonInsights,
+  runSpatialAnalysis,
+  type ScenarioComparisonInput,
+} from "./spatial";
+import {
+  buildCompareTableRows,
+  buildHousingTargetSummaries,
+  buildScenarioInputsDiff,
+  comparisonResultsIdentical,
+  enrichComparisonRows,
+  RANK_SCORE_EXPLANATION,
+  type ScenarioInputSnapshot,
+} from "./compare";
 import { getStore, updateStore, reloadStoreFromDisk, StorePersistError } from "./store";
 import { STUDY_BOUNDS } from "./study-bounds";
 import { ToolError } from "./tool-errors";
@@ -1498,6 +1511,7 @@ export async function compareScenarios(projectId: string, scenarioIds: string[])
           ? scenario.objective.targetValue
           : undefined,
       intent: scenario.objective.intent,
+      shortlist: scenario.shortlist,
       result: result
         ? {
             candidates: result.candidates,
@@ -1523,10 +1537,32 @@ export async function compareScenarios(projectId: string, scenarioIds: string[])
       message: `Run analysis first for: ${missingAnalysis.map((r) => r.name).join(", ")}`,
     };
   }
+  const enriched = enrichComparisonRows(rows);
+  const inputSnapshots: ScenarioInputSnapshot[] = rows.map((r) => {
+    const scenario = store.scenarios.find((s) => s.id === r.scenarioId)!;
+    return {
+      scenarioId: r.scenarioId,
+      name: r.name,
+      weights: scenario.weights,
+      constraints: scenario.constraints,
+      assumptions: scenario.assumptions,
+      objective: scenario.objective,
+    };
+  });
+  const inputsDiff = buildScenarioInputsDiff(inputSnapshots);
+  const tableRows = buildCompareTableRows(enriched);
+  const housingTargets = buildHousingTargetSummaries(enriched);
+  const metricsIdentical = comparisonResultsIdentical(enriched);
+
   return {
-    comparison: compareScenarioMetrics(rows),
+    comparison: enriched,
+    tableRows,
+    inputsDiff,
+    housingTargets,
+    metricsIdentical,
     insights: buildComparisonInsights(rows),
     scenarios: scenarioIds.map((id) => store.scenarios.find((s) => s.id === id)),
+    rankScoreNote: RANK_SCORE_EXPLANATION,
     status: "ready" as const,
   };
 }
@@ -1921,7 +1957,7 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
     sections.push({
       heading: "Scenario comparison",
       kind: "comparison",
-      body: "Side-by-side metrics across selected scenarios. Rank scores are comparable within a scenario only.",
+      body: `${RANK_SCORE_EXPLANATION} Side-by-side metrics across selected scenarios.`,
       data: comparison.comparison,
     });
     if (comparison.insights.length) {

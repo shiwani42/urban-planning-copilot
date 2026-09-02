@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Component, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
   ProvenanceChip,
   useWorkspace,
@@ -19,7 +19,6 @@ import {
 } from "@/lib/planner-pending";
 import { resolvePendingPlannerAction } from "@/lib/webmcp/register-browser";
 import {
-  dedupeLimitations,
   formatActivitySummary,
   formatDecisionStatus,
   formatDecisionType,
@@ -53,10 +52,26 @@ import {
   resultsColumnsForIntent,
   type ResultsColumn,
 } from "@/lib/domain/results-display";
+import {
+  aggregateMetricValue,
+  analysisAggregateMetrics,
+  analysisLimitations,
+  candidateMetricValue,
+  candidateProvenance,
+  formatCandidateScore,
+  limitationsSummary,
+} from "@/lib/domain/analysis-display";
 import { filterAnalysisCaveats } from "@/lib/domain/caveats";
 import { objectiveTitleMismatchWarning } from "@/lib/objective-display";
 import { layerSwatch } from "@/lib/domain/layer-styles";
 import { rebalanceWeights } from "@/lib/domain/weights";
+import {
+  buildCompareTableRows,
+  RANK_SCORE_EXPLANATION,
+  type CompareTableRow,
+  type HousingTargetProgress,
+  type ScenarioInputsDiff,
+} from "@/lib/domain/compare";
 import {
   isCandidateShortlisted,
   resolveShortlist,
@@ -105,6 +120,48 @@ const TAB_PATHS: Tab[] = [
   "report",
 ];
 
+class TabErrorBoundary extends Component<
+  { tabName: string; children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidUpdate(prevProps: { tabName: string }) {
+    if (prevProps.tabName !== this.props.tabName && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <main className="flex-1 overflow-auto p-8 max-w-3xl">
+          <h2 className="text-headline-md text-error mb-2">{this.props.tabName} view error</h2>
+          <p className="text-body-sm text-on-surface-variant mb-4">
+            Something went wrong rendering this tab. Your project and analysis data are still
+            loaded — switch tabs or retry below.
+          </p>
+          <p className="text-caption font-mono text-on-surface-variant mb-4 border border-outline-variant p-3 rounded bg-surface-container-low">
+            {this.state.error.message}
+          </p>
+          <button
+            type="button"
+            onClick={() => this.setState({ error: null })}
+            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm"
+          >
+            Try again
+          </button>
+        </main>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function WorkspaceClient({
   projectId,
   initialTab = "workspace",
@@ -141,6 +198,13 @@ export default function WorkspaceClient({
   const [compareInsights, setCompareInsights] = useState<
     Array<{ heading: string; body: string }> | null
   >(null);
+  const [compareInputsDiff, setCompareInputsDiff] = useState<ScenarioInputsDiff | null>(null);
+  const [compareTableRows, setCompareTableRows] = useState<CompareTableRow[] | null>(null);
+  const [compareHousingTargets, setCompareHousingTargets] = useState<
+    Array<{ scenarioId: string; name: string; progress: HousingTargetProgress | null }> | null
+  >(null);
+  const [compareMetricsIdentical, setCompareMetricsIdentical] = useState(false);
+  const [compareSortKey, setCompareSortKey] = useState<"label" | "delta">("label");
   const [compareBusy, setCompareBusy] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
   const [compareHint, setCompareHint] = useState<string | null>(null);
@@ -166,6 +230,8 @@ export default function WorkspaceClient({
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
   const [duplicateNameDraft, setDuplicateNameDraft] = useState("");
   const [duplicateBusy, setDuplicateBusy] = useState(false);
+  const [highlightWeightsPanel, setHighlightWeightsPanel] = useState(false);
+  const weightsPanelRef = useRef<HTMLElement | null>(null);
 
   const setTab = useCallback(
     (next: Tab) => {
@@ -190,6 +256,15 @@ export default function WorkspaceClient({
     if (!workspace || !activeId) return undefined;
     return workspace.scenarios.find((s) => s.id === activeId);
   }, [workspace]);
+
+  useEffect(() => {
+    if (!highlightWeightsPanel) return;
+    const el = weightsPanelRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const timer = window.setTimeout(() => setHighlightWeightsPanel(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [highlightWeightsPanel, scenario?.id]);
 
   const result = useMemo(() => {
     if (!workspace || !scenario?.latestResultId) return undefined;
@@ -491,15 +566,15 @@ export default function WorkspaceClient({
     scenario?.objective.intent === "housing_capacity"
       ? scenario.objective.targetValue
       : undefined;
-  const totalCapacity = result?.aggregateMetrics.find((m) => m.key === "total_capacity")?.value;
+  const totalCapacity = aggregateMetricValue(result, "total_capacity");
   const enabledDatasetCount =
     scenario?.enabledDatasetIds.filter((id) =>
       workspace?.datasets.some((d) => d.id === id && d.enabled)
     ).length ?? workspace?.datasets.filter((d) => d.enabled).length ?? 0;
-  const targetGap = result?.aggregateMetrics.find((m) => m.key === "housing_target_gap");
+  const targetGap = analysisAggregateMetrics(result).find((m) => m.key === "housing_target_gap");
   const accessHeadline =
     scenario && result
-      ? headlineMetric(scenario.objective.intent, result.aggregateMetrics)
+      ? headlineMetric(scenario.objective.intent, analysisAggregateMetrics(result))
       : null;
   const hasParksDataset = Boolean(workspace?.datasets.some((d) => d.kind === "parks" && d.enabled));
   const resultsColumns = scenario
@@ -727,8 +802,10 @@ export default function WorkspaceClient({
       await act("create_scenario", { name, fromScenarioId: scenario.id });
       setCriteriaStaleHint(true);
       setDuplicateDialogOpen(false);
+      setTab("workspace");
+      setHighlightWeightsPanel(true);
       setToast(
-        `Created scenario "${name}" — analysis and decision were not copied. Run analysis when ready.`
+        `Created "${name}" — analysis and decision were not copied. Adjust priorities below (e.g. flood weight), then run analysis.`
       );
     } catch (e) {
       setToast(
@@ -1426,7 +1503,14 @@ export default function WorkspaceClient({
                 </div>
               </section>
 
-              <section>
+              <section
+                ref={weightsPanelRef}
+                className={
+                  highlightWeightsPanel
+                    ? "rounded border-2 border-primary bg-primary-fixed/10 p-3 -mx-1 shadow-sm"
+                    : undefined
+                }
+              >
                 <div className="flex justify-between mb-3">
                   <h3 className="font-mono text-data-label text-on-surface-variant uppercase">
                     Priorities
@@ -1440,6 +1524,11 @@ export default function WorkspaceClient({
                     Apply priorities
                   </button>
                 </div>
+                {highlightWeightsPanel && (
+                  <p className="text-body-sm text-primary mb-3" role="status">
+                    New scenario branch — change priority weights here before running analysis.
+                  </p>
+                )}
                 {weightSumRounded !== 100 && (
                   <p className="text-caption text-secondary mb-2" role="status">
                     Priorities sum to {weightSumRounded}% — adjust sliders (others rebalance automatically).
@@ -2148,7 +2237,7 @@ export default function WorkspaceClient({
           onDismissUpdated={() => setSelectionUpdated(false)}
           focusedRowIndex={focusedRowIndex}
           setFocusedRowIndex={setFocusedRowIndex}
-          resultLimitations={result?.limitations ?? []}
+          resultLimitations={analysisLimitations(result)}
           topCandidateId={topCandidate?.id}
           onSelect={(c) => selectCandidate(c, "evidence")}
           onToggleShortlist={async (c) => {
@@ -2196,6 +2285,12 @@ export default function WorkspaceClient({
           compareIds={compareIds}
           setCompareIds={setCompareIds}
           comparison={comparison}
+          tableRows={compareTableRows}
+          inputsDiff={compareInputsDiff}
+          housingTargets={compareHousingTargets}
+          metricsIdentical={compareMetricsIdentical}
+          sortKey={compareSortKey}
+          onSortKey={setCompareSortKey}
           insights={compareInsights}
           busy={compareBusy}
           error={compareError}
@@ -2225,11 +2320,24 @@ export default function WorkspaceClient({
                 status?: string;
                 message?: string;
                 comparison?: Array<Record<string, string | number>> | null;
+                tableRows?: CompareTableRow[] | null;
+                inputsDiff?: ScenarioInputsDiff | null;
+                housingTargets?: Array<{
+                  scenarioId: string;
+                  name: string;
+                  progress: HousingTargetProgress | null;
+                }> | null;
+                metricsIdentical?: boolean;
+                rankScoreNote?: string;
                 insights?: Array<{ heading: string; body: string }> | null;
               };
               if (data.status === "incomplete") {
                 setComparison(null);
                 setCompareInsights(null);
+                setCompareInputsDiff(null);
+                setCompareTableRows(null);
+                setCompareHousingTargets(null);
+                setCompareMetricsIdentical(false);
                 setCompareHint(
                   typeof data.message === "string"
                     ? data.message
@@ -2237,6 +2345,10 @@ export default function WorkspaceClient({
                 );
               } else {
                 setComparison(data.comparison ?? null);
+                setCompareTableRows(data.tableRows ?? null);
+                setCompareInputsDiff(data.inputsDiff ?? null);
+                setCompareHousingTargets(data.housingTargets ?? null);
+                setCompareMetricsIdentical(Boolean(data.metricsIdentical));
                 setCompareInsights(data.insights ?? null);
                 setCompareHint(null);
               }
@@ -2256,8 +2368,9 @@ export default function WorkspaceClient({
           }}
         />
       )}
-      {tab === "decision" && (
-        <DecisionView
+      {tab === "decision" && scenario && (
+        <TabErrorBoundary tabName="Decision">
+          <DecisionView
           workspace={workspace}
           scenario={scenario}
           result={result}
@@ -2295,7 +2408,8 @@ export default function WorkspaceClient({
               setDecisionError(e instanceof Error ? e.message : String(e));
             }
           }}
-        />
+          />
+        </TabErrorBoundary>
       )}
       {tab === "activity" && (
         <ActivityView
@@ -2304,8 +2418,9 @@ export default function WorkspaceClient({
           onSelect={setActivityId}
         />
       )}
-      {tab === "report" && (
-        <ReportView
+      {tab === "report" && scenario && (
+        <TabErrorBoundary tabName="Report">
+          <ReportView
           workspace={workspace}
           scenario={scenario}
           result={result}
@@ -2329,6 +2444,7 @@ export default function WorkspaceClient({
           }}
           generating={busy}
         />
+        </TabErrorBoundary>
       )}
       {inspectDatasetId && workspace && (() => {
         const inspectDataset = workspace.datasets.find((d) => d.id === inspectDatasetId);
@@ -2401,7 +2517,7 @@ function ShortlistPanel(props: {
                     )}
                     {entry.candidate && (
                       <span className="font-mono text-caption text-on-surface-variant">
-                        Rank {entry.candidate.rank} · {entry.candidate.score.toFixed(1)}
+                        Rank {entry.candidate.rank} · {formatCandidateScore(entry.candidate)}
                       </span>
                     )}
                     {entry.missing && (
@@ -2493,11 +2609,14 @@ function ResultsDrawer(props: {
   const evidenceMetrics = selected
     ? evidenceMetricsForCandidate(selected, intent)
     : [];
-  const limitationText = dedupeLimitations(
+  const limitationText = limitationsSummary(
     props.resultLimitations.length > 0
       ? props.resultLimitations
-      : selected?.provenance.limitations ?? []
-  ).join("; ") || "None noted";
+      : selected
+        ? candidateProvenance(selected, props.resultLimitations).limitations
+        : [],
+    { fallback: "None noted" }
+  );
 
   return (
     <div
@@ -2717,7 +2836,7 @@ function ResultsDrawer(props: {
             )}
             {result && (
               <div className="mt-4 grid grid-cols-2 gap-3">
-                {result.aggregateMetrics
+                {analysisAggregateMetrics(result)
                   .filter(
                     (m) =>
                       m.key !== "housing_target_gap" &&
@@ -2751,17 +2870,21 @@ function ResultsDrawer(props: {
               </p>
             ) : (
               <div className="space-y-4">
+                {(() => {
+                  const provenance = candidateProvenance(selected, props.resultLimitations);
+                  return (
+                    <>
                 <div>
                   <h3 className="text-headline-md mb-1">{selected.label}</h3>
                   <div className="flex gap-2 items-center flex-wrap">
                     {props.topCandidateId === selected.id && (
                       <ProvenanceChip kind="copilot_recommendation" />
                     )}
-                    <span className="font-mono text-data-label">Score {selected.score.toFixed(1)}</span>
+                    <span className="font-mono text-data-label">Score {formatCandidateScore(selected)}</span>
                     {props.housingTarget != null && housingAnalysis && (
                       <span className="text-caption text-on-surface-variant">
                         Capacity{" "}
-                        {selected.metrics.find((m) => m.key === "capacity")?.value ?? "—"} vs goal{" "}
+                        {candidateMetricValue(selected, "capacity") ?? "—"} vs goal{" "}
                         {props.housingTarget.toLocaleString()} homes
                       </span>
                     )}
@@ -2770,7 +2893,7 @@ function ResultsDrawer(props: {
                 <div>
                   <h4 className="font-mono text-data-label uppercase mb-2">Score breakdown</h4>
                   <ul className="text-body-sm space-y-1">
-                    {Object.entries(selected.provenance.scoreBreakdown).map(([k, v]) => (
+                    {Object.entries(provenance.scoreBreakdown).map(([k, v]) => (
                       <li key={k} className="flex justify-between gap-4">
                         <span className="text-on-surface-variant">
                           {k.replace(/_/g, " ")} (weighted contribution)
@@ -2780,7 +2903,7 @@ function ResultsDrawer(props: {
                     ))}
                     <li className="flex justify-between gap-4 font-medium border-t border-outline-variant pt-1">
                       <span>Total score</span>
-                      <span className="font-mono">{selected.score.toFixed(1)}</span>
+                      <span className="font-mono">{formatCandidateScore(selected)}</span>
                     </li>
                   </ul>
                   <p className="text-caption text-on-surface-variant mt-2">
@@ -2811,8 +2934,8 @@ function ResultsDrawer(props: {
                   <ul className="text-caption space-y-1 text-on-surface-variant">
                     <li className="flex flex-wrap items-center gap-1">
                       <span>Datasets:</span>
-                      {selected.provenance.datasets.length > 0
-                        ? selected.provenance.datasets.map((id) => (
+                      {provenance.datasets.length > 0
+                        ? provenance.datasets.map((id) => (
                             <DatasetRefChip
                               key={id}
                               label={id}
@@ -2822,8 +2945,8 @@ function ResultsDrawer(props: {
                           ))
                         : "—"}
                     </li>
-                    <li>Assumptions: {selected.provenance.assumptions.join(", ")}</li>
-                    <li>Constraints: {selected.provenance.constraints.join("; ")}</li>
+                    <li>Assumptions: {provenance.assumptions.join(", ") || "—"}</li>
+                    <li>Constraints: {provenance.constraints.join("; ") || "—"}</li>
                     <li>Limitations: {limitationText}</li>
                   </ul>
                 </div>
@@ -2848,6 +2971,9 @@ function ResultsDrawer(props: {
                     <ProvenanceChip kind="planner_decision" /> Rejected: {selected.rejectionReason}
                   </p>
                 )}
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -3020,30 +3146,112 @@ function EvidenceView({
   );
 }
 
-function formatCompareCell(value: string | number | undefined): string {
-  if (value == null || value === "") return "—";
-  if (typeof value === "number") return value.toLocaleString();
-  return String(value);
-}
+function CompareMetricsTable(props: {
+  scenarioNames: string[];
+  rows: CompareTableRow[];
+  sortKey: "label" | "delta";
+  onSortKey: (key: "label" | "delta") => void;
+  showDelta?: boolean;
+  sortable?: boolean;
+}) {
+  const sorted = [...props.rows].sort((a, b) => {
+    if (props.sortKey === "delta") {
+      return b.sortValue - a.sortValue || a.label.localeCompare(b.label);
+    }
+    return a.label.localeCompare(b.label);
+  });
 
-const COMPARE_METRICS: Array<{ key: string; label: string }> = [
-  { key: "eligible_count", label: "Eligible areas" },
-  { key: "meets_target_count", label: "Meet housing target alone" },
-  { key: "total_capacity", label: "Est. housing capacity" },
-  { key: "avg_transit_distance", label: "Avg transit distance (m)" },
-  { key: "median_transit_distance", label: "Median transit distance (m)" },
-  { key: "top_candidate", label: "Top candidate" },
-  { key: "top_candidate_capacity", label: "Top candidate capacity" },
-  { key: "top_rank_score", label: "Top rank score (scenario-local)" },
-  { key: "top_3", label: "Top 3 candidates" },
-  { key: "weight_profile", label: "Priority weights" },
-];
+  return (
+    <div className="overflow-auto border border-outline-variant bg-surface-container-lowest">
+      {props.sortable !== false && (
+        <div className="flex flex-wrap gap-2 p-3 border-b border-outline-variant text-caption">
+        <span className="text-on-surface-variant">Sort rows by:</span>
+        <button
+          type="button"
+          className={`px-2 py-0.5 rounded border ${
+            props.sortKey === "label"
+              ? "border-primary bg-primary-fixed/20 text-primary"
+              : "border-outline-variant"
+          }`}
+          onClick={() => props.onSortKey("label")}
+        >
+          Metric name
+        </button>
+        <button
+          type="button"
+          className={`px-2 py-0.5 rounded border ${
+            props.sortKey === "delta"
+              ? "border-primary bg-primary-fixed/20 text-primary"
+              : "border-outline-variant"
+          }`}
+          onClick={() => props.onSortKey("delta")}
+        >
+          Largest delta
+        </button>
+      </div>
+      )}
+      <table className="w-full text-body-sm">
+        <thead className="bg-surface-container-low font-mono text-data-label">
+          <tr>
+            <th className="p-3 text-left">Metric</th>
+            {props.scenarioNames.map((name) => (
+              <th key={name} className="p-3 text-left">
+                {name}
+              </th>
+            ))}
+            {props.showDelta !== false && props.scenarioNames.length === 2 && (
+              <th className="p-3 text-left">Δ</th>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((row) => (
+            <tr
+              key={row.key}
+              className={`border-t border-outline-variant ${
+                row.identical ? "" : "bg-surface-container-low/40"
+              }`}
+            >
+              <td className="p-3 font-mono text-caption">{row.label}</td>
+              {row.cells.map((cell, i) => (
+                <td key={`${row.key}-${i}`} className="p-3 font-mono">
+                  {row.applicable ? (
+                    cell
+                  ) : (
+                    <span className="text-caption text-on-surface-variant italic">
+                      not in this analysis
+                    </span>
+                  )}
+                </td>
+              ))}
+              {props.showDelta !== false && props.scenarioNames.length === 2 && (
+                <td className="p-3 font-mono text-caption">
+                  {row.applicable ? (row.delta ?? "—") : "—"}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function CompareView(props: {
   workspace: WorkspaceSnapshot;
   compareIds: string[];
   setCompareIds: Dispatch<SetStateAction<string[]>>;
   comparison: Array<Record<string, string | number>> | null;
+  tableRows: CompareTableRow[] | null;
+  inputsDiff: ScenarioInputsDiff | null;
+  housingTargets: Array<{
+    scenarioId: string;
+    name: string;
+    progress: HousingTargetProgress | null;
+  }> | null;
+  metricsIdentical: boolean;
+  sortKey: "label" | "delta";
+  onSortKey: (key: "label" | "delta") => void;
   insights: Array<{ heading: string; body: string }> | null;
   busy?: boolean;
   error?: string | null;
@@ -3054,6 +3262,11 @@ function CompareView(props: {
   onPrefer: (id: string) => Promise<void>;
 }) {
   const { workspace } = props;
+  const scenarioNames =
+    props.comparison?.map((row) => String(row.name)) ??
+    props.compareIds
+      .map((id) => workspace.scenarios.find((s) => s.id === id)?.name)
+      .filter((n): n is string => Boolean(n));
 
   function toggleScenario(id: string) {
     props.setCompareIds((prev) => {
@@ -3071,16 +3284,27 @@ function CompareView(props: {
     });
   }
 
+  const showResults =
+    props.comparison &&
+    props.comparison.length > 0 &&
+    props.tableRows &&
+    props.tableRows.length > 0;
+
   return (
     <main className="flex-1 overflow-auto p-8">
       <h2 className="text-display mb-2">Scenario comparison</h2>
-      <p className="text-body-sm text-on-surface-variant mb-2">
+      <p className="text-body-sm text-on-surface-variant mb-6">
         Select two or more scenarios with completed analysis, then compare trade-offs.
       </p>
-      <p className="text-caption text-on-surface-variant mb-6">
-        Rank scores are comparable within a scenario only — use ranking shifts and capacity metrics
-        to evaluate differences.
-      </p>
+
+      <div
+        className="mb-6 border border-secondary/40 bg-secondary-fixed/10 px-4 py-3 rounded"
+        role="note"
+      >
+        <p className="text-body-sm font-medium text-secondary mb-1">Rank score comparability</p>
+        <p className="text-caption text-on-surface-variant">{RANK_SCORE_EXPLANATION}</p>
+      </div>
+
       <div className="flex flex-wrap gap-3 mb-2" role="group" aria-label="Scenarios to compare">
         {props.workspace.scenarios.map((s) => {
           const on = props.compareIds.includes(s.id);
@@ -3121,9 +3345,17 @@ function CompareView(props: {
         </p>
       )}
       {props.compareIds.length < 2 && (
-        <p className="text-caption text-on-surface-variant mb-3">
-          Select at least two scenarios to enable comparison.
-        </p>
+        <div
+          className="mb-4 border border-dashed border-outline-variant rounded p-6 text-center bg-surface-container-low"
+          role="status"
+        >
+          <p className="text-body-sm text-on-surface-variant">
+            Select at least two scenarios above to enable comparison.
+          </p>
+          <p className="text-caption text-on-surface-variant mt-1">
+            Scenarios without analysis can be run inline from this tab.
+          </p>
+        </div>
       )}
       <button
         type="button"
@@ -3133,7 +3365,7 @@ function CompareView(props: {
           e.stopPropagation();
           void props.onCompare();
         }}
-        className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40 mb-2"
+        className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40 mb-4"
       >
         {props.busy ? "Comparing…" : `Compare selected (${props.compareIds.length})`}
       </button>
@@ -3150,35 +3382,88 @@ function CompareView(props: {
           Building comparison…
         </p>
       )}
-      {props.comparison && props.comparison.length > 0 && (
-        <div className="overflow-auto border border-outline-variant bg-surface-container-lowest mb-6">
-          <table className="w-full text-body-sm">
-            <thead className="bg-surface-container-low font-mono text-data-label">
-              <tr>
-                <th className="p-3 text-left">Metric</th>
-                {props.comparison.map((row) => (
-                  <th key={String(row.scenarioId)} className="p-3 text-left">
-                    {row.name}
-                  </th>
+
+      {!props.busy && props.compareIds.length >= 2 && !showResults && !props.error && (
+        <div
+          className="mb-6 border border-dashed border-outline-variant rounded p-6 text-center bg-surface-container-low"
+          role="status"
+        >
+          <p className="text-body-sm text-on-surface-variant">
+            Press <strong>Compare selected</strong> to load metrics for the chosen scenarios.
+          </p>
+        </div>
+      )}
+
+      {props.inputsDiff && showResults && (
+        <section className="mb-6 border border-outline-variant bg-surface-container-low p-4 space-y-4">
+          <h3 className="font-mono text-data-label uppercase text-on-surface-variant">
+            Inputs — assumptions, weights &amp; constraints
+          </h3>
+          {props.inputsDiff.identicalMessage && (
+            <p className="text-body-sm text-secondary border border-secondary/30 bg-secondary-fixed/10 px-3 py-2 rounded" role="status">
+              {props.inputsDiff.identicalMessage}
+            </p>
+          )}
+          {props.inputsDiff.sections.map((section) => (
+            <div key={section.heading}>
+              <h4 className="text-body-sm font-medium mb-1">
+                {section.heading}
+                {section.identical && (
+                  <span className="ml-2 text-caption text-on-surface-variant">(match)</span>
+                )}
+              </h4>
+              <ul className="text-body-sm text-on-surface-variant list-disc pl-5 space-y-0.5">
+                {section.lines.map((line) => (
+                  <li key={line}>{line}</li>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {COMPARE_METRICS.map(({ key, label }) => (
-                  <tr key={key} className="border-t border-outline-variant">
-                    <td className="p-3 font-mono text-caption">{label}</td>
-                    {props.comparison!.map((row) => (
-                      <td key={String(row.scenarioId)} className="p-3 font-mono">
-                        {formatCompareCell(row[key] as string | number | undefined)}
-                      </td>
-                    ))}
-                  </tr>
-                )
-              )}
-            </tbody>
-          </table>
-          <div className="p-4 flex flex-wrap gap-2 border-t border-outline-variant">
-            {props.comparison.map((row) => (
+              </ul>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {props.housingTargets?.some((h) => h.progress) && showResults && (
+        <section className="mb-6 space-y-2">
+          <h3 className="font-mono text-data-label uppercase text-on-surface-variant">
+            Housing target vs units
+          </h3>
+          {props.housingTargets
+            .filter((h) => h.progress)
+            .map((h) => (
+              <p
+                key={h.scenarioId}
+                className="text-body-sm border border-primary-fixed/40 bg-primary-fixed/10 px-3 py-2 rounded"
+              >
+                <strong>{h.name}:</strong> {h.progress!.summary}
+              </p>
+            ))}
+        </section>
+      )}
+
+      {showResults && props.metricsIdentical && props.inputsDiff?.allIdentical && (
+        <div
+          className="mb-4 border border-outline-variant bg-surface-container-low px-4 py-3 rounded"
+          role="status"
+        >
+          <p className="text-body-sm text-on-surface-variant">
+            Compared scenarios produced <strong>identical metrics</strong> because inputs are
+            unchanged. Adjust weights or constraints on one branch, re-run analysis, then compare
+            again.
+          </p>
+        </div>
+      )}
+
+      {showResults && props.tableRows && (
+        <div className="mb-6">
+          <CompareMetricsTable
+            scenarioNames={scenarioNames}
+            rows={props.tableRows}
+            sortKey={props.sortKey}
+            onSortKey={props.onSortKey}
+            sortable
+          />
+          <div className="p-4 flex flex-wrap gap-2 border border-t-0 border-outline-variant bg-surface-container-lowest">
+            {props.comparison!.map((row) => (
               <button
                 key={String(row.scenarioId)}
                 onClick={() => props.onPrefer(String(row.scenarioId))}
@@ -3190,7 +3475,8 @@ function CompareView(props: {
           </div>
         </div>
       )}
-      {props.insights && props.insights.length > 0 && (
+
+      {props.insights && props.insights.length > 0 && showResults && (
         <div className="space-y-3 border border-outline-variant bg-surface-container-low p-4">
           <h3 className="font-mono text-data-label uppercase text-on-surface-variant">
             Trade-off insights
@@ -3263,8 +3549,10 @@ function DecisionView(props: {
         <p className="text-body-sm font-medium text-primary mb-4 border border-primary-fixed/40 bg-primary-fixed/10 px-3 py-2 rounded">
           {housingGoalSummary({
             target: scenario.objective.targetValue,
-            totalCapacity: result.aggregateMetrics.find((m) => m.key === "total_capacity")?.value,
-            targetGapMetric: result.aggregateMetrics.find((m) => m.key === "housing_target_gap"),
+            totalCapacity: aggregateMetricValue(result, "total_capacity"),
+            targetGapMetric: analysisAggregateMetrics(result).find(
+              (m) => m.key === "housing_target_gap"
+            ),
           }) ?? "Housing target metrics unavailable — recalculate analysis."}
         </p>
       )}
@@ -3272,7 +3560,7 @@ function DecisionView(props: {
         <ProvenanceChip kind="copilot_recommendation" />
         <p className="text-body-sm mt-2">
           {topCandidate
-            ? `Copilot recommends ${topCandidate.label} (score ${topCandidate.score.toFixed(1)}).`
+            ? `Copilot recommends ${topCandidate.label} (score ${formatCandidateScore(topCandidate)}).`
             : "No recommendation available yet."}
         </p>
       </div>
@@ -3305,7 +3593,7 @@ function DecisionView(props: {
         </p>
         <p className="text-body-sm text-secondary">
           <strong>Limitations:</strong>{" "}
-          {dedupeLimitations(result?.limitations ?? []).join("; ") || "None recorded"}
+          {limitationsSummary(analysisLimitations(result), { fallback: "None recorded" })}
         </p>
       </section>
       <label className="block mb-4">
@@ -3398,13 +3686,16 @@ function DecisionView(props: {
             <div className="text-body-sm space-y-2 mb-4 border border-outline-variant p-3 rounded bg-surface-container-low">
               <p>
                 <strong>Copilot recommendation:</strong>{" "}
-                {topCandidate ? `${topCandidate.label} (score ${topCandidate.score.toFixed(1)})` : "—"}
+                {topCandidate
+                  ? `${topCandidate.label} (score ${formatCandidateScore(topCandidate)})`
+                  : "—"}
               </p>
               <p>
                 <strong>Your reason:</strong> {props.reason.trim() || "(none entered)"}
               </p>
               <p>
-                <strong>Limitations:</strong> {(result?.limitations ?? []).slice(0, 2).join("; ") || "None"}
+                <strong>Limitations:</strong>{" "}
+                {limitationsSummary(analysisLimitations(result), { max: 2, fallback: "None" })}
               </p>
             </div>
             <div className="flex gap-3 justify-end">
@@ -3652,8 +3943,10 @@ function ReportView(props: {
     props.result && props.scenario.objective.intent === "housing_capacity"
       ? housingGoalSummary({
           target: props.scenario.objective.targetValue,
-          totalCapacity: props.result.aggregateMetrics.find((m) => m.key === "total_capacity")?.value,
-          targetGapMetric: props.result.aggregateMetrics.find((m) => m.key === "housing_target_gap"),
+          totalCapacity: aggregateMetricValue(props.result, "total_capacity"),
+          targetGapMetric: analysisAggregateMetrics(props.result).find(
+            (m) => m.key === "housing_target_gap"
+          ),
         })
       : null;
 
@@ -3822,31 +4115,16 @@ function ReportView(props: {
               </div>
               <p className="text-body-sm whitespace-pre-wrap text-on-surface-variant">{s.body}</p>
               {s.data != null && Array.isArray(s.data) && s.kind === "comparison" && (
-                <div className="mt-3 overflow-auto border border-outline-variant">
-                  <table className="w-full text-body-sm">
-                    <thead className="bg-surface-container-low font-mono text-data-label">
-                      <tr>
-                        <th className="p-2 text-left">Metric</th>
-                        {(s.data as Array<Record<string, string | number>>).map((row) => (
-                          <th key={String(row.scenarioId)} className="p-2 text-left">
-                            {row.name}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {COMPARE_METRICS.map(({ key, label }) => (
-                        <tr key={key} className="border-t border-outline-variant">
-                          <td className="p-2 font-mono text-caption">{label}</td>
-                          {(s.data as Array<Record<string, string | number>>).map((row) => (
-                            <td key={String(row.scenarioId)} className="p-2 font-mono">
-                              {formatCompareCell(row[key])}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="mt-3">
+                  <CompareMetricsTable
+                    scenarioNames={(s.data as Array<Record<string, string | number>>).map((row) =>
+                      String(row.name)
+                    )}
+                    rows={buildCompareTableRows(s.data as Array<Record<string, string | number>>)}
+                    sortKey="label"
+                    onSortKey={() => undefined}
+                    sortable={false}
+                  />
                 </div>
               )}
               {s.data != null &&
