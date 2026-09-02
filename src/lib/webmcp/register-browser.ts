@@ -67,7 +67,7 @@ function mergeArgsWithBrowserContext(rawArgs: Record<string, unknown>) {
   };
 }
 
-function navigateToWorkspace(result: unknown) {
+async function navigateToWorkspace(result: unknown) {
   if (typeof window === "undefined") return;
   const payload = (result ?? {}) as { projectId?: string; workspaceUrl?: string };
   const path =
@@ -75,6 +75,18 @@ function navigateToWorkspace(result: unknown) {
     (payload.projectId ? `/workspace/${payload.projectId}` : null);
   if (!path) return;
   const target = path.startsWith("/") ? path : `/${path}`;
+
+  if (payload.projectId) {
+    const verify = await fetch(`/api/projects/${payload.projectId}`, {
+      cache: "no-store",
+    });
+    if (!verify.ok) {
+      throw new Error(
+        `Workspace was not saved on the server (project ${payload.projectId} not found). Retry create when storage is healthy.`
+      );
+    }
+  }
+
   if (!window.location.pathname.startsWith(target)) {
     window.location.assign(target);
   }

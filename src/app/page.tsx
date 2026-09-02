@@ -15,6 +15,7 @@ import {
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
 import { fetchJsonWithRetry } from "@/lib/fetch-json";
 import { UrbanPlanningCopilot } from "@/components/UrbanPlanningCopilot";
+import { useStorageStatus } from "@/lib/storage-status";
 
 const DELETED_LAST_PROJECT_KEY = "upc-deleted-last-project";
 
@@ -101,16 +102,17 @@ export default function HomePage() {
   const [recoverableIds, setRecoverableIds] = useState<string[]>([]);
   const [recoveryChecked, setRecoveryChecked] = useState(false);
   const [deletedLastProject, setDeletedLastProject] = useState(false);
+  const storageStatus = useStorageStatus();
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await fetchJsonWithRetry<{ projects?: Project[]; error?: string }>(
-        "/api/projects",
-        { cache: "no-store" },
-        { label: "Load projects" }
-      );
+      const { data } = await fetchJsonWithRetry<{
+        projects?: Project[];
+        storage?: { status?: string };
+        error?: string;
+      }>("/api/projects", { cache: "no-store" }, { label: "Load projects" });
       setProjects(data.projects ?? []);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -373,6 +375,17 @@ export default function HomePage() {
     );
   }
 
+  const storageHealthy =
+    storageStatus.status === "healthy" && storageStatus.writeProbeOk !== false;
+  const showOrphanHints =
+    !loading &&
+    !error &&
+    storageHealthy &&
+    projects.length === 0 &&
+    recentHints.length > 0 &&
+    recoveryChecked &&
+    recoverableIds.length === 0;
+
   function renderProjectCard(project: Project, variant: "continue" | "all") {
     const isRenaming = renamingId === project.id;
     const cardClass =
@@ -620,10 +633,10 @@ export default function HomePage() {
                             Create a new project
                           </Link>
                         </>
-                      ) : recentHints.length > 0 && recoveryChecked && recoverableIds.length === 0 ? (
+                      ) : showOrphanHints ? (
                         <>
                           <p className="text-headline-md text-on-surface mb-2">
-                            Projects not found on server
+                            Browser history does not match the server catalog
                           </p>
                           <p className="text-body-sm text-on-surface-variant mb-4 max-w-lg mx-auto">
                             This browser recently opened{" "}
@@ -631,9 +644,10 @@ export default function HomePage() {
                               .slice(0, 3)
                               .map((h) => h.name)
                               .join(", ")}
-                            , but the server store no longer has them. That can happen after a
-                            deploy without a persistent disk, a store reset, or switching
-                            environments. Your prior work may be unrecoverable from this session.
+                            , but the server project list is empty while workspace storage is
+                            healthy. That usually means those workspaces were never saved, were
+                            created in another environment, or were reset. Your prior work may be
+                            unrecoverable from this session.
                           </p>
                           <div className="flex flex-wrap justify-center gap-3">
                             <button

@@ -14,6 +14,8 @@ import {
   CopilotActivityFeed,
   UrbanPlanningCopilot,
 } from "@/components/UrbanPlanningCopilot";
+import { listCopilotActivity } from "@/lib/copilot/copilot-activity";
+import { outcomeFromWorkspace } from "@/lib/copilot/workspace-outcome";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
 import { setWebMcpBrowserContext, clearWebMcpBrowserContext } from "@/lib/webmcp/browser-context";
 import {
@@ -185,7 +187,8 @@ export default function WorkspaceClient({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { workspace, loading, error, busy, act, refresh, clearError } = useWorkspace(projectId);
+  const { workspace, loading, error, busy, act, refresh, clearError, loadPhase, elapsedMs, isRetrying } =
+    useWorkspace(projectId);
   const [tab, setTabState] = useState<Tab>(() => {
     const fromQuery =
       typeof window !== "undefined"
@@ -195,6 +198,7 @@ export default function WorkspaceClient({
     return TAB_PATHS.includes(initialTab as Tab) ? (initialTab as Tab) : "workspace";
   });
   const [layerData, setLayerData] = useState<Record<string, GeoJSON.FeatureCollection>>({});
+  const layerDataRef = useRef<Record<string, GeoJSON.FeatureCollection>>({});
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerPanel, setDrawerPanel] = useState<DrawerPanel>("candidates");
   const [drawMode, setDrawMode] = useState<MapDrawMode>("none");
@@ -399,10 +403,13 @@ export default function WorkspaceClient({
         return [d.kind, data.features] as const;
       })
     ).then((entries) => {
-      const map: Record<string, GeoJSON.FeatureCollection> = {};
+      const map: Record<string, GeoJSON.FeatureCollection> = {
+        ...layerDataRef.current,
+      };
       for (const [kind, fc] of entries) {
         if (fc) map[kind] = fc;
       }
+      layerDataRef.current = map;
       setLayerData(map);
     });
   }, [workspace?.datasets]);
@@ -969,7 +976,13 @@ export default function WorkspaceClient({
   }
 
   if (loading) {
-    return <WorkspaceLoadingSkeleton />;
+    return (
+      <WorkspaceLoadingSkeleton
+        phase={loadPhase}
+        elapsedMs={elapsedMs}
+        isRetrying={isRetrying}
+      />
+    );
   }
 
   if (!loading && !workspace) {
@@ -1088,6 +1101,11 @@ export default function WorkspaceClient({
   const titleObjectiveMismatch = objectiveTitleMismatchWarning(
     workspace.project.name,
     housingTarget
+  );
+  const inspectorOutcome = outcomeFromWorkspace(
+    workspace,
+    scenario.id,
+    listCopilotActivity()
   );
 
   return (
@@ -2075,7 +2093,7 @@ export default function WorkspaceClient({
                     }`}
                   />
                   <p className="text-caption text-on-surface-variant">
-                    {scenarioStatusLabel()}
+                    {inspectorOutcome}
                   </p>
                 </div>
               </div>
@@ -4604,7 +4622,16 @@ function ReportView(props: {
   );
 }
 
-function WorkspaceLoadingSkeleton() {
+function WorkspaceLoadingSkeleton({
+  phase,
+  elapsedMs,
+  isRetrying,
+}: {
+  phase: string;
+  elapsedMs: number;
+  isRetrying: boolean;
+}) {
+  const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden" aria-busy="true">
       <div className="h-14 border-b border-outline-variant bg-surface-container-high px-section-padding flex items-center justify-between gap-4 shrink-0">
@@ -4634,9 +4661,21 @@ function WorkspaceLoadingSkeleton() {
                 progress_activity
               </span>
               <p className="font-medium text-on-surface">Loading workspace…</p>
-              <p className="text-caption max-w-sm text-center">
-                Restoring project, scenarios, and map layers from the server.
-              </p>
+              <p className="text-caption max-w-sm text-center">{phase}</p>
+              {elapsedMs > 0 && (
+                <p className="text-caption text-outline">
+                  {elapsedSec}s elapsed{isRetrying ? " — retrying" : ""}
+                </p>
+              )}
+              {elapsedMs >= 12_000 && (
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="mt-2 border border-outline-variant px-4 py-2 rounded text-caption"
+                >
+                  Retry load
+                </button>
+              )}
             </div>
           </div>
         </div>

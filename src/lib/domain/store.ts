@@ -304,8 +304,17 @@ async function readStoreFromDisk(): Promise<AppStore> {
   }
 
   const store = await buildDefaultStore();
-  await persist(store);
-  markStorageHealthy(dir);
+  try {
+    await persist(store);
+    markStorageHealthy(dir, undefined, { writeProbeOk: true });
+  } catch (err) {
+    markStorageDegraded(
+      dir,
+      err instanceof Error ? err.message : String(err),
+      { writeProbeOk: false }
+    );
+    throw err;
+  }
   return store;
 }
 
@@ -434,4 +443,17 @@ export function getConfiguredDataDir(): string {
 
 export function readStorageHealth(): StorageHealth {
   return getStorageHealth(dataDir());
+}
+
+/** Run a write probe and refresh in-process storage health — used by /api/health. */
+export async function refreshStorageHealthProbe(): Promise<StorageHealth> {
+  const dir = dataDir();
+  try {
+    await verifyWritableDataDir(dir);
+    markStorageHealthy(dir, undefined, { writeProbeOk: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    markStorageDegraded(dir, `Write probe failed: ${message}`, { writeProbeOk: false });
+  }
+  return getStorageHealth(dir);
 }

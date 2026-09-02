@@ -13,6 +13,7 @@ import {
   setPersistFailureInjector,
   StorePersistError,
   verifyWritableDataDir,
+  refreshStorageHealthProbe,
 } from "./store";
 
 const HOUSING_OBJECTIVE =
@@ -143,6 +144,20 @@ describe("store persistence", () => {
     assert.equal(branch.latestResultId, undefined);
     assert.match(branched.project.resumeNote ?? "", /no analysis yet/i);
     assert.doesNotMatch(branched.project.resumeNote ?? "", /Decision recorded/);
+  });
+
+  it("refreshStorageHealthProbe marks degraded when directory is not writable", async () => {
+    const readOnly = path.join(tmpDir, "readonly");
+    await fs.mkdir(readOnly, { recursive: true });
+    await fs.chmod(readOnly, 0o555);
+    process.env.DATA_DIR = readOnly;
+    try {
+      const health = await refreshStorageHealthProbe();
+      assert.equal(health.status, "degraded");
+      assert.equal(health.writeProbeOk, false);
+    } finally {
+      await fs.chmod(readOnly, 0o755).catch(() => undefined);
+    }
   });
 
   it("createProject is visible via getStore, listProjects, getWorkspace, and reload", async () => {
