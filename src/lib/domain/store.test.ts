@@ -88,13 +88,41 @@ describe("store persistence", () => {
     const fresh = await reloadStoreFromDisk();
     assert.equal(fresh.projects[0]?.resumeNote, "mutated on disk");
   });
+
+  it("survives duplicate scenario then recalculate analysis", async () => {
+    const ws = await services.createProject({
+      name: "Duplicate run test",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const baselineId = ws.project.activeScenarioId!;
+    await services.runAnalysis(ws.project.id, baselineId);
+    const branched = await services.createScenario(
+      ws.project.id,
+      "Transit sensitivity",
+      baselineId
+    );
+    const branchId = branched.scenarios.find((s) => s.name === "Transit sensitivity")!.id;
+    const afterRun = await services.runAnalysis(ws.project.id, branchId);
+    assert.ok(afterRun);
+    assert.equal(afterRun!.scenarios.length, 2);
+    const listed = await services.listProjects();
+    assert.equal(listed.length, 1);
+    const reloaded = await services.getWorkspace(ws.project.id);
+    assert.ok(reloaded);
+    assert.equal(reloaded!.scenarios.length, 2);
+    const branchResult = reloaded!.analysisResults.find(
+      (r) => r.id === reloaded!.scenarios.find((s) => s.id === branchId)?.latestResultId
+    );
+    assert.ok(branchResult);
+    assert.ok(branchResult!.candidates.length > 0);
+  });
 });
 
 describe("transit threshold normalization", () => {
   it("clamps unrealistic UI values", async () => {
     const { normalizeTransitThresholdMeters } = await import("./transit-threshold");
     const extreme = normalizeTransitThresholdMeters(4000);
-    assert.equal(extreme.meters, 2400);
+    assert.equal(extreme.meters, 2000);
     assert.match(extreme.warning ?? "", /bike-access/i);
     const walk = normalizeTransitThresholdMeters(1500);
     assert.equal(walk.meters, 1500);

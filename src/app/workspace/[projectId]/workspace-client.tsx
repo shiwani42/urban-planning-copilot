@@ -28,7 +28,6 @@ import {
 import { trackRecentProject } from "@/lib/project-recency";
 import {
   normalizeTransitThresholdMeters,
-  TRANSIT_WALK_MAX_M,
 } from "@/lib/domain/transit-threshold";
 import type {
   Candidate,
@@ -47,9 +46,11 @@ import { isHousingIntent } from "@/lib/domain/intent";
 import {
   evidenceMetricsForCandidate,
   headlineMetric,
+  housingGoalSummary,
   resultsColumnsForIntent,
   type ResultsColumn,
 } from "@/lib/domain/results-display";
+import { rebalanceWeights } from "@/lib/domain/weights";
 import type { MapDrawMode } from "@/components/PlanningMap";
 
 const PlanningMap = dynamic(
@@ -141,7 +142,7 @@ export default function WorkspaceClient({
   const [activityId, setActivityId] = useState<string | null>(null);
   const [assumptionsOpen, setAssumptionsOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [transitDraftMeters, setTransitDraftMeters] = useState<number | null>(null);
+  const [transitDraftText, setTransitDraftText] = useState<Record<string, string>>({});
   const [transitThresholdWarning, setTransitThresholdWarning] = useState<string | null>(null);
   const [criteriaStaleHint, setCriteriaStaleHint] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
@@ -260,7 +261,7 @@ export default function WorkspaceClient({
 
   useEffect(() => {
     if (!scenario) return;
-    setTransitDraftMeters(null);
+    setTransitDraftText({});
     setTransitThresholdWarning(null);
   }, [scenario?.id, scenario?.updatedAt]);
 
@@ -368,7 +369,6 @@ export default function WorkspaceClient({
   }, [weightDraft, scenario?.weights]);
 
   const weightSumRounded = Math.round(weightSum);
-  const canNormalizeWeights = weightSum > 0 && Math.abs(weightSum - 100) > 0.5;
 
   const housingTarget =
     scenario?.objective.intent === "housing_capacity"
@@ -409,24 +409,18 @@ export default function WorkspaceClient({
 
   async function runAnalysis() {
     if (!scenario) return;
+    const scenarioId = scenario.id;
     setTab("workspace");
-    await act("run_analysis", { scenarioId: scenario.id });
+    await act("run_analysis", { scenarioId });
+    setCriteriaStaleHint(false);
     setDrawerOpen(true);
     setTab("results");
   }
 
   async function applyWeights() {
     if (!scenario || !weightDraft || weightSumRounded !== 100) return;
+    setCriteriaStaleHint(true);
     await act("update_weights", { scenarioId: scenario.id, weights: weightDraft });
-  }
-
-  function normalizeWeightDraft() {
-    if (!weightDraft) return;
-    const sum = weightDraft.reduce((s, w) => s + w.weight, 0);
-    if (sum <= 0) return;
-    setWeightDraft(
-      weightDraft.map((w) => ({ ...w, weight: w.weight / sum }))
-    );
   }
 
   function scenarioStatusLabel(): string {
@@ -440,11 +434,29 @@ export default function WorkspaceClient({
     return "No results yet — run analysis for this scenario";
   }
 
-  async function commitTransitThreshold(rawMeters: number) {
+  function adjustWeightDraft(changedIndex: number, newPercent: number) {
+    const base = weightDraft ?? scenario?.weights ?? [];
+    setWeightDraft(rebalanceWeights(base, changedIndex, newPercent));
+    setCriteriaStaleHint(true);
+  }
+
+  async function commitTransitThreshold(rawText: string) {
     if (!scenario) return;
-    const normalized = normalizeTransitThresholdMeters(rawMeters);
-    setTransitDraftMeters(normalized.meters);
+    const parsed = Number(rawText.replace(/,/g, "").trim());
+    if (!Number.isFinite(parsed)) {
+      setTransitThresholdWarning("Enter a whole number of meters between 100 and 2000.");
+      return;
+    }
+    const normalized = normalizeTransitThresholdMeters(parsed);
     setTransitThresholdWarning(normalized.warning ?? null);
+    if (normalized.adjusted && normalized.warning) {
+      setTransitDraftText((prev) => ({
+        ...prev,
+        [scenario.constraints.find((c) => c.operator === "within_distance")?.id ?? "transit"]:
+          String(normalized.meters),
+      }));
+    }
+    setCriteriaStaleHint(true);
     const constraints = scenario.constraints.map((c) =>
       c.operator === "within_distance"
         ? {
@@ -496,6 +508,7 @@ export default function WorkspaceClient({
         selectionId: editingSelectionId,
         patch: { geometry: polygonFromRing(drawClicks) },
       });
+      setCriteriaStaleHint(true);
       setToast("Geographic area updated — recalculate to apply.");
       cancelDrawing();
       return;
@@ -526,6 +539,7 @@ export default function WorkspaceClient({
         createdBy: "human",
       },
     });
+    setCriteriaStaleHint(true);
     setToast(`${drawMode === "include" ? "Inclusion" : "Exclusion"} "${label}" added — recalculate.`);
     cancelDrawing();
   }
@@ -535,6 +549,7 @@ export default function WorkspaceClient({
     const sel = scenario.geographicSelections.find((s) => s.id === selectionId);
     await act("remove_geo_selection", { scenarioId: scenario.id, selectionId });
     if (editingSelectionId === selectionId) cancelDrawing();
+    setCriteriaStaleHint(true);
     setToast(
       sel
         ? `Removed "${sel.label}" — recalculate to restore excluded candidates.`
@@ -564,6 +579,20 @@ export default function WorkspaceClient({
   async function duplicateScenario(name: string) {
     if (!scenario) return;
     await act("create_scenario", { name, fromScenarioId: scenario.id });
+    setCriteriaStaleHint(true);
+  }
+
+  function promptDuplicateScenario() {
+    if (!workspace || !scenario) return;
+    const defaultName = `Branch ${workspace.scenarios.length + 1}`;
+    const entered = window.prompt("Name for duplicated scenario:", defaultName);
+    if (entered == null) return;
+    const trimmed = entered.trim();
+    if (trimmed.length < 2) {
+      setToast("Scenario name must be at least 2 characters.");
+      return;
+    }
+    void duplicateScenario(trimmed);
   }
 
   async function saveScenario() {
@@ -588,11 +617,39 @@ export default function WorkspaceClient({
 
   if (!workspace || !scenario) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center gap-3">
-        <p className="text-body-sm text-error">{error ?? "Workspace not found"}</p>
-        <Link href="/" className="text-primary text-body-sm hover:underline">
-          Back to projects
-        </Link>
+      <div className="h-screen flex flex-col bg-background">
+        <header className="bg-surface-container-high border-b border-outline-variant px-section-padding h-14 flex items-center">
+          <Link href="/" className="font-display text-[18px] font-semibold text-primary">
+            Urban Planning Copilot
+          </Link>
+        </header>
+        <main className="flex-1 flex items-center justify-center p-8">
+          <div className="max-w-lg text-center border border-outline-variant bg-surface-container-lowest p-10">
+            <h1 className="text-headline-md text-on-surface mb-3">This project is not available</h1>
+            <p className="text-body-sm text-on-surface-variant mb-2">
+              The server could not load project <span className="font-mono text-caption">{projectId}</span>.
+              {error ? ` ${error}` : " It may have been removed or the session store was reset."}
+            </p>
+            <p className="text-body-sm text-on-surface-variant mb-6">
+              If you were mid-analysis, your work may be unrecoverable from this browser session.
+              Start a new project or return home to check whether other projects are still on the server.
+            </p>
+            <div className="flex flex-wrap justify-center gap-3">
+              <Link
+                href="/new"
+                className="bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium"
+              >
+                New project
+              </Link>
+              <Link
+                href="/"
+                className="border border-outline-variant px-5 py-2.5 rounded text-body-sm"
+              >
+                Back to projects
+              </Link>
+            </div>
+          </div>
+        </main>
       </div>
     );
   }
@@ -960,31 +1017,48 @@ export default function WorkspaceClient({
                           <label className="flex flex-col items-end gap-0.5 shrink-0 max-w-[11rem]">
                             <span className="sr-only">Transit proximity threshold in meters</span>
                             <span className="font-mono text-[10px] text-on-surface-variant uppercase">
-                              Meters (walk ≤ {TRANSIT_WALK_MAX_M})
+                              Meters (100–2000)
                             </span>
                             <input
-                              type="number"
-                              min={100}
-                              max={2400}
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
                               aria-label="Transit proximity threshold in meters"
                               aria-describedby={
                                 transitThresholdWarning ? "transit-threshold-warning" : undefined
                               }
                               className="w-20 font-mono text-data-label bg-primary-fixed px-1.5 py-0.5 rounded text-primary"
-                              value={transitDraftMeters ?? Number(c.value)}
+                              value={
+                                transitDraftText[c.id] ??
+                                String(Number(c.value))
+                              }
+                              onFocus={(e) => {
+                                e.target.select();
+                                setTransitDraftText((prev) => ({
+                                  ...prev,
+                                  [c.id]: String(Number(c.value)),
+                                }));
+                              }}
                               onChange={(e) => {
-                                setTransitDraftMeters(Number(e.target.value));
+                                const digits = e.target.value.replace(/[^\d]/g, "");
+                                setTransitDraftText((prev) => ({ ...prev, [c.id]: digits }));
                                 setTransitThresholdWarning(null);
                               }}
                               onBlur={(e) => {
-                                void commitTransitThreshold(Number(e.target.value));
+                                void commitTransitThreshold(e.target.value);
+                                setTransitDraftText((prev) => {
+                                  const next = { ...prev };
+                                  delete next[c.id];
+                                  return next;
+                                });
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
                                   e.preventDefault();
                                   void commitTransitThreshold(
-                                    Number((e.target as HTMLInputElement).value)
+                                    (e.target as HTMLInputElement).value
                                   );
+                                  (e.target as HTMLInputElement).blur();
                                 }
                               }}
                             />
@@ -1106,17 +1180,9 @@ export default function WorkspaceClient({
                 </div>
                 {weightSumRounded !== 100 && (
                   <p className="text-caption text-secondary mb-2" role="status">
-                    Priorities sum to {weightSumRounded}% — adjust to 100% before applying.
+                    Priorities sum to {weightSumRounded}% — adjust sliders (others rebalance automatically).
                   </p>
                 )}
-                <button
-                  type="button"
-                  onClick={normalizeWeightDraft}
-                  disabled={!canNormalizeWeights}
-                  className="text-caption text-primary hover:underline mb-3 disabled:opacity-40"
-                >
-                  Normalize to 100%
-                </button>
                 <div className="space-y-4">
                   {(weightDraft ?? scenario.weights).map((w, i) => (
                     <div key={w.id}>
@@ -1131,11 +1197,7 @@ export default function WorkspaceClient({
                         min={0}
                         max={100}
                         value={Math.round(w.weight * 100)}
-                        onChange={(e) => {
-                          const next = [...(weightDraft ?? scenario.weights)];
-                          next[i] = { ...next[i], weight: Number(e.target.value) / 100 };
-                          setWeightDraft(next);
-                        }}
+                        onChange={(e) => adjustWeightDraft(i, Number(e.target.value))}
                         className="w-full accent-primary"
                       />
                     </div>
@@ -1255,9 +1317,7 @@ export default function WorkspaceClient({
                     </div>
                   );})}
                   <button
-                    onClick={() =>
-                      duplicateScenario(`Branch ${workspace.scenarios.length + 1}`)
-                    }
+                    onClick={() => promptDuplicateScenario()}
                     className="text-body-sm text-primary hover:underline"
                   >
                     + Duplicate scenario
@@ -1844,6 +1904,7 @@ export default function WorkspaceClient({
           result={result}
           selectedReportId={reportId}
           onSelectReport={setReportId}
+          onDownload={(message) => setToast(message)}
           onGenerate={async () => {
             const data = await act("generate_report", {
               scenarioIds: [scenario.id],
@@ -2579,6 +2640,15 @@ function DecisionView(props: {
           Analysis complete with {result!.candidates.length} candidates — ready for your decision.
         </p>
       )}
+      {result && scenario.objective.intent === "housing_capacity" && (
+        <p className="text-body-sm font-medium text-primary mb-4 border border-primary-fixed/40 bg-primary-fixed/10 px-3 py-2 rounded">
+          {housingGoalSummary({
+            target: scenario.objective.targetValue,
+            totalCapacity: result.aggregateMetrics.find((m) => m.key === "total_capacity")?.value,
+            targetGapMetric: result.aggregateMetrics.find((m) => m.key === "housing_target_gap"),
+          }) ?? "Housing target metrics unavailable — recalculate analysis."}
+        </p>
+      )}
       <div className="mb-4">
         <ProvenanceChip kind="copilot_recommendation" />
         <p className="text-body-sm mt-2">
@@ -2932,6 +3002,7 @@ function ReportView(props: {
   selectedReportId: string | null;
   onSelectReport: (id: string) => void;
   onGenerate: () => Promise<void>;
+  onDownload?: (message: string) => void;
   generating?: boolean;
 }) {
   const [localGenerating, setLocalGenerating] = useState(false);
@@ -2945,41 +3016,62 @@ function ReportView(props: {
   const displayReport =
     props.workspace.reports.find((r) => r.id === props.selectedReportId) ?? scenarioReports[0];
   const canGenerate = Boolean(props.result && !props.result.stale);
+  const housingGoal =
+    props.result && props.scenario.objective.intent === "housing_capacity"
+      ? housingGoalSummary({
+          target: props.scenario.objective.targetValue,
+          totalCapacity: props.result.aggregateMetrics.find((m) => m.key === "total_capacity")?.value,
+          targetGapMetric: props.result.aggregateMetrics.find((m) => m.key === "housing_target_gap"),
+        })
+      : null;
 
   function downloadMarkdown() {
-    if (!displayReport) return;
-    const lines = [
-      `# ${displayReport.title}`,
-      ``,
-      `Generated: ${formatReportDateTime(displayReport.createdAt)}`,
-      `Audience: ${displayReport.audience}`,
-      ``,
-    ];
-    for (const s of displayReport.sections) {
-      lines.push(`## ${s.heading}`, ``, s.body, ``);
-      if (s.data && Array.isArray(s.data)) {
-        lines.push(
-          `| Scenario | Eligible | Capacity | Avg transit (m) | Top score |`,
-          `| --- | ---: | ---: | ---: | ---: |`
-        );
-        for (const row of s.data as Array<Record<string, string | number>>) {
-          lines.push(
-            `| ${row.name} | ${row.eligible_count ?? "—"} | ${row.total_capacity ?? "—"} | ${row.avg_transit_distance ?? "—"} | ${row.top_rank_score ?? row.top_score ?? "—"} |`
-          );
-        }
-        lines.push(``);
-      }
+    if (!displayReport) {
+      props.onDownload?.("No report selected — generate a report first.");
+      return;
     }
-    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const filename = `${displayReport.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.md`;
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      const lines = [
+        `# ${displayReport.title}`,
+        ``,
+        `Generated: ${formatReportDateTime(displayReport.createdAt)}`,
+        `Audience: ${displayReport.audience}`,
+        ``,
+      ];
+      for (const s of displayReport.sections) {
+        lines.push(`## ${s.heading}`, ``, s.body, ``);
+        if (s.data && Array.isArray(s.data) && s.data.length > 0 && "name" in (s.data[0] as object)) {
+          lines.push(
+            `| Scenario | Eligible | Capacity | Avg transit (m) | Top score |`,
+            `| --- | ---: | ---: | ---: | ---: |`
+          );
+          for (const row of s.data as Array<Record<string, string | number>>) {
+            lines.push(
+              `| ${row.name} | ${row.eligible_count ?? "—"} | ${row.total_capacity ?? "—"} | ${row.avg_transit_distance ?? "—"} | ${row.top_rank_score ?? row.top_score ?? "—"} |`
+            );
+          }
+          lines.push(``);
+        }
+      }
+      const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const filename = `${displayReport.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "planning-report"}.md`;
+      a.href = url;
+      a.download = filename;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      window.setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1500);
+      props.onDownload?.(`Downloaded ${filename}`);
+    } catch (e) {
+      props.onDownload?.(
+        e instanceof Error ? e.message : "Could not download report — try again."
+      );
+    }
   }
 
   return (
@@ -3035,6 +3127,11 @@ function ReportView(props: {
           decision history.
         </p>
       )}
+      {housingGoal && (
+          <p className="text-body-sm font-medium text-primary mb-4 border border-primary-fixed/40 bg-primary-fixed/10 px-3 py-2 rounded">
+            {housingGoal}
+          </p>
+        )}
       {scenarioReports.length > 1 && (
         <div className="mb-6">
           <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">

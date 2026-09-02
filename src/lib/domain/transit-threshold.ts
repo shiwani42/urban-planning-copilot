@@ -4,7 +4,7 @@ export const TRANSIT_THRESHOLD_MIN_M = 100;
 /** Typical 15-minute walk (~1.2 km) — recommended max for walk-based filters. */
 export const TRANSIT_WALK_MAX_M = 1200;
 /** Upper bike-access distance; values above walk max are clamped here in the UI. */
-export const TRANSIT_BIKE_MAX_M = 2400;
+export const TRANSIT_BIKE_MAX_M = 2000;
 export const TRANSIT_THRESHOLD_ABSOLUTE_MAX_M = 50_000;
 
 export type TransitThresholdNormalization = {

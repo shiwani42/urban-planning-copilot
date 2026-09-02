@@ -165,8 +165,14 @@ export async function getStore(): Promise<AppStore> {
   return ensureStore();
 }
 
+/** Wait for any in-flight disk write before reading store.json. */
+export async function flushStoreWrites(): Promise<void> {
+  await writeQueue;
+}
+
 /** Re-read store.json from disk — ensures handlers see the latest persisted state. */
 export async function reloadStoreFromDisk(): Promise<AppStore> {
+  await flushStoreWrites();
   memory = null;
   memoryDataDir = null;
   return ensureStore();
