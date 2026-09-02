@@ -287,6 +287,25 @@ export interface ConfirmationRequest {
   resolvedAt?: string;
 }
 
+/** Agent-staged change awaiting explicit human approval (revision-bound). */
+export interface StagedProposal {
+  id: string;
+  projectId: string;
+  scenarioId: string;
+  title: string;
+  description: string;
+  /** Domain action applied on approval (e.g. update_weights, update_constraints). */
+  action: string;
+  payload: Record<string, unknown>;
+  /** Scenario configHash when the proposal was staged. */
+  baseRevision: string;
+  status: "pending" | "approved" | "rejected" | "stale";
+  createdAt: string;
+  createdBy: "agent" | "human";
+  resolvedAt?: string;
+  receiptSha256?: string;
+}
+
 export interface ActivityEvent {
   id: string;
   projectId: string;
@@ -359,6 +378,7 @@ export interface WorkspaceSnapshot {
   decisions: HumanDecision[];
   activities: ActivityEvent[];
   confirmations: ConfirmationRequest[];
+  proposals: StagedProposal[];
   analysisJobs: AnalysisJob[];
   analysisResults: AnalysisResult[];
   reports: Report[];
@@ -372,6 +392,7 @@ export interface AppStore {
   decisions: HumanDecision[];
   activities: ActivityEvent[];
   confirmations: ConfirmationRequest[];
+  proposals: StagedProposal[];
   analysisJobs: AnalysisJob[];
   analysisResults: AnalysisResult[];
   reports: Report[];

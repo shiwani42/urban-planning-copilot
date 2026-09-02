@@ -6,9 +6,14 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string", "description": "Project id" }
+          "projectId": {
+            "type": "string",
+            "description": "Project id"
+          }
         },
-        "required": ["projectId"],
+        "required": [
+          "projectId"
+        ],
         "additionalProperties": false
       }
     },
@@ -18,10 +23,17 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "scenarioId": { "type": "string", "description": "Optional; defaults to active scenario" }
+          "projectId": {
+            "type": "string"
+          },
+          "scenarioId": {
+            "type": "string",
+            "description": "Optional; defaults to active scenario"
+          }
         },
-        "required": ["projectId"],
+        "required": [
+          "projectId"
+        ],
         "additionalProperties": false
       }
     },
@@ -31,11 +43,20 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "scenarioId": { "type": "string" },
-          "limit": { "type": "number", "description": "Max candidates (default 10)" }
+          "projectId": {
+            "type": "string"
+          },
+          "scenarioId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max candidates (default 10)"
+          }
         },
-        "required": ["projectId"],
+        "required": [
+          "projectId"
+        ],
         "additionalProperties": false
       }
     },
@@ -45,11 +66,20 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "candidateId": { "type": "string" },
-          "scenarioId": { "type": "string" }
+          "projectId": {
+            "type": "string"
+          },
+          "candidateId": {
+            "type": "string"
+          },
+          "scenarioId": {
+            "type": "string"
+          }
         },
-        "required": ["projectId", "candidateId"],
+        "required": [
+          "projectId",
+          "candidateId"
+        ],
         "additionalProperties": false
       }
     },
@@ -68,14 +98,41 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
+          "projectId": {
+            "type": "string"
+          },
           "scenarioIds": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "At least two scenario ids"
           }
         },
-        "required": ["projectId", "scenarioIds"],
+        "required": [
+          "projectId",
+          "scenarioIds"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "verify_operation",
+      "description": "Verify an approved human-gated operation by SHA-256 receipt. Returns verification status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string"
+          },
+          "proposalId": {
+            "type": "string",
+            "description": "Optional; defaults to latest approved"
+          }
+        },
+        "required": [
+          "projectId"
+        ],
         "additionalProperties": false
       }
     },
@@ -85,11 +142,23 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "name": { "type": "string", "description": "Project name" },
-          "objectiveText": { "type": "string", "description": "Natural-language planning question" },
-          "geographyLabel": { "type": "string", "description": "Optional geography label" }
+          "name": {
+            "type": "string",
+            "description": "Project name"
+          },
+          "objectiveText": {
+            "type": "string",
+            "description": "Natural-language planning question"
+          },
+          "geographyLabel": {
+            "type": "string",
+            "description": "Optional geography label"
+          }
         },
-        "required": ["name", "objectiveText"],
+        "required": [
+          "name",
+          "objectiveText"
+        ],
         "additionalProperties": false
       }
     },
@@ -99,10 +168,17 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "objectiveText": { "type": "string" }
+          "projectId": {
+            "type": "string"
+          },
+          "objectiveText": {
+            "type": "string"
+          }
         },
-        "required": ["projectId", "objectiveText"],
+        "required": [
+          "projectId",
+          "objectiveText"
+        ],
         "additionalProperties": false
       }
     },
@@ -112,11 +188,23 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "scenarioId": { "type": "string" },
-          "meters": { "type": "number", "description": "Distance threshold in meters", "minimum": 1 }
+          "projectId": {
+            "type": "string"
+          },
+          "scenarioId": {
+            "type": "string"
+          },
+          "meters": {
+            "type": "number",
+            "description": "Distance threshold in meters",
+            "minimum": 1
+          }
         },
-        "required": ["projectId", "scenarioId", "meters"],
+        "required": [
+          "projectId",
+          "scenarioId",
+          "meters"
+        ],
         "additionalProperties": false
       }
     },
@@ -126,15 +214,25 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "scenarioId": { "type": "string" },
+          "projectId": {
+            "type": "string"
+          },
+          "scenarioId": {
+            "type": "string"
+          },
           "weights": {
             "type": "object",
             "description": "Map of criterion key → weight",
-            "additionalProperties": { "type": "number" }
+            "additionalProperties": {
+              "type": "number"
+            }
           }
         },
-        "required": ["projectId", "scenarioId", "weights"],
+        "required": [
+          "projectId",
+          "scenarioId",
+          "weights"
+        ],
         "additionalProperties": false
       }
     },
@@ -144,10 +242,17 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "scenarioId": { "type": "string" }
+          "projectId": {
+            "type": "string"
+          },
+          "scenarioId": {
+            "type": "string"
+          }
         },
-        "required": ["projectId", "scenarioId"],
+        "required": [
+          "projectId",
+          "scenarioId"
+        ],
         "additionalProperties": false
       }
     },
@@ -157,11 +262,21 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "name": { "type": "string" },
-          "fromScenarioId": { "type": "string", "description": "Source scenario to duplicate" }
+          "projectId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "fromScenarioId": {
+            "type": "string",
+            "description": "Source scenario to duplicate"
+          }
         },
-        "required": ["projectId", "name"],
+        "required": [
+          "projectId",
+          "name"
+        ],
         "additionalProperties": false
       }
     },
@@ -171,10 +286,17 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "candidateId": { "type": "string" }
+          "projectId": {
+            "type": "string"
+          },
+          "candidateId": {
+            "type": "string"
+          }
         },
-        "required": ["projectId", "candidateId"],
+        "required": [
+          "projectId",
+          "candidateId"
+        ],
         "additionalProperties": false
       }
     },
@@ -184,16 +306,70 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "scenarioId": { "type": "string" },
-          "label": { "type": "string" },
+          "projectId": {
+            "type": "string"
+          },
+          "scenarioId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
           "coordinates": {
             "type": "array",
             "description": "Polygon ring as [lng,lat] pairs (min 3)",
-            "items": { "type": "array", "items": { "type": "number" } }
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
           }
         },
-        "required": ["projectId", "scenarioId", "label", "coordinates"],
+        "required": [
+          "projectId",
+          "scenarioId",
+          "label",
+          "coordinates"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "stage_proposal",
+      "description": "Stage a visible ghost proposal for human review. Does not apply until approved. Revision-bound.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string"
+          },
+          "scenarioId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "description": "Domain action: update_weights, update_constraints, set_transit_threshold, approve_scenario"
+          },
+          "payload": {
+            "type": "object",
+            "description": "Action-specific parameters"
+          }
+        },
+        "required": [
+          "projectId",
+          "scenarioId",
+          "title",
+          "description",
+          "action",
+          "payload"
+        ],
         "additionalProperties": false
       }
     },
@@ -203,12 +379,24 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "scenarioId": { "type": "string" },
-          "candidateId": { "type": "string" },
-          "reason": { "type": "string" }
+          "projectId": {
+            "type": "string"
+          },
+          "scenarioId": {
+            "type": "string"
+          },
+          "candidateId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
         },
-        "required": ["projectId", "scenarioId", "candidateId"],
+        "required": [
+          "projectId",
+          "scenarioId",
+          "candidateId"
+        ],
         "additionalProperties": false
       }
     },
@@ -218,11 +406,20 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "scenarioId": { "type": "string" },
-          "reason": { "type": "string" }
+          "projectId": {
+            "type": "string"
+          },
+          "scenarioId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
         },
-        "required": ["projectId", "scenarioId"],
+        "required": [
+          "projectId",
+          "scenarioId"
+        ],
         "additionalProperties": false
       }
     },
@@ -232,11 +429,41 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "scenarioId": { "type": "string" },
-          "reason": { "type": "string", "description": "Optional decision rationale" }
+          "projectId": {
+            "type": "string"
+          },
+          "scenarioId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional decision rationale"
+          }
         },
-        "required": ["projectId", "scenarioId"],
+        "required": [
+          "projectId",
+          "scenarioId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "approve_proposal",
+      "description": "Apply a staged proposal after human confirmation. Rejects stale proposals if criteria changed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string"
+          },
+          "proposalId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "projectId",
+          "proposalId"
+        ],
         "additionalProperties": false
       }
     },
@@ -246,11 +473,23 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "projectId": { "type": "string" },
-          "scenarioIds": { "type": "array", "items": { "type": "string" } },
-          "title": { "type": "string" }
+          "projectId": {
+            "type": "string"
+          },
+          "scenarioIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "title": {
+            "type": "string"
+          }
         },
-        "required": ["projectId", "scenarioIds"],
+        "required": [
+          "projectId",
+          "scenarioIds"
+        ],
         "additionalProperties": false
       }
     }

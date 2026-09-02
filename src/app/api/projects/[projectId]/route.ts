@@ -82,6 +82,26 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         return NextResponse.json(
           await services.resolveConfirmation(projectId, body.confirmationId, body.status)
         );
+      case "stage_proposal":
+        return NextResponse.json(
+          await services.stageProposal({
+            projectId,
+            scenarioId: body.scenarioId,
+            title: body.title,
+            description: body.description,
+            action: body.action,
+            payload: body.payload,
+            createdBy: body.createdBy ?? "human",
+          })
+        );
+      case "approve_proposal":
+        return NextResponse.json(
+          await services.approveProposal(projectId, body.proposalId)
+        );
+      case "reject_proposal":
+        return NextResponse.json(
+          await services.rejectProposal(projectId, body.proposalId, body.reason)
+        );
       case "generate_report":
         return NextResponse.json(
           await services.generateReport(projectId, body.scenarioIds, body.title)

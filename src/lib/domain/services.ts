@@ -4,6 +4,7 @@ import {
   hashConfig,
   normalizeWeights,
   parseObjective,
+  sha256Receipt,
 } from "./objective";
 import { runSpatialAnalysis, compareScenarioMetrics } from "./spatial";
 import { getStore, updateStore } from "./store";
@@ -22,6 +23,7 @@ import type {
   Project,
   Report,
   Scenario,
+  StagedProposal,
   WorkspaceSnapshot,
 } from "./types";
 
@@ -130,6 +132,7 @@ export async function getWorkspace(projectId: string): Promise<WorkspaceSnapshot
     decisions: store.decisions.filter((d) => d.projectId === projectId),
     activities: store.activities.filter((a) => a.projectId === projectId).slice(0, 200),
     confirmations: store.confirmations.filter((c) => c.projectId === projectId),
+    proposals: store.proposals.filter((p) => p.projectId === projectId && p.status === "pending"),
     analysisJobs: store.analysisJobs.filter((j) =>
       store.scenarios.some((s) => s.id === j.scenarioId && s.projectId === projectId)
     ),
@@ -1088,6 +1091,226 @@ export async function patchFeatureProperties(
 export async function getActivity(projectId: string, activityId: string) {
   const store = await getStore();
   return store.activities.find((a) => a.projectId === projectId && a.id === activityId) ?? null;
+}
+
+function scenarioRevision(store: AppStore, projectId: string, scenarioId: string): string {
+  const scenario = store.scenarios.find((s) => s.id === scenarioId && s.projectId === projectId);
+  if (!scenario) throw new Error("Scenario not found");
+  return configHashFor(scenario);
+}
+
+export async function stageProposal(input: {
+  projectId: string;
+  scenarioId: string;
+  title: string;
+  description: string;
+  action: string;
+  payload: Record<string, unknown>;
+  createdBy?: "agent" | "human";
+}) {
+  let proposalId = "";
+  await updateStore((store) => {
+    const scenario = requireScenario(store, input.projectId, input.scenarioId);
+    const proposal: StagedProposal = {
+      id: nanoid(),
+      projectId: input.projectId,
+      scenarioId: input.scenarioId,
+      title: input.title,
+      description: input.description,
+      action: input.action,
+      payload: input.payload,
+      baseRevision: configHashFor(scenario),
+      status: "pending",
+      createdAt: now(),
+      createdBy: input.createdBy ?? "agent",
+    };
+    store.proposals.unshift(proposal);
+    proposalId = proposal.id;
+    logActivity(store, {
+      projectId: input.projectId,
+      scenarioId: input.scenarioId,
+      actor: input.createdBy === "human" ? "human" : "agent",
+      category: "decision",
+      action: "stage_proposal",
+      summary: `Staged proposal: ${input.title}`,
+      inputs: { action: input.action, baseRevision: proposal.baseRevision },
+    });
+    touchProject(store, input.projectId, `Proposal pending review: ${input.title}`);
+  });
+  return { proposalId, workspace: await getWorkspace(input.projectId) };
+}
+
+async function applyProposalAction(
+  projectId: string,
+  scenarioId: string,
+  action: string,
+  payload: Record<string, unknown>
+) {
+  switch (action) {
+    case "update_weights":
+      await updateWeights(projectId, scenarioId, payload.weights as CriterionWeight[]);
+      break;
+    case "update_constraints":
+      await updateConstraints(projectId, scenarioId, payload.constraints as Constraint[]);
+      break;
+    case "set_transit_threshold": {
+      const meters = Number(payload.meters);
+      const ws = await getWorkspace(projectId);
+      const sc = ws?.scenarios.find((s) => s.id === scenarioId);
+      if (!sc) throw new Error("Scenario not found");
+      const constraints = sc.constraints.map((c) =>
+        c.operator === "within_distance"
+          ? { ...c, value: meters, label: `Within ${meters}m of transit` }
+          : c
+      );
+      await updateConstraints(projectId, scenarioId, constraints);
+      break;
+    }
+    case "approve_scenario":
+      await recordDecision({
+        projectId,
+        scenarioId,
+        type: "approve_scenario",
+        reason: payload.reason as string | undefined,
+      });
+      break;
+    default:
+      throw new Error(`Unsupported proposal action: ${action}`);
+  }
+}
+
+export async function approveProposal(projectId: string, proposalId: string) {
+  const store = await getStore();
+  const proposal = store.proposals.find(
+    (p) => p.id === proposalId && p.projectId === projectId
+  );
+  if (!proposal) throw new Error("Proposal not found");
+  if (proposal.status !== "pending") {
+    throw new Error(`Proposal is ${proposal.status}, not pending`);
+  }
+
+  const currentRevision = scenarioRevision(store, projectId, proposal.scenarioId);
+  if (currentRevision !== proposal.baseRevision) {
+    await updateStore((s) => {
+      const p = s.proposals.find((x) => x.id === proposalId);
+      if (p) {
+        p.status = "stale";
+        p.resolvedAt = now();
+      }
+      logActivity(s, {
+        projectId,
+        scenarioId: proposal.scenarioId,
+        actor: "system",
+        category: "decision",
+        action: "proposal_stale",
+        summary: "Proposal rejected — planning criteria changed since staging",
+        inputs: { expected: proposal.baseRevision, actual: currentRevision },
+      });
+    });
+    throw new Error(
+      "Proposal is stale — planning criteria changed since it was staged. Review and re-stage."
+    );
+  }
+
+  await applyProposalAction(
+    projectId,
+    proposal.scenarioId,
+    proposal.action,
+    proposal.payload
+  );
+
+  const receipt = {
+    proposalId,
+    projectId,
+    scenarioId: proposal.scenarioId,
+    action: proposal.action,
+    baseRevision: proposal.baseRevision,
+    approvedAt: now(),
+    payload: proposal.payload,
+  };
+  const receiptSha256 = sha256Receipt(receipt);
+
+  await updateStore((s) => {
+    const p = s.proposals.find((x) => x.id === proposalId);
+    if (p) {
+      p.status = "approved";
+      p.resolvedAt = now();
+      p.receiptSha256 = receiptSha256;
+    }
+    logActivity(s, {
+      projectId,
+      scenarioId: proposal.scenarioId,
+      actor: "human",
+      category: "decision",
+      action: "approve_proposal",
+      summary: `Approved proposal: ${proposal.title}`,
+      outputs: { receiptSha256 },
+    });
+    touchProject(s, projectId, `Proposal applied: ${proposal.title}`);
+  });
+
+  return {
+    proposalId,
+    receiptSha256,
+    workspace: await getWorkspace(projectId),
+  };
+}
+
+export async function rejectProposal(projectId: string, proposalId: string, reason?: string) {
+  await updateStore((store) => {
+    const proposal = store.proposals.find(
+      (p) => p.id === proposalId && p.projectId === projectId
+    );
+    if (!proposal) throw new Error("Proposal not found");
+    proposal.status = "rejected";
+    proposal.resolvedAt = now();
+    logActivity(store, {
+      projectId,
+      scenarioId: proposal.scenarioId,
+      actor: "human",
+      category: "decision",
+      action: "reject_proposal",
+      summary: `Rejected proposal: ${proposal.title}${reason ? ` — ${reason}` : ""}`,
+    });
+    touchProject(store, projectId, "Proposal rejected by planner.");
+  });
+  return getWorkspace(projectId);
+}
+
+export async function verifyOperation(projectId: string, proposalId?: string) {
+  const store = await getStore();
+  const proposal = proposalId
+    ? store.proposals.find((p) => p.id === proposalId && p.projectId === projectId)
+    : store.proposals.find(
+        (p) => p.projectId === projectId && p.status === "approved" && p.receiptSha256
+      );
+
+  if (!proposal?.receiptSha256) {
+    return {
+      verified: false,
+      error: "No approved operation with receipt found",
+    };
+  }
+
+  const receipt = {
+    proposalId: proposal.id,
+    projectId: proposal.projectId,
+    scenarioId: proposal.scenarioId,
+    action: proposal.action,
+    baseRevision: proposal.baseRevision,
+    approvedAt: proposal.resolvedAt,
+    payload: proposal.payload,
+  };
+  const computed = sha256Receipt(receipt);
+
+  return {
+    verified: computed === proposal.receiptSha256,
+    receiptSha256: proposal.receiptSha256,
+    computedSha256: computed,
+    proposalId: proposal.id,
+    action: proposal.action,
+    status: proposal.status,
+  };
 }
 
 export async function listDatasets() {

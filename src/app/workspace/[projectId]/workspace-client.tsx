@@ -170,6 +170,52 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   return (
     <WebMcpProvider projectId={projectId}>
     <div className="h-screen flex flex-col overflow-hidden bg-background relative">
+      {workspace.proposals.length > 0 && (
+        <div className="bg-secondary-fixed/20 border-b border-secondary/30 px-section-padding py-3 shrink-0 z-50">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <ProvenanceChip kind="planner_decision" />
+                <span className="font-mono text-data-label uppercase text-secondary">
+                  Human review required
+                </span>
+              </div>
+              {workspace.proposals.map((prop) => (
+                <div key={prop.id} className="text-body-sm">
+                  <strong>{prop.title}</strong> — {prop.description}
+                  <span className="font-mono text-caption text-on-surface-variant ml-2">
+                    revision {prop.baseRevision.slice(0, 8)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button
+                disabled={busy}
+                onClick={async () => {
+                  const prop = workspace.proposals[0];
+                  if (!prop) return;
+                  await act("approve_proposal", { proposalId: prop.id });
+                }}
+                className="bg-secondary text-on-secondary px-4 py-2 rounded text-body-sm font-medium disabled:opacity-50"
+              >
+                Approve proposal
+              </button>
+              <button
+                disabled={busy}
+                onClick={async () => {
+                  const prop = workspace.proposals[0];
+                  if (!prop) return;
+                  await act("reject_proposal", { proposalId: prop.id, reason: "Rejected in UI" });
+                }}
+                className="border border-outline-variant px-4 py-2 rounded text-body-sm"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <header className="bg-surface-container-high border-b border-outline-variant flex justify-between items-center px-section-padding h-14 shrink-0 z-50">
         <div className="flex items-center gap-6 min-w-0">
           <Link href="/" className="font-display text-[18px] font-semibold text-primary shrink-0">
