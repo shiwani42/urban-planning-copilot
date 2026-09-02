@@ -1563,7 +1563,6 @@ export async function listDatasets() {
 /** In-memory explore investigation — does not create a persisted project. */
 export async function exploreScratch(question: string) {
   const store = await getStore();
-  const parsed = parseObjective(question, "Study area");
   const layers: Record<string, GeoJSON.FeatureCollection> = {};
   for (const d of store.datasets) {
     if (!d.enabled) continue;
@@ -1571,33 +1570,24 @@ export async function exploreScratch(question: string) {
     if (fc) layers[d.kind] = fc;
   }
 
-  const exploreConstraints =
-    parsed.objective.intent === "transit_gap" || parsed.objective.intent === "explore"
-      ? parsed.constraints.filter((c) => c.datasetKind !== "flood" || c.enabled === false)
-      : parsed.constraints;
-
-  const output = runSpatialAnalysis({
-    objective: parsed.objective,
-    constraints: exploreConstraints,
-    weights: parsed.weights,
-    assumptions: parsed.assumptions,
-    selections: [],
+  const { runExploreInvestigation } = await import("./explore");
+  const result = runExploreInvestigation({
+    question,
     layers,
     datasetIds: datasetIdsByKind(store),
-    externalLimitations: store.datasets
-      .filter((d) => d.incompleteCoverage)
-      .flatMap((d) => d.limitations.map((l) => `${d.name}: ${l}`)),
+    datasets: store.datasets,
   });
 
   return {
-    objective: parsed.objective,
-    constraints: exploreConstraints,
-    weights: parsed.weights,
-    summary: output.summary,
-    limitations: output.limitations,
-    candidates: output.candidates.slice(0, 25),
-    aggregateMetrics: output.aggregateMetrics,
-    stepLogs: output.stepLogs,
+    ...result,
+    layerData: {
+      parcels: layers.parcels,
+      transit: layers.transit,
+      flood: layers.flood,
+      schools: layers.schools,
+      population: layers.population,
+    },
+    datasets: store.datasets.filter((d) => d.enabled),
   };
 }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as services from "@/lib/domain/services";
+import { assessExploreQuestion } from "@/lib/domain/explore";
 
 export async function POST(req: NextRequest) {
   try {
@@ -7,6 +8,13 @@ export async function POST(req: NextRequest) {
     const question = String(body.question ?? "").trim();
     if (!question) {
       return NextResponse.json({ error: "Question is required" }, { status: 400 });
+    }
+    const assessed = assessExploreQuestion(question);
+    if (!assessed.interpretable || !assessed.supported) {
+      return NextResponse.json(
+        { error: assessed.warning ?? "Question is not supported for spatial investigation." },
+        { status: 400 }
+      );
     }
     const result = await services.exploreScratch(question);
     return NextResponse.json(result);

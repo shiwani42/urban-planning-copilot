@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { assessObjectiveQuality } from "@/lib/domain/objective";
+import { EXPLORE_CONVERT_KEY, type ExploreConvertDraft } from "@/lib/domain/explore";
 
 const DRAFT_KEY = "upc-new-project-draft";
 
@@ -40,10 +41,23 @@ export default function NewProjectPage() {
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(DRAFT_KEY);
-      if (!raw) return;
-      const draft = JSON.parse(raw) as { name?: string; objective?: string };
-      if (draft.name) setName(draft.name);
-      if (draft.objective) setObjective(draft.objective);
+      if (raw) {
+        const draft = JSON.parse(raw) as { name?: string; objective?: string };
+        if (draft.name) setName(draft.name);
+        if (draft.objective) setObjective(draft.objective);
+        return;
+      }
+      const exploreRaw = sessionStorage.getItem(EXPLORE_CONVERT_KEY);
+      if (exploreRaw) {
+        const explore = JSON.parse(exploreRaw) as ExploreConvertDraft;
+        if (explore.suggestedName) setName(explore.suggestedName);
+        if (explore.objective) {
+          const findingsNote = explore.summary
+            ? `\n\n--- Scratch findings (${explore.analysisType.replace(/_/g, " ")}, ${explore.totalCandidates} areas) ---\n${explore.summary}`
+            : "";
+          setObjective(explore.objective + findingsNote);
+        }
+      }
     } catch {
       /* ignore corrupt draft */
     }
@@ -137,6 +151,7 @@ export default function NewProjectPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create");
       sessionStorage.removeItem(DRAFT_KEY);
+      sessionStorage.removeItem(EXPLORE_CONVERT_KEY);
       router.push(`/workspace/${data.project.id}`);
     } catch (e) {
       setObjectiveError(e instanceof Error ? e.message : String(e));
