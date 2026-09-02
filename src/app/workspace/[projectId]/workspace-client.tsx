@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { ProvenanceChip, useWorkspace } from "@/components/workspace-hooks";
 import { WebMcpProvider } from "@/components/WebMcpProvider";
 import type {
@@ -11,7 +11,14 @@ import type {
   WorkspaceSnapshot,
 } from "@/lib/domain/types";
 
-const PlanningMap = dynamic(() => import("@/components/PlanningMap"), { ssr: false });
+const PlanningMap = dynamic(
+  () => import("@/components/PlanningMap").then((m) => m.default),
+  { ssr: false }
+);
+const MapLegend = dynamic(
+  () => import("@/components/PlanningMap").then((m) => m.MapLegend),
+  { ssr: false }
+);
 
 type Tab =
   | "workspace"
@@ -39,6 +46,8 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const [report, setReport] = useState<WorkspaceSnapshot["reports"][0] | null>(null);
   const [activityId, setActivityId] = useState<string | null>(null);
   const [assumptionsOpen, setAssumptionsOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
 
   const scenario = workspace?.scenarios.find(
     (s) => s.id === workspace.project.activeScenarioId
@@ -80,6 +89,28 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   useEffect(() => {
     if (scenario) setWeightDraft(scenario.weights);
   }, [scenario?.id, scenario?.updatedAt]);
+
+  useEffect(() => {
+    if (tab === "compare" && scenario && compareIds.length === 0) {
+      setCompareIds([scenario.id]);
+    }
+  }, [tab, scenario?.id, compareIds.length]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3200);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const visibleLayerKinds = useMemo(() => {
+    if (!workspace) return new Set<string>();
+    const ids = new Set(
+      workspace.project.mapState.layers.filter((l) => l.visible).map((l) => l.datasetId)
+    );
+    return new Set(
+      workspace.datasets.filter((d) => ids.has(d.id)).map((d) => d.kind)
+    );
+  }, [workspace]);
 
   const selectCandidate = useCallback(
     async (c: Candidate) => {
@@ -144,6 +175,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   async function saveScenario() {
     if (!scenario) return;
     await act("save_scenario", { scenarioId: scenario.id });
+    setToast(`Scenario "${scenario.name}" saved`);
   }
 
   if (loading) {
@@ -170,6 +202,52 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   return (
     <WebMcpProvider projectId={projectId}>
     <div className="h-screen flex flex-col overflow-hidden bg-background relative">
+      {workspace.proposals.length > 0 && (
+        <div className="bg-secondary-fixed/20 border-b border-secondary/30 px-section-padding py-3 shrink-0 z-50">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <ProvenanceChip kind="planner_decision" />
+                <span className="font-mono text-data-label uppercase text-secondary">
+                  Human review required
+                </span>
+              </div>
+              {workspace.proposals.map((prop) => (
+                <div key={prop.id} className="text-body-sm">
+                  <strong>{prop.title}</strong> — {prop.description}
+                  <span className="font-mono text-caption text-on-surface-variant ml-2">
+                    revision {prop.baseRevision.slice(0, 8)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button
+                disabled={busy}
+                onClick={async () => {
+                  const prop = workspace.proposals[0];
+                  if (!prop) return;
+                  await act("approve_proposal", { proposalId: prop.id });
+                }}
+                className="bg-secondary text-on-secondary px-4 py-2 rounded text-body-sm font-medium disabled:opacity-50"
+              >
+                Approve proposal
+              </button>
+              <button
+                disabled={busy}
+                onClick={async () => {
+                  const prop = workspace.proposals[0];
+                  if (!prop) return;
+                  await act("reject_proposal", { proposalId: prop.id, reason: "Rejected in UI" });
+                }}
+                className="border border-outline-variant px-4 py-2 rounded text-body-sm"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <header className="bg-surface-container-high border-b border-outline-variant flex justify-between items-center px-section-padding h-14 shrink-0 z-50">
         <div className="flex items-center gap-6 min-w-0">
           <Link href="/" className="font-display text-[18px] font-semibold text-primary shrink-0">
@@ -258,8 +336,8 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       )}
 
       {tab === "workspace" || tab === "results" ? (
-        <main className="flex-1 flex overflow-hidden relative">
-          <aside className="w-sidebar-width bg-surface border-r border-outline-variant flex flex-col z-30 shrink-0">
+        <main className="flex-1 flex overflow-hidden relative min-h-0">
+          <aside className="w-sidebar-width bg-surface border-r border-outline-variant flex flex-col z-30 shrink-0 min-h-0">
             <div className="p-4 border-b border-outline-variant bg-surface-container-low flex justify-between items-center">
               <div>
                 <h2 className="text-headline-md text-primary">Context</h2>
@@ -269,7 +347,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               </div>
               <span className="material-symbols-outlined text-outline">map</span>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-6">
               <section>
                 <div className="flex justify-between items-baseline mb-2">
                   <h3 className="font-mono text-data-label text-on-surface-variant uppercase">
@@ -433,18 +511,24 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               candidates={candidates}
               onSelectCandidate={selectCandidate}
               drawingExclusion={drawingExclusion}
+              excludeClicks={excludeClicks}
               onMapClickExclude={({ lat, lng }) => {
                 setExcludeClicks((prev) => [...prev, [lng, lat]]);
               }}
             />
 
-            <div className="absolute right-4 top-4 flex flex-col gap-2 z-20">
+            <div
+              className="absolute right-4 top-4 flex flex-col gap-2 z-[1000]"
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
               <button
+                type="button"
                 onClick={() => {
                   setDrawingExclusion((v) => !v);
                   setExcludeClicks([]);
                 }}
-                className={`glass-panel p-2 rounded border border-outline-variant ${
+                className={`glass-panel p-2 rounded border border-outline-variant pointer-events-auto ${
                   drawingExclusion ? "bg-error-container" : ""
                 }`}
                 title="Draw exclusion polygon"
@@ -453,33 +537,25 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               </button>
               {drawingExclusion && (
                 <button
-                  onClick={finishExclusionPolygon}
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void finishExclusionPolygon();
+                  }}
                   disabled={excludeClicks.length < 3}
-                  className="glass-panel px-2 py-1 rounded border border-outline-variant text-caption disabled:opacity-40"
+                  className="glass-panel px-2 py-1 rounded border border-outline-variant text-caption disabled:opacity-40 pointer-events-auto"
                 >
                   Finish ({excludeClicks.length})
                 </button>
               )}
             </div>
 
-            <div className="absolute left-4 bottom-4 glass-panel p-3 rounded border border-outline-variant z-20 max-w-[220px]">
+            <div className="absolute left-4 bottom-8 glass-panel p-3 rounded border border-outline-variant z-[1000] max-w-[240px] pointer-events-none">
               <h4 className="font-mono text-data-label text-on-surface-variant uppercase mb-2">
                 Legend
               </h4>
-              <div className="space-y-1.5 text-caption">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-inverse-primary/40 border border-primary-container" />
-                  Flood risk
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-primary/30 border border-primary" />
-                  Candidates
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-primary rounded-full" />
-                  Transit
-                </div>
-              </div>
+              <MapLegend visibleKinds={visibleLayerKinds} />
             </div>
 
             <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-20">
@@ -498,25 +574,29 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             </div>
           </section>
 
-          <aside className="w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0">
-            <div className="p-4 border-b border-outline-variant bg-surface-container-low flex justify-between items-center">
+          <aside className="w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0">
+            <div className="p-4 border-b border-outline-variant bg-surface-container-low flex justify-between items-center shrink-0">
               <div>
-                <h2 className="text-headline-md text-primary-container">AI Copilot</h2>
+                <h2 className="text-headline-md text-primary-container">Agent activity</h2>
                 <div className="flex items-center gap-2 mt-0.5">
                   <div
                     className={`w-2 h-2 rounded-full ${
-                      runningJob ? "bg-primary animate-pulse" : "bg-green-600"
+                      runningJob ? "bg-primary animate-pulse" : result ? "bg-primary-container" : "bg-outline"
                     }`}
                   />
                   <p className="text-caption text-on-surface-variant">
-                    {runningJob ? runningJob.currentStep ?? "Running…" : "Ready for instruction"}
+                    {runningJob
+                      ? runningJob.currentStep ?? "Analysis running…"
+                      : result
+                        ? "Analysis complete — review results"
+                        : "Review the plan, then run analysis"}
                   </p>
                 </div>
               </div>
               <span className="material-symbols-outlined text-outline">smart_toy</span>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
               {!result && scenario.analysisPlan && (
                 <>
                   <div className="bg-primary-fixed/20 p-3 rounded-r-lg rounded-bl-lg border border-primary-fixed">
@@ -641,7 +721,44 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               )}
             </div>
 
-            <div className="p-4 border-t border-outline-variant bg-surface-container-lowest flex flex-col gap-3">
+            {assumptionsOpen && (
+              <div className="shrink-0 border-t border-outline-variant bg-surface-container-low p-4 max-h-[40vh] overflow-y-auto">
+                <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-3">
+                  Analysis assumptions
+                </h3>
+                <p className="text-caption text-on-surface-variant mb-3">
+                  Editing assumptions marks results stale until you recalculate.
+                </p>
+                <div className="space-y-3">
+                  {scenario.assumptions.map((a, i) => (
+                    <label key={a.id} className="block text-body-sm">
+                      <span className="text-on-surface-variant">{a.label}</span>
+                      <input
+                        disabled={!a.editable}
+                        className="ml-2 border-b border-outline bg-transparent font-mono w-24"
+                        value={String(a.value)}
+                        onChange={async (e) => {
+                          const next = [...scenario.assumptions];
+                          const raw = e.target.value;
+                          next[i] = {
+                            ...a,
+                            value: Number.isFinite(Number(raw)) ? Number(raw) : raw,
+                          };
+                          await act("update_assumptions", {
+                            scenarioId: scenario.id,
+                            assumptions: next,
+                          });
+                        }}
+                      />
+                      {a.unit && <span className="text-caption ml-1">{a.unit}</span>}
+                      <p className="text-caption text-on-surface-variant">{a.description}</p>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="p-4 border-t border-outline-variant bg-surface-container-lowest flex flex-col gap-3 shrink-0">
               <div className="font-mono text-[11px] text-on-surface-variant flex justify-center gap-2">
                 <span>{scenario.analysisPlan?.datasets.length ?? 0} DATASETS</span>·
                 <span>
@@ -659,15 +776,26 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                 {result ? "Recalculate" : "Run analysis"}
               </button>
               <button
+                type="button"
                 onClick={() => setAssumptionsOpen((v) => !v)}
-                className="w-full border border-outline-variant py-2 px-4 rounded text-body-sm"
+                className={`w-full border py-2 px-4 rounded text-body-sm ${
+                  assumptionsOpen
+                    ? "border-primary bg-primary-fixed/20 text-primary"
+                    : "border-outline-variant"
+                }`}
               >
-                Review assumptions
+                {assumptionsOpen ? "Hide assumptions" : "Review assumptions"}
               </button>
             </div>
           </aside>
         </main>
       ) : null}
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] bg-inverse-surface text-inverse-on-surface px-4 py-2 rounded shadow-lg text-body-sm">
+          {toast}
+        </div>
+      )}
 
       {(tab === "results" && drawerOpen) || selectedCandidate ? (
         tab === "workspace" || tab === "results" ? (
@@ -704,9 +832,19 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           compareIds={compareIds}
           setCompareIds={setCompareIds}
           comparison={comparison}
+          busy={busy}
           onCompare={async () => {
-            const data = await act("compare_scenarios", { scenarioIds: compareIds });
-            setComparison(data.comparison);
+            const ids = [...compareIds];
+            if (ids.length < 2) return;
+            const res = await fetch(`/api/projects/${projectId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "compare_scenarios", scenarioIds: ids }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Compare failed");
+            setComparison(data.comparison ?? null);
+            setCompareIds(ids);
           }}
           onPrefer={async (id) => {
             await act("record_decision", {
@@ -723,13 +861,26 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           scenario={scenario}
           result={result}
           reason={decisionReason}
-          setReason={setDecisionReason}
+          setReason={(v) => {
+            setDecisionReason(v);
+            setDecisionError(null);
+          }}
+          error={decisionError}
           onDecide={async (type) => {
+            if (
+              (type === "approve_scenario" || type === "reject_scenario") &&
+              !decisionReason.trim()
+            ) {
+              setDecisionError("Please enter a reason — required for the audit trail.");
+              return;
+            }
+            setDecisionError(null);
             await act("record_decision", {
               scenarioId: scenario.id,
               type,
-              reason: decisionReason,
+              reason: decisionReason.trim() || undefined,
             });
+            setToast(`Decision recorded: ${type.replace(/_/g, " ")}`);
           }}
         />
       )}
@@ -1031,11 +1182,19 @@ function EvidenceView({
   );
 }
 
+const COMPARE_METRICS: Array<{ key: string; label: string }> = [
+  { key: "eligible_count", label: "Eligible areas" },
+  { key: "total_capacity", label: "Est. housing capacity" },
+  { key: "avg_transit_distance", label: "Avg transit distance (m)" },
+  { key: "top_score", label: "Top candidate score" },
+];
+
 function CompareView(props: {
   workspace: WorkspaceSnapshot;
   compareIds: string[];
-  setCompareIds: (ids: string[]) => void;
+  setCompareIds: Dispatch<SetStateAction<string[]>>;
   comparison: Array<Record<string, string | number>> | null;
+  busy?: boolean;
   onCompare: () => Promise<void>;
   onPrefer: (id: string) => Promise<void>;
 }) {
@@ -1044,7 +1203,7 @@ function CompareView(props: {
     <main className="flex-1 overflow-auto p-8">
       <h2 className="text-display mb-2">Scenario comparison</h2>
       <p className="text-body-sm text-on-surface-variant mb-6">
-        Compare scenarios with consistent calculated metrics.
+        Select two or more scenarios, then compare using consistent calculated metrics.
       </p>
       <div className="flex flex-wrap gap-3 mb-4">
         {workspace.scenarios.map((s) => {
@@ -1052,31 +1211,38 @@ function CompareView(props: {
           return (
             <button
               key={s.id}
+              type="button"
               onClick={() =>
-                props.setCompareIds(
-                  on
-                    ? props.compareIds.filter((id) => id !== s.id)
-                    : [...props.compareIds, s.id]
+                props.setCompareIds((prev) =>
+                  on ? prev.filter((id) => id !== s.id) : [...prev, s.id]
                 )
               }
-              className={`px-3 py-1.5 border text-body-sm ${
-                on ? "border-primary bg-primary-fixed/30" : "border-outline-variant"
+              className={`px-3 py-1.5 border text-body-sm transition-colors ${
+                on ? "border-primary bg-primary-fixed/30 text-primary" : "border-outline-variant"
               }`}
             >
               {s.name}
+              {on && (
+                <span className="ml-2 font-mono text-[10px] text-primary-container">✓</span>
+              )}
             </button>
           );
         })}
       </div>
       <button
-        disabled={props.compareIds.length < 2}
-        onClick={props.onCompare}
+        type="button"
+        disabled={props.compareIds.length < 2 || props.busy}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void props.onCompare();
+        }}
         className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40 mb-6"
       >
-        Compare selected
+        {props.busy ? "Comparing…" : `Compare selected (${props.compareIds.length})`}
       </button>
-      {props.comparison && (
-        <div className="overflow-auto border border-outline-variant">
+      {props.comparison && props.comparison.length > 0 && (
+        <div className="overflow-auto border border-outline-variant bg-surface-container-lowest">
           <table className="w-full text-body-sm">
             <thead className="bg-surface-container-low font-mono text-data-label">
               <tr>
@@ -1089,13 +1255,12 @@ function CompareView(props: {
               </tr>
             </thead>
             <tbody>
-              {["eligible_count", "total_capacity", "avg_transit_distance", "top_score"].map(
-                (metric) => (
-                  <tr key={metric} className="border-t border-outline-variant">
-                    <td className="p-3 font-mono text-caption">{metric}</td>
+              {COMPARE_METRICS.map(({ key, label }) => (
+                  <tr key={key} className="border-t border-outline-variant">
+                    <td className="p-3 font-mono text-caption">{label}</td>
                     {props.comparison!.map((row) => (
                       <td key={String(row.scenarioId)} className="p-3 font-mono">
-                        {row[metric]}
+                        {row[key] ?? "—"}
                       </td>
                     ))}
                   </tr>
@@ -1126,6 +1291,7 @@ function DecisionView(props: {
   result: WorkspaceSnapshot["analysisResults"][0] | undefined;
   reason: string;
   setReason: (v: string) => void;
+  error: string | null;
   onDecide: (type: "approve_scenario" | "reject_scenario" | "request_changes") => Promise<void>;
 }) {
   const { scenario, result } = props;
@@ -1169,24 +1335,33 @@ function DecisionView(props: {
         <textarea
           value={props.reason}
           onChange={(e) => props.setReason(e.target.value)}
-          className="mt-2 w-full border border-outline-variant rounded p-3 text-body-sm"
+          className={`mt-2 w-full border rounded p-3 text-body-sm ${
+            props.error ? "border-error" : "border-outline-variant"
+          }`}
           rows={3}
+          placeholder="Required for approve/reject — logged in audit trail"
         />
+        {props.error && (
+          <p className="text-caption text-error mt-1">{props.error}</p>
+        )}
       </label>
       <div className="flex flex-wrap gap-3">
         <button
+          type="button"
           onClick={() => props.onDecide("approve_scenario")}
           className="bg-secondary text-on-secondary px-4 py-2 rounded text-body-sm"
         >
           Approve scenario
         </button>
         <button
+          type="button"
           onClick={() => props.onDecide("request_changes")}
           className="border border-outline px-4 py-2 rounded text-body-sm"
         >
           Request changes
         </button>
         <button
+          type="button"
           onClick={() => props.onDecide("reject_scenario")}
           className="border border-error text-error px-4 py-2 rounded text-body-sm"
         >
@@ -1195,9 +1370,9 @@ function DecisionView(props: {
       </div>
       <p className="mt-4 text-caption text-on-surface-variant">
         Current decision status:{" "}
-        <span className="font-medium">{scenario.decisionStatus}</span>
+        <span className="font-medium text-secondary">{scenario.decisionStatus}</span>
       </p>
-      <div className="mt-8">
+      <div className="mt-8 max-h-[40vh] overflow-y-auto">
         <h4 className="font-mono text-data-label uppercase mb-3">Decision history</h4>
         <ul className="space-y-2">
           {props.workspace.decisions
@@ -1225,8 +1400,8 @@ function ActivityView(props: {
   onSelect: (id: string) => void;
 }) {
   return (
-    <main className="flex-1 overflow-hidden grid md:grid-cols-[1fr_360px]">
-      <div className="overflow-auto p-6">
+    <main className="flex-1 min-h-0 overflow-hidden grid md:grid-cols-[1fr_360px]">
+      <div className="overflow-y-auto p-6 min-h-0">
         <h2 className="text-display mb-4">Activity &amp; provenance</h2>
         <ul className="space-y-3">
           {props.workspace.activities.map((a) => (
@@ -1253,7 +1428,7 @@ function ActivityView(props: {
           ))}
         </ul>
       </div>
-      <aside className="border-l border-outline-variant p-6 overflow-auto bg-surface-container-low">
+      <aside className="border-l border-outline-variant p-6 overflow-y-auto bg-surface-container-low min-h-0">
         <h3 className="text-headline-md mb-4">Event details</h3>
         {!props.selected ? (
           <p className="text-body-sm text-on-surface-variant">Select an event.</p>
@@ -1296,16 +1471,62 @@ function ReportView(props: {
   onGenerate: () => Promise<void>;
 }) {
   const latest = props.report ?? props.workspace.reports[0];
+
+  function downloadMarkdown() {
+    if (!latest) return;
+    const lines = [
+      `# ${latest.title}`,
+      ``,
+      `Generated: ${new Date(latest.createdAt).toLocaleString()}`,
+      `Audience: ${latest.audience}`,
+      ``,
+    ];
+    for (const s of latest.sections) {
+      lines.push(`## ${s.heading}`, ``, s.body, ``);
+      if (s.data && Array.isArray(s.data)) {
+        lines.push(
+          `| Scenario | Eligible | Capacity | Avg transit (m) | Top score |`,
+          `| --- | ---: | ---: | ---: | ---: |`
+        );
+        for (const row of s.data as Array<Record<string, string | number>>) {
+          lines.push(
+            `| ${row.name} | ${row.eligible_count ?? "—"} | ${row.total_capacity ?? "—"} | ${row.avg_transit_distance ?? "—"} | ${row.top_score ?? "—"} |`
+          );
+        }
+        lines.push(``);
+      }
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${latest.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <main className="flex-1 overflow-auto p-8 max-w-4xl">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
         <h2 className="text-display">Reports</h2>
-        <button
-          onClick={props.onGenerate}
-          className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm"
-        >
-          Generate report
-        </button>
+        <div className="flex gap-2">
+          {latest && (
+            <button
+              type="button"
+              onClick={downloadMarkdown}
+              className="border border-outline-variant px-4 py-2 rounded text-body-sm"
+            >
+              Download Markdown
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={props.onGenerate}
+            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm"
+          >
+            Generate report
+          </button>
+        </div>
       </div>
       {!latest ? (
         <p className="text-body-sm text-on-surface-variant">No reports yet.</p>
@@ -1328,13 +1549,34 @@ function ReportView(props: {
                   <ProvenanceChip kind={s.kind} />
                 ) : null}
               </div>
-              <pre className="text-body-sm whitespace-pre-wrap font-sans text-on-surface-variant">
-                {s.body}
-              </pre>
-              {s.data != null && (
-                <pre className="mt-2 text-caption font-mono bg-surface-container p-2 overflow-auto">
-                  {JSON.stringify(s.data, null, 2)}
-                </pre>
+              <p className="text-body-sm whitespace-pre-wrap text-on-surface-variant">{s.body}</p>
+              {s.data != null && Array.isArray(s.data) && (
+                <div className="mt-3 overflow-auto border border-outline-variant">
+                  <table className="w-full text-body-sm">
+                    <thead className="bg-surface-container-low font-mono text-data-label">
+                      <tr>
+                        <th className="p-2 text-left">Scenario</th>
+                        <th className="p-2 text-right">Eligible</th>
+                        <th className="p-2 text-right">Capacity</th>
+                        <th className="p-2 text-right">Avg transit (m)</th>
+                        <th className="p-2 text-right">Top score</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(s.data as Array<Record<string, string | number>>).map((row) => (
+                        <tr key={String(row.scenarioId)} className="border-t border-outline-variant">
+                          <td className="p-2">{row.name}</td>
+                          <td className="p-2 text-right font-mono">{row.eligible_count ?? "—"}</td>
+                          <td className="p-2 text-right font-mono">{row.total_capacity ?? "—"}</td>
+                          <td className="p-2 text-right font-mono">
+                            {row.avg_transit_distance ?? "—"}
+                          </td>
+                          <td className="p-2 text-right font-mono">{row.top_score ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </section>
           ))}

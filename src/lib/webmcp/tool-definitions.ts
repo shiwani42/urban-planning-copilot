@@ -1,0 +1,355 @@
+import type { JsonSchema, WebMcpAnnotations } from "./browser-types";
+
+export type ToolLayer = "answer" | "action" | "sensitive";
+
+export type PlanningToolMeta = {
+  name: string;
+  description: string;
+  inputSchema: JsonSchema;
+  annotations?: WebMcpAnnotations;
+  layer: ToolLayer;
+};
+
+/** Canonical WebMCP tool catalog — shared by browser registration and HTTP /api/mcp */
+export const PLANNING_TOOL_META: PlanningToolMeta[] = [
+  {
+    layer: "answer",
+    name: "get_workspace",
+    description:
+      "Read the active project/scenario: objective, constraints, decision status, resume note.",
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: "object",
+      properties: { projectId: { type: "string", description: "Project id" } },
+      required: ["projectId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "answer",
+    name: "get_analysis_plan",
+    description: "Return the structured analysis plan steps before or after running analysis.",
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioId: { type: "string", description: "Optional; defaults to active scenario" },
+      },
+      required: ["projectId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "answer",
+    name: "list_candidates",
+    description: "List ranked analysis candidates with scores and statuses for a scenario.",
+    annotations: { readOnlyHint: true, untrustedContentHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioId: { type: "string" },
+        limit: { type: "number", description: "Max candidates (default 10)" },
+      },
+      required: ["projectId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "answer",
+    name: "inspect_candidate",
+    description:
+      "Inspect one candidate: metrics, score breakdown, datasets, assumptions, limitations.",
+    annotations: { readOnlyHint: true, untrustedContentHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        candidateId: { type: "string" },
+        scenarioId: { type: "string" },
+      },
+      required: ["projectId", "candidateId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "answer",
+    name: "list_datasets",
+    description: "List datasets with version, freshness, coverage, and limitations.",
+    annotations: { readOnlyHint: true, untrustedContentHint: true },
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    layer: "answer",
+    name: "compare_scenarios",
+    description: "Compare scenarios using consistent calculated metrics (capacity, transit, scores).",
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "At least two scenario ids",
+        },
+      },
+      required: ["projectId", "scenarioIds"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "answer",
+    name: "verify_operation",
+    description:
+      "Verify an approved human-gated operation by SHA-256 receipt. Returns verification status.",
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        proposalId: { type: "string", description: "Optional; defaults to latest approved" },
+      },
+      required: ["projectId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "start_planning_project",
+    description:
+      "Create a planning project from a natural-language objective and open its analysis plan.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Project name" },
+        objectiveText: { type: "string", description: "Natural-language planning question" },
+        geographyLabel: { type: "string", description: "Optional geography label" },
+      },
+      required: ["name", "objectiveText"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "set_planning_objective",
+    description: "Update the active objective from natural language; regenerates the analysis plan.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        objectiveText: { type: "string" },
+      },
+      required: ["projectId", "objectiveText"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "set_transit_threshold",
+    description: "Set transit proximity threshold in meters (marks results stale).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioId: { type: "string" },
+        meters: { type: "number", description: "Distance threshold in meters", minimum: 1 },
+      },
+      required: ["projectId", "scenarioId", "meters"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "set_priority_weights",
+    description:
+      "Set ranking weights (e.g. transit, capacity, flood_resilience). Values are normalized.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioId: { type: "string" },
+        weights: {
+          type: "object",
+          description: "Map of criterion key → weight",
+          additionalProperties: { type: "number" },
+        },
+      },
+      required: ["projectId", "scenarioId", "weights"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "run_analysis",
+    description: "Run spatial analysis for a scenario; returns summary and candidate count.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioId: { type: "string" },
+      },
+      required: ["projectId", "scenarioId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "create_scenario_branch",
+    description: "Duplicate a scenario so edits do not mutate the parent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        name: { type: "string" },
+        fromScenarioId: { type: "string", description: "Source scenario to duplicate" },
+      },
+      required: ["projectId", "name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "select_candidate",
+    description: "Select a candidate; syncs map highlight and detail panels.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        candidateId: { type: "string" },
+      },
+      required: ["projectId", "candidateId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "exclude_map_area",
+    description: "Add a human/agent geographic exclusion polygon; marks results stale.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioId: { type: "string" },
+        label: { type: "string" },
+        coordinates: {
+          type: "array",
+          description: "Polygon ring as [lng,lat] pairs (min 3)",
+          items: { type: "array", items: { type: "number" } },
+        },
+      },
+      required: ["projectId", "scenarioId", "label", "coordinates"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "stage_proposal",
+    description:
+      "Stage a visible ghost proposal for human review. Does not apply until approved. Revision-bound.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioId: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+        action: {
+          type: "string",
+          description: "Domain action: update_weights, update_constraints, set_transit_threshold, approve_scenario",
+        },
+        payload: { type: "object", description: "Action-specific parameters" },
+      },
+      required: ["projectId", "scenarioId", "title", "description", "action", "payload"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "sensitive",
+    name: "reject_candidate",
+    description:
+      "Record a planner rejection of a candidate with reason. Requires user confirmation.",
+    annotations: { destructiveHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioId: { type: "string" },
+        candidateId: { type: "string" },
+        reason: { type: "string" },
+      },
+      required: ["projectId", "scenarioId", "candidateId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "sensitive",
+    name: "prefer_scenario",
+    description: "Select the planner's preferred scenario among alternatives. Confirms with user.",
+    annotations: { destructiveHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioId: { type: "string" },
+        reason: { type: "string" },
+      },
+      required: ["projectId", "scenarioId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "sensitive",
+    name: "approve_scenario",
+    description:
+      "Approve a scenario as a formal planning decision. Always confirms with the human planner.",
+    annotations: { destructiveHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioId: { type: "string" },
+        reason: { type: "string", description: "Optional decision rationale" },
+      },
+      required: ["projectId", "scenarioId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "sensitive",
+    name: "approve_proposal",
+    description:
+      "Apply a staged proposal after human confirmation. Rejects stale proposals if criteria changed.",
+    annotations: { destructiveHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        proposalId: { type: "string" },
+      },
+      required: ["projectId", "proposalId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "sensitive",
+    name: "generate_report",
+    description: "Generate a planning report from scenarios. Confirms before creating the document.",
+    annotations: { destructiveHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioIds: { type: "array", items: { type: "string" } },
+        title: { type: "string" },
+      },
+      required: ["projectId", "scenarioIds"],
+      additionalProperties: false,
+    },
+  },
+];
+
+export function getToolMeta(name: string): PlanningToolMeta | undefined {
+  return PLANNING_TOOL_META.find((t) => t.name === name);
+}

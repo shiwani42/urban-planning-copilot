@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { nanoid } from "nanoid";
 import type {
   AnalysisPlan,
@@ -479,4 +480,9 @@ export function hashConfig(parts: unknown): string {
     h = Math.imul(h, 16777619);
   }
   return (h >>> 0).toString(16).padStart(8, "0") + json.length.toString(16);
+}
+
+/** SHA-256 receipt for auditable human-approved operations. */
+export function sha256Receipt(data: unknown): string {
+  return createHash("sha256").update(JSON.stringify(data)).digest("hex");
 }

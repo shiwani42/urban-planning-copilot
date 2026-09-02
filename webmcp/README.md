@@ -21,9 +21,11 @@ set_transit_threshold / set_priority_weights / exclude_map_area
         ↓
 create_scenario_branch → compare_scenarios
         ↓
-approve_scenario / prefer_scenario / reject_candidate   (sensitive + confirmation)
+approve_scenario / approve_proposal / prefer_scenario / reject_candidate   (sensitive + confirmation)
         ↓
 generate_report
+        ↓
+verify_operation           (SHA-256 receipt)
 ```
 
 ### Tool layers

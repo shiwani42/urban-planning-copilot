@@ -6,12 +6,18 @@ services:
     region: singapore
     branch: main
     buildCommand: npm ci && npm run build
-    startCommand: npm start
+    startCommand: npm run seed && npm start
     autoDeployTrigger: commit
+    disk:
+      name: upc-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: 22.14.0
       - key: NODE_ENV
         value: production
+      - key: DATA_DIR
+        value: /opt/render/project/src/data
       - key: NEXT_PUBLIC_CARTO_API_KEY
         sync: false

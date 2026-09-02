@@ -172,6 +172,73 @@
     ]
   },
   {
+    "name": "Stage proposal for human approval",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Stage a proposal to change transit priority to 60% and capacity to 25% for my review before applying."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "stage_proposal",
+        "arguments": {
+          "projectId": { "$type": "string" },
+          "scenarioId": { "$type": "string" },
+          "action": { "$contains": "weight" }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Approve staged proposal with verification",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "I reviewed the staged proposal in the UI — approve it and verify the receipt."
+      }
+    ],
+    "expectedCall": [
+      {
+        "ordered": [
+          {
+            "functionName": "approve_proposal",
+            "arguments": {
+              "projectId": { "$type": "string" },
+              "proposalId": { "$type": "string" }
+            }
+          },
+          {
+            "functionName": "verify_operation",
+            "arguments": {
+              "projectId": { "$type": "string" }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Stale revision after criteria change",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "There is a pending weight proposal but I already changed the transit threshold manually. Do not apply stale work — check verify_operation instead."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "verify_operation",
+        "arguments": {
+          "projectId": { "$type": "string" }
+        }
+      }
+    ]
+  },
+  {
     "name": "Approve scenario with human confirmation",
     "messages": [
       {

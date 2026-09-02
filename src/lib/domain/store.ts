@@ -3,7 +3,7 @@ import path from "path";
 import type { AppStore } from "./types";
 import { generateSyntheticCity } from "./seed";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
 const STORE_PATH = path.join(DATA_DIR, "store.json");
 
 function emptyStore(): AppStore {
@@ -15,6 +15,7 @@ function emptyStore(): AppStore {
     decisions: [],
     activities: [],
     confirmations: [],
+    proposals: [],
     analysisJobs: [],
     analysisResults: [],
     reports: [],
@@ -32,6 +33,7 @@ export async function ensureStore(): Promise<AppStore> {
   try {
     const raw = await fs.readFile(STORE_PATH, "utf8");
     memory = JSON.parse(raw) as AppStore;
+    if (!memory.proposals) memory.proposals = [];
     // Ensure datasets exist (e.g. after schema upgrades)
     if (!memory.datasets?.length || !memory.featuresByDataset) {
       const city = generateSyntheticCity();
