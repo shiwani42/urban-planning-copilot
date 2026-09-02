@@ -162,6 +162,29 @@ describe("store persistence", () => {
     });
     assert.ok(ws.project.id);
   });
+
+  it("setActiveScenario is a no-op when scenario is already active", async () => {
+    const ws = await services.createProject({
+      name: "Active scenario no-op",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const baselineId = ws.project.activeScenarioId!;
+    await services.runAnalysis(ws.project.id, baselineId);
+    await services.recordDecision({
+      projectId: ws.project.id,
+      scenarioId: baselineId,
+      type: "approve_scenario",
+      reason: "Meets housing target with acceptable flood risk.",
+    });
+    const before = await services.getWorkspace(ws.project.id);
+    assert.match(before!.project.resumeNote ?? "", /Decision recorded/);
+
+    const after = await services.setActiveScenario(ws.project.id, baselineId);
+    assert.equal(after!.project.activeScenarioId, baselineId);
+    assert.match(after!.project.resumeNote ?? "", /Decision recorded/);
+    const activities = after!.activities.filter((a) => a.action === "activate_scenario");
+    assert.equal(activities.length, 0);
+  });
 });
 
 describe("transit threshold normalization", () => {

@@ -13,6 +13,7 @@ import {
   type RecentProjectHint,
 } from "@/lib/project-recency";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
+import { fetchJsonWithRetry } from "@/lib/fetch-json";
 
 type Project = {
   id: string;
@@ -95,12 +96,19 @@ export default function HomePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/projects", { cache: "no-store" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load projects");
+      const { data } = await fetchJsonWithRetry<{ projects?: Project[]; error?: string }>(
+        "/api/projects",
+        { cache: "no-store" },
+        { label: "Load projects" }
+      );
       setProjects(data.projects ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setError(
+        message.includes("JSON") || message.includes("empty response")
+          ? "Could not load projects — the server returned an incomplete response. Try again."
+          : message
+      );
     } finally {
       setLoading(false);
     }
