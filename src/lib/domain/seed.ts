@@ -1,17 +1,12 @@
 /**
- * Synthetic North River geography — clearly marked as synthetic seed data.
- * Geometry is generated procedurally so analysis remains data-driven.
+ * Synthetic supplement geography for layers not yet ingested from SF open data.
+ * Real parcels / transit / flood come from checked-in snapshots (see sf-data.ts).
  */
 import * as turf from "@turf/turf";
 import type { DatasetMeta } from "./types";
+import { STUDY_BOUNDS, GEOGRAPHY_LABEL } from "./study-bounds";
 
-/** Approximate study area: fictional district around a river corridor */
-export const STUDY_BOUNDS = {
-  west: -122.42,
-  south: 37.76,
-  east: -122.36,
-  north: 37.81,
-};
+export { STUDY_BOUNDS, GEOGRAPHY_LABEL } from "./study-bounds";
 
 function seededRandom(seed: number): () => number {
   let s = seed % 2147483647;
@@ -83,11 +78,15 @@ export function generateSyntheticCity(seed = 42): {
     }
   }
 
+  const width = east - west;
+  const height = north - south;
+
   // Transit stations along a corridor
   const transit: GeoJSON.Feature[] = [];
   for (let i = 0; i < 8; i++) {
-    const lng = west + 0.02 + i * ((east - west - 0.04) / 7);
-    const lat = south + 0.02 + (i % 3) * 0.012 + rand() * 0.004;
+    const lng = west + width * 0.08 + i * (width * 0.84 / 7);
+    const lat =
+      south + height * 0.12 + (i % 3) * (height * 0.22) + rand() * (height * 0.04);
     transit.push(
       turf.point([lng, lat], {
         id: `transit-${i}`,
@@ -152,8 +151,8 @@ export function generateSyntheticCity(seed = 42): {
     schools.push(
       turf.point(
         [
-          west + 0.01 + rand() * (east - west - 0.02),
-          south + 0.01 + rand() * (north - south - 0.02),
+          west + width * 0.05 + rand() * width * 0.9,
+          south + height * 0.05 + rand() * height * 0.9,
         ],
         {
           id: `school-${i}`,
@@ -206,14 +205,14 @@ export function generateSyntheticCity(seed = 42): {
   const datasets: DatasetMeta[] = [
     {
       id: "ds-parcels",
-      name: "Parcels (Synthetic North River)",
+      name: "Parcels (Illustrative supplement)",
       kind: "parcels",
-      source: "Synthetic generator — not municipal authoritative data",
+      source: "Synthetic generator — not used when SF snapshot is loaded",
       version: "syn-1.0.0",
       updatedAt: now,
       dataVintage: "2024 municipal assessor roll (synthetic)",
       synthetic: true,
-      coverage: "North River study area",
+      coverage: GEOGRAPHY_LABEL,
       limitations: [
         "Synthetic geometry for demonstration and testing",
         "Zoning codes are illustrative",
@@ -231,8 +230,8 @@ export function generateSyntheticCity(seed = 42): {
       updatedAt: now,
       dataVintage: "2023 GTFS snapshot (synthetic)",
       synthetic: true,
-      coverage: "North River corridor",
-      limitations: ["Stop locations are synthetic", "Frequencies are illustrative"],
+      coverage: GEOGRAPHY_LABEL,
+      limitations: ["Stop locations are illustrative", "Frequencies are illustrative"],
       featureCount: transit.length,
       enabled: true,
       attributes: ["id", "name", "type", "service_freq"],

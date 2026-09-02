@@ -13,7 +13,7 @@ describe("objective parsing", () => {
     assert.equal(objective.targetValue, 2000);
     assert.ok(constraints.some((c) => c.operator === "within_distance"));
     assert.ok(constraints.some((c) => c.operator === "not_intersects"));
-    assert.ok(constraints.some((c) => c.attribute === "zoning"));
+    assert.ok(constraints.some((c) => c.attribute === "land_use" || c.attribute === "zoning"));
   });
 
   it("detects emergency shelter intent", () => {

@@ -940,7 +940,7 @@ export default function WorkspaceClient({
                           className="rounded border-outline text-primary h-4 w-4"
                         />
                         <span className="text-body-sm">
-                          {d.name.replace(" (Synthetic)", "").replace(" (Synthetic North River)", "")}
+                          {d.name.replace(" (Illustrative)", "").replace(" (Synthetic)", "")}
                           {d.stale ? " · outdated" : ""}
                           {!d.enabled ? " · disabled" : ""}
                         </span>

@@ -15,10 +15,10 @@ async function main() {
   console.log("Seeding demo projects…");
 
   const northRiver = await services.createProject({
-    name: "North River Housing Strategy",
+    name: "San Francisco Housing Strategy",
     objectiveText:
       "Identify areas capable of accommodating 2,000 additional homes while maximizing transit access and avoiding flood-risk areas.",
-    geographyLabel: "North River study area",
+    geographyLabel: "San Francisco — Mission & SoMa demo area",
   });
 
   const projectId = northRiver.project.id;
@@ -29,14 +29,14 @@ async function main() {
     name: "East Side Commercial Zone",
     objectiveText:
       "Identify mixed-use rezoning opportunities that maximize density while maintaining transit access and avoiding high flood-risk areas.",
-    geographyLabel: "East Side corridor",
+    geographyLabel: "San Francisco — Mission District",
   });
 
   await services.createProject({
     name: "Transit Hub Expansion",
     objectiveText:
       "Find neighborhoods with the largest transit accessibility gaps and identify candidate locations for new transit-oriented development.",
-    geographyLabel: "Metro expansion area",
+    geographyLabel: "San Francisco transit corridors",
   });
 
   const final = await getStore();
