@@ -17,6 +17,7 @@ export async function GET() {
     /* unreadable */
   }
   return NextResponse.json({
+    status: health.status,
     storage: {
       ...health,
       storeExists,

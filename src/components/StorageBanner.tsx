@@ -15,7 +15,13 @@ export function StorageBanner() {
   useEffect(() => {
     fetch("/api/health", { cache: "no-store" })
       .then((r) => r.json())
-      .then((d) => setStorage(d.storage ?? null))
+      .then((d) => {
+        if (d.status === "healthy") {
+          setStorage(null);
+          return;
+        }
+        setStorage(d.storage ?? { status: d.status ?? "unknown" });
+      })
       .catch(() => {
         setStorage({
           status: "degraded",
@@ -29,14 +35,14 @@ export function StorageBanner() {
   return (
     <div
       role="alert"
-      className="bg-error-container/30 border-b border-error/40 px-section-padding py-2 text-body-sm text-on-error-container shrink-0"
+      className="bg-error-container/30 border-b border-error/40 px-section-padding py-2 text-body-sm text-on-surface shrink-0"
     >
-      <strong>Workspace storage degraded.</strong>{" "}
+      <strong>Workspace storage unavailable.</strong>{" "}
       {storage.message ??
-        "Projects may not persist across restarts. Contact your administrator or check Render disk mount."}
+        "Projects may not persist across restarts until storage is restored."}
       {storage.onPersistentMount === false && (
         <span className="block text-caption mt-0.5">
-          DATA_DIR is not on the Render persistent disk mount — running in ephemeral mode.
+          Server data directory is not writable — contact your administrator.
         </span>
       )}
     </div>

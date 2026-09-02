@@ -121,6 +121,38 @@ async function verifyWritableDataDir(dir: string): Promise<void> {
   await fs.unlink(probe);
 }
 
+async function writeStorePayload(
+  dir: string,
+  pathToStore: string,
+  pathToBackup: string,
+  store: AppStore
+): Promise<void> {
+  const payload = JSON.stringify(store, null, 2);
+  const tmp = `${pathToStore}.tmp`;
+  await fs.writeFile(tmp, payload, "utf8");
+  if (await fileExists(pathToStore)) {
+    await fs.copyFile(pathToStore, pathToBackup);
+  }
+  await fs.rename(tmp, pathToStore);
+  await fs.copyFile(pathToStore, pathToBackup);
+}
+
+async function restoreStoreFromBackup(
+  dir: string,
+  pathToStore: string,
+  pathToBackup: string,
+  message: string
+): Promise<AppStore> {
+  const raw = await fs.readFile(pathToBackup, "utf8");
+  const store = await parseStoreFile(raw, pathToBackup);
+  await upgradeCatalog(store);
+  await writeStorePayload(dir, pathToStore, pathToBackup, store);
+  memory = store;
+  memoryDataDir = dir;
+  markStorageHealthy(dir, message);
+  return store;
+}
+
 async function readStoreFromDisk(): Promise<AppStore> {
   const dir = dataDir();
   await verifyWritableDataDir(dir);
@@ -141,12 +173,12 @@ async function readStoreFromDisk(): Promise<AppStore> {
     } catch (primaryErr) {
       if (await fileExists(pathToBackup)) {
         try {
-          const raw = await fs.readFile(pathToBackup, "utf8");
-          const store = await parseStoreFile(raw, pathToBackup);
-          await upgradeCatalog(store);
-          await persist(store);
-          markStorageHealthy(dir, "Recovered workspace from backup after primary store read failed.");
-          return store;
+          return await restoreStoreFromBackup(
+            dir,
+            pathToStore,
+            pathToBackup,
+            "Recovered workspace from backup after primary store read failed."
+          );
         } catch {
           /* fall through */
         }
@@ -160,12 +192,12 @@ async function readStoreFromDisk(): Promise<AppStore> {
   }
 
   if (await fileExists(pathToBackup)) {
-    const raw = await fs.readFile(pathToBackup, "utf8");
-    const store = await parseStoreFile(raw, pathToBackup);
-    await upgradeCatalog(store);
-    await persist(store);
-    markStorageHealthy(dir, "Restored workspace from backup.");
-    return store;
+    return restoreStoreFromBackup(
+      dir,
+      pathToStore,
+      pathToBackup,
+      "Restored workspace from backup."
+    );
   }
 
   const store = await buildDefaultStore();
@@ -217,14 +249,7 @@ export async function persist(store: AppStore): Promise<void> {
   writeQueue = writeQueue.then(async () => {
     try {
       await verifyWritableDataDir(dir);
-      const payload = JSON.stringify(store, null, 2);
-      const tmp = `${pathToStore}.tmp`;
-      await fs.writeFile(tmp, payload, "utf8");
-      if (await fileExists(pathToStore)) {
-        await fs.copyFile(pathToStore, pathToBackup);
-      }
-      await fs.rename(tmp, pathToStore);
-      await fs.copyFile(pathToStore, pathToBackup);
+      await writeStorePayload(dir, pathToStore, pathToBackup, store);
       markStorageHealthy(dir);
     } catch (err) {
       markStorageDegraded(
@@ -237,21 +262,34 @@ export async function persist(store: AppStore): Promise<void> {
   await writeQueue;
 }
 
-export async function updateStore(
+async function runStoreMutation(
   mutator: (store: AppStore) => void | Promise<void>
 ): Promise<AppStore> {
   const dir = dataDir();
-  updateChain = updateChain.then(async () => {
-    if (memoryDataDir && memoryDataDir !== dir) {
-      memory = null;
-      memoryDataDir = null;
-    }
-    const store = await reloadStoreFromDisk();
-    await mutator(store);
-    await persist(store);
-    return store;
-  });
-  return updateChain;
+  if (memoryDataDir && memoryDataDir !== dir) {
+    memory = null;
+    memoryDataDir = null;
+  }
+  await flushStoreWrites();
+  const store =
+    memory && memoryDataDir === dir ? memory : await readStoreFromDisk();
+  await mutator(store);
+  await persist(store);
+  return store;
+}
+
+export async function updateStore(
+  mutator: (store: AppStore) => void | Promise<void>
+): Promise<AppStore> {
+  const scheduled = updateChain.then(
+    () => runStoreMutation(mutator),
+    () => runStoreMutation(mutator)
+  );
+  updateChain = scheduled.then(
+    () => undefined as unknown as AppStore,
+    () => undefined as unknown as AppStore
+  );
+  return scheduled;
 }
 
 export async function resetStore(): Promise<AppStore> {

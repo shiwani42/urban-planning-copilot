@@ -1,6 +1,7 @@
 /**
  * Seed demo planning projects into the persistent store.
  * Safe to run multiple times — skips if projects already exist.
+ * Failures are logged but do not block application boot.
  */
 import { getStore, persist } from "../src/lib/domain/store";
 import * as services from "../src/lib/domain/services";
@@ -9,7 +10,7 @@ async function main() {
   const store = await getStore();
   if (store.projects.length > 0) {
     console.log(`Store already has ${store.projects.length} project(s) — skipping seed.`);
-    process.exit(0);
+    return;
   }
 
   console.log("Seeding demo projects…");
@@ -46,6 +47,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err);
-  process.exit(1);
+  console.error("Seed failed (boot continues):", err);
+  process.exit(0);
 });
