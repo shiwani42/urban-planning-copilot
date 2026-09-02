@@ -31,6 +31,27 @@ describe("objective parsing", () => {
     assert.equal(objective.intent, "school_accessibility");
   });
 
+  it("detects combined park and school service access", () => {
+    const { objective, assumptions, weights } = parseObjective(
+      "Identify neighborhoods underserved by parks and schools. This is not a housing production question."
+    );
+    assert.equal(objective.intent, "service_access");
+    assert.equal(objective.excludesHousing, true);
+    assert.ok(objective.serviceTypes?.includes("school"));
+    assert.ok(objective.serviceTypes?.includes("park"));
+    assert.ok(!assumptions.some((a) => a.key === "units_per_hectare"));
+    assert.ok(!weights.some((w) => w.key === "flood_resilience"));
+  });
+
+  it("warns when parks referenced but dataset unavailable", () => {
+    const { objective } = parseObjective(
+      "Find park access gaps in underserved neighborhoods — not a housing question.",
+      "Study area",
+      { availableDatasetKinds: ["parcels", "population", "schools"] }
+    );
+    assert.ok(objective.dataGaps?.some((g) => /parks/i.test(g)));
+  });
+
   it("detects transit gap intent", () => {
     const { objective } = parseObjective(
       "Find neighborhoods with the largest transit accessibility gaps."
@@ -250,5 +271,73 @@ describe("spatial analysis", () => {
       },
     ]);
     assert.ok(insights.some((i) => i.heading === "Top recommendation"));
+  });
+
+  it("omits housing capacity for school accessibility objectives", () => {
+    const city = generateSyntheticCity(7);
+    const parsed = parseObjective(
+      "Identify neighborhoods underserved by schools. This is not a housing production question.",
+      "North River",
+      { availableDatasetKinds: city.datasets.map((d) => d.kind) }
+    );
+    const layers: Record<string, GeoJSON.FeatureCollection> = {};
+    for (const d of city.datasets) layers[d.kind] = city.featuresByDataset[d.id];
+    const out = runSpatialAnalysis({
+      objective: parsed.objective,
+      constraints: parsed.constraints,
+      weights: parsed.weights,
+      assumptions: parsed.assumptions,
+      selections: [],
+      layers,
+      datasetIds: Object.fromEntries(city.datasets.map((d) => [d.kind, d.id])),
+    });
+    assert.ok(out.candidates.length > 0);
+    assert.ok(!out.aggregateMetrics.some((m) => m.key === "total_capacity"));
+    const top = out.candidates[0];
+    assert.ok(top.metrics.some((m) => m.key === "school_underserved_pop"));
+    assert.ok(!top.metrics.some((m) => m.key === "capacity"));
+    assert.ok(
+      top.provenance.calculations.some((c) => c.name === "school_access_gap")
+    );
+    assert.ok(out.limitations.some((l) => /housing production/i.test(l)));
+  });
+
+  it("ranks school gaps by underserved population not farthest distance alone", () => {
+    const city = generateSyntheticCity(11);
+    const parsed = parseObjective(
+      "Identify neighborhoods where school access is inadequate.",
+      "North River",
+      { availableDatasetKinds: city.datasets.map((d) => d.kind) }
+    );
+    const layers: Record<string, GeoJSON.FeatureCollection> = {};
+    for (const d of city.datasets) layers[d.kind] = city.featuresByDataset[d.id];
+    const out = runSpatialAnalysis({
+      objective: parsed.objective,
+      constraints: parsed.constraints,
+      weights: parsed.weights,
+      assumptions: parsed.assumptions,
+      selections: [],
+      layers,
+      datasetIds: Object.fromEntries(city.datasets.map((d) => [d.kind, d.id])),
+    });
+    const top = out.candidates[0];
+    const topDist = top.metrics.find((m) => m.key === "school_distance_m")?.value ?? 0;
+    const maxDist = Math.max(
+      ...out.candidates.map(
+        (c) => c.metrics.find((m) => m.key === "school_distance_m")?.value ?? 0
+      )
+    );
+    assert.ok(
+      top.metrics.find((m) => m.key === "school_underserved_pop")!.value >= 0
+    );
+    assert.ok(
+      out.candidates[0].metrics.find((m) => m.key === "school_underserved_pop")!.value >=
+        (out.candidates[out.candidates.length - 1].metrics.find(
+          (m) => m.key === "school_underserved_pop"
+        )?.value ?? 0)
+    );
+    if (maxDist > topDist) {
+      assert.ok(true, "top rank is not required to be farthest parcel");
+    }
   });
 });

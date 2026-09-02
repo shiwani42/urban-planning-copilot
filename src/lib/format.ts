@@ -1,11 +1,23 @@
 /** Locale-aware formatting helpers for planner-facing UI. */
 
+/** Planner-facing timestamps use IST so list, detail, and report bodies agree. */
+export const PLANNER_TIME_ZONE = "Asia/Kolkata";
+
+const plannerDateTimeOptions: Intl.DateTimeFormatOptions = {
+  timeZone: PLANNER_TIME_ZONE,
+  dateStyle: "medium",
+  timeStyle: "short",
+};
+
+const plannerTimeOptions: Intl.DateTimeFormatOptions = {
+  timeZone: PLANNER_TIME_ZONE,
+  hour: "numeric",
+  minute: "2-digit",
+};
+
 export function formatLocaleTime(iso: string): string {
   try {
-    return new Date(iso).toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-    });
+    return new Date(iso).toLocaleTimeString(undefined, plannerTimeOptions);
   } catch {
     return new Date(iso).toISOString();
   }
@@ -13,10 +25,7 @@ export function formatLocaleTime(iso: string): string {
 
 export function formatLocaleDateTime(iso: string): string {
   try {
-    return new Date(iso).toLocaleString(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
+    return new Date(iso).toLocaleString(undefined, plannerDateTimeOptions);
   } catch {
     return new Date(iso).toISOString();
   }
@@ -24,6 +33,21 @@ export function formatLocaleDateTime(iso: string): string {
 
 export function formatReportDateTime(iso: string): string {
   return formatLocaleDateTime(iso);
+}
+
+/** Collapse duplicate limitation strings (case-insensitive, trimmed). */
+export function dedupeLimitations(limitations: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of limitations) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
 }
 
 type ActivityLike = {
@@ -79,6 +103,33 @@ export function greetingForHour(hour: number): string {
   return "Good evening";
 }
 
-export function plannerGreeting(): string {
-  return `${greetingForHour(new Date().getHours())}, planner`;
+/** Uses the runtime local hour (browser or Node process timezone). */
+export function plannerGreeting(at: Date = new Date()): string {
+  return `${greetingForHour(at.getHours())}, planner`;
+}
+
+export function formatRelativeTime(iso: string, at: Date = new Date()): string {
+  try {
+    const then = new Date(iso);
+    const diffMs = at.getTime() - then.getTime();
+    if (Number.isNaN(diffMs)) return formatLocaleDateTime(iso);
+    const diffMins = Math.floor(diffMs / 60_000);
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins} min ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays} days ago`;
+    return formatLocaleDateTime(iso);
+  } catch {
+    return formatLocaleDateTime(iso);
+  }
+}
+
+export function projectRecencyIso(project: {
+  lastOpenedAt?: string;
+  updatedAt: string;
+}): string {
+  return project.lastOpenedAt ?? project.updatedAt;
 }

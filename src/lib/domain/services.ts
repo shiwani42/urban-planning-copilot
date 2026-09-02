@@ -13,7 +13,8 @@ import {
   getLatestFreshResult,
   topRankedCandidate,
 } from "./decision";
-import { formatReportDateTime } from "../format";
+import { formatReportDateTime, dedupeLimitations } from "../format";
+import { isHousingIntent, isAccessIntent } from "./intent";
 import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
 import { getStore, updateStore } from "./store";
 import { STUDY_BOUNDS } from "./study-bounds";
@@ -29,6 +30,7 @@ import type {
   HumanDecision,
   MapState,
   Project,
+  ProjectListItem,
   Report,
   Scenario,
   StagedProposal,
@@ -51,7 +53,7 @@ function defaultMapState(datasets: AppStore["datasets"]): MapState {
     },
     layers: datasets.map((d) => ({
       datasetId: d.id,
-      visible: ["parcels", "transit", "flood", "population", "schools"].includes(d.kind),
+      visible: ["parcels", "transit", "flood", "population", "schools", "parks"].includes(d.kind),
     })),
     selectedFeatureIds: [],
     highlightFeatureIds: [],
@@ -72,12 +74,58 @@ function logActivity(
   return full;
 }
 
+function datasetSnapshot(store: AppStore, scenario?: Scenario) {
+  const enabledIds = scenario?.enabledDatasetIds?.length
+    ? new Set(scenario.enabledDatasetIds)
+    : new Set(store.datasets.filter((d) => d.enabled).map((d) => d.id));
+  return store.datasets
+    .filter((d) => enabledIds.has(d.id))
+    .map((d) => ({
+      id: d.id,
+      name: d.name,
+      kind: d.kind,
+      version: d.version,
+      dataVintage: d.dataVintage,
+      stale: Boolean(d.stale),
+      enabled: d.enabled,
+    }));
+}
+
+function collectDatasetLimitations(store: AppStore, scenario: Scenario): string[] {
+  const enabled = new Set(scenario.enabledDatasetIds);
+  const notes: string[] = [];
+  for (const d of store.datasets) {
+    if (!d.enabled || !enabled.has(d.id)) continue;
+    for (const l of d.limitations) {
+      notes.push(`${d.name}: ${l}`);
+    }
+    if (d.incompleteCoverage) {
+      notes.push(`${d.name}: incomplete geographic coverage`);
+    }
+    if (d.stale) {
+      notes.push(`${d.name}: marked outdated in catalog`);
+    }
+  }
+  return dedupeLimitations(notes);
+}
+
+function scenarioLabel(store: AppStore, scenarioId?: string): string | undefined {
+  if (!scenarioId) return undefined;
+  return store.scenarios.find((s) => s.id === scenarioId)?.name;
+}
+
 function datasetNameMap(store: AppStore): Record<string, string> {
   const map: Record<string, string> = {};
   for (const d of store.datasets) {
     map[d.kind] = d.name;
   }
   return map;
+}
+
+function parseForStore(store: AppStore, text: string, geographyLabel: string) {
+  return parseObjective(text, geographyLabel, {
+    availableDatasetKinds: store.datasets.filter((d) => d.enabled).map((d) => d.kind),
+  });
 }
 
 function layersForScenario(
@@ -139,11 +187,101 @@ function invalidateScenarioDecision(store: AppStore, scenarioId: string, reason:
   }
 }
 
-export async function listProjects() {
+function normalizeProjectName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+export function projectNameTaken(
+  store: AppStore,
+  name: string,
+  excludeProjectId?: string
+): boolean {
+  const norm = normalizeProjectName(name);
+  if (norm.length < 2) return false;
+  return store.projects.some(
+    (p) => p.id !== excludeProjectId && normalizeProjectName(p.name) === norm
+  );
+}
+
+function assertProjectName(name: string) {
+  const trimmed = name.trim();
+  if (trimmed.length < 2) {
+    throw new Error("Project name must be at least 2 characters.");
+  }
+  return trimmed;
+}
+
+export async function listProjects(): Promise<ProjectListItem[]> {
   const store = await getStore();
   return store.projects
     .slice()
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      updatedAt: p.updatedAt,
+      lastOpenedAt: p.lastOpenedAt,
+      resumeNote: p.resumeNote,
+      geographyLabel: p.geographyLabel,
+    }));
+}
+
+export async function recordProjectOpen(projectId: string): Promise<void> {
+  await updateStore((store) => {
+    const project = store.projects.find((p) => p.id === projectId);
+    if (!project) throw new Error("Project not found");
+    project.lastOpenedAt = now();
+  });
+}
+
+export async function renameProject(projectId: string, name: string): Promise<ProjectListItem> {
+  const trimmed = assertProjectName(name);
+  let updated: Project | undefined;
+  await updateStore((store) => {
+    const project = store.projects.find((p) => p.id === projectId);
+    if (!project) throw new Error("Project not found");
+    if (projectNameTaken(store, trimmed, projectId)) {
+      throw new Error(`A project named "${trimmed}" already exists.`);
+    }
+    project.name = trimmed;
+    project.updatedAt = now();
+    updated = project;
+    logActivity(store, {
+      projectId,
+      actor: "human",
+      category: "objective",
+      action: "rename_project",
+      summary: `Renamed project to "${trimmed}"`,
+    });
+  });
+  if (!updated) throw new Error("Project not found");
+  return {
+    id: updated.id,
+    name: updated.name,
+    updatedAt: updated.updatedAt,
+    lastOpenedAt: updated.lastOpenedAt,
+    resumeNote: updated.resumeNote,
+    geographyLabel: updated.geographyLabel,
+  };
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  await updateStore((store) => {
+    const idx = store.projects.findIndex((p) => p.id === projectId);
+    if (idx < 0) throw new Error("Project not found");
+    const scenarioIds = new Set(
+      store.scenarios.filter((s) => s.projectId === projectId).map((s) => s.id)
+    );
+    store.projects.splice(idx, 1);
+    store.scenarios = store.scenarios.filter((s) => s.projectId !== projectId);
+    store.decisions = store.decisions.filter((d) => d.projectId !== projectId);
+    store.activities = store.activities.filter((a) => a.projectId !== projectId);
+    store.confirmations = store.confirmations.filter((c) => c.projectId !== projectId);
+    store.proposals = store.proposals.filter((p) => p.projectId !== projectId);
+    store.analysisJobs = store.analysisJobs.filter((j) => !scenarioIds.has(j.scenarioId));
+    store.analysisResults = store.analysisResults.filter((r) => !scenarioIds.has(r.scenarioId));
+    store.reports = store.reports.filter((r) => r.projectId !== projectId);
+  });
 }
 
 export async function getWorkspace(projectId: string): Promise<WorkspaceSnapshot | null> {
@@ -173,18 +311,21 @@ export async function createProject(input: {
   objectiveText: string;
   geographyLabel?: string;
   mode?: "explore" | "planning";
-}): Promise<WorkspaceSnapshot> {
+}): Promise<WorkspaceSnapshot & { duplicateNameWarning?: boolean }> {
   const quality = assessObjectiveQuality(input.objectiveText);
   if (!quality.interpretable) {
     throw new Error(quality.warning ?? "Planning objective is not interpretable.");
   }
+  const trimmedName = assertProjectName(input.name);
+  const storeBefore = await getStore();
+  const duplicateNameWarning = projectNameTaken(storeBefore, trimmedName);
   let projectId = "";
   await updateStore((store) => {
     const geographyLabel = input.geographyLabel ?? "Study area";
-    const parsed = parseObjective(input.objectiveText, geographyLabel);
+    const parsed = parseForStore(store, input.objectiveText, geographyLabel);
     const project: Project = {
       id: nanoid(),
-      name: input.name,
+      name: trimmedName,
       createdAt: now(),
       updatedAt: now(),
       geographyLabel,
@@ -242,7 +383,7 @@ export async function createProject(input: {
   });
   const ws = await getWorkspace(projectId);
   if (!ws) throw new Error("Failed to create project");
-  return ws;
+  return duplicateNameWarning ? { ...ws, duplicateNameWarning: true } : ws;
 }
 
 export async function updateObjective(projectId: string, text: string) {
@@ -250,7 +391,7 @@ export async function updateObjective(projectId: string, text: string) {
     const project = store.projects.find((p) => p.id === projectId);
     const scenario = store.scenarios.find((s) => s.id === project?.activeScenarioId);
     if (!project || !scenario) throw new Error("Project/scenario not found");
-    const parsed = parseObjective(text, project.geographyLabel);
+    const parsed = parseForStore(store, text, project.geographyLabel);
     scenario.objective = parsed.objective;
     scenario.constraints = parsed.constraints;
     scenario.weights = parsed.weights;
@@ -383,8 +524,8 @@ export async function addGeographicSelection(
       actor: selection.createdBy === "human" ? "human" : "agent",
       category: "map",
       action: "geographic_selection",
-      summary: `${selection.type} area "${selection.label}" added`,
-      inputs: { type: selection.type, label: selection.label },
+      summary: `${selection.type} area "${selection.label}" added (${full.id.slice(0, 6)})`,
+      inputs: { type: selection.type, label: selection.label, selectionId: full.id },
     });
   });
   return getWorkspace(projectId);
@@ -411,7 +552,7 @@ export async function removeGeographicSelection(
       actor: "human",
       category: "map",
       action: "remove_geographic_selection",
-      summary: `Removed ${removed.type} area "${removed.label}"`,
+      summary: `Removed ${removed.type} area "${removed.label}" (${selectionId.slice(0, 6)})`,
       inputs: { selectionId, type: removed.type, label: removed.label },
     });
   });
@@ -504,12 +645,15 @@ export async function updateMapState(projectId: string, mapState: Partial<MapSta
 export async function selectCandidate(
   projectId: string,
   candidateId: string | undefined,
-  featureIds?: string[]
+  featureIds?: string[],
+  scenarioId?: string
 ) {
   await updateStore((store) => {
     const project = store.projects.find((p) => p.id === projectId);
     if (!project) throw new Error("Project not found");
+    const activeScenarioId = scenarioId ?? project.activeScenarioId;
     project.mapState.selectedCandidateId = candidateId;
+    project.mapState.selectedCandidateScenarioId = candidateId ? activeScenarioId : undefined;
     project.mapState.selectedFeatureIds = featureIds ?? (candidateId ? [candidateId] : []);
     project.mapState.highlightFeatureIds = featureIds ?? (candidateId ? [candidateId] : []);
     project.updatedAt = now();
@@ -600,7 +744,11 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
       category: "analysis",
       action: "analysis_started",
       summary: "Started spatial analysis",
-      inputs: { configHash },
+      inputs: {
+        scenario: requireScenario(s, projectId, scenarioId).name,
+        configHash,
+        datasets: datasetSnapshot(s, requireScenario(s, projectId, scenarioId)),
+      },
     });
     touchProject(s, projectId, "Analysis running…");
   });
@@ -626,13 +774,7 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
     layers: layersForScenario(live, sc),
     datasetIds: datasetIdsByKind(live),
     rejectedCandidateFeatureIds: rejected,
-    externalLimitations: live.datasets
-      .filter((d) => d.incompleteCoverage || d.stale)
-      .flatMap((d) =>
-        d.limitations.map((l) =>
-          d.incompleteCoverage ? `${d.name}: ${l}` : `${d.name}: ${l}`
-        )
-      ),
+    externalLimitations: collectDatasetLimitations(live, sc),
   });
 
   await updateStore((s) => {
@@ -651,7 +793,14 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
         category: "analysis",
         action: step.step,
         summary: step.detail,
-        outputs: { count: step.count },
+        inputs: {
+          scenario: scenarioLive.name,
+          datasets: datasetSnapshot(s, scenarioLive),
+        },
+        outputs: {
+          count: step.count,
+          detail: step.detail,
+        },
       });
       job.activityIds.push(ev.id);
       job.progress = Math.min(95, job.progress + 12);
@@ -693,12 +842,10 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
       aggregateMetrics: output.aggregateMetrics,
       summary: output.summary,
       stepLogs: output.stepLogs,
-      limitations: [
+      limitations: dedupeLimitations([
         ...output.limitations,
-        ...s.datasets
-          .filter((d) => d.stale || d.incompleteCoverage)
-          .map((d) => `${d.name}: ${d.limitations.join("; ")}`),
-      ],
+        ...collectDatasetLimitations(s, scenarioLive),
+      ]),
       stale: false,
       configHash: job.configHash,
     };
@@ -759,9 +906,17 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
       category: "analysis",
       action: "analysis_completed",
       summary: output.summary,
+      inputs: {
+        scenario: scenarioLive.name,
+        datasets: datasetSnapshot(s, scenarioLive),
+        configHash: job.configHash,
+      },
       outputs: {
         candidateCount: output.candidates.length,
         topCandidate: output.candidates[0]?.label,
+        aggregateMetrics: Object.fromEntries(
+          result.aggregateMetrics.map((m) => [m.key, m.value])
+        ),
       },
       relatedCandidateIds: output.candidates.slice(0, 5).map((c) => c.id),
     });
@@ -804,7 +959,7 @@ export async function createScenario(
           savedAt: undefined,
         }
       : (() => {
-          const parsed = parseObjective("Explore planning options", project.geographyLabel);
+          const parsed = parseForStore(store, "Explore planning options", project.geographyLabel);
           return {
             id: nanoid(),
             projectId,
@@ -875,6 +1030,15 @@ export async function setActiveScenario(projectId: string, scenarioId: string) {
     const scenario = requireScenario(store, projectId, scenarioId);
     const project = store.projects.find((p) => p.id === projectId)!;
     project.activeScenarioId = scenarioId;
+    if (
+      project.mapState.selectedCandidateScenarioId &&
+      project.mapState.selectedCandidateScenarioId !== scenarioId
+    ) {
+      project.mapState.selectedCandidateId = undefined;
+      project.mapState.selectedCandidateScenarioId = undefined;
+      project.mapState.selectedFeatureIds = [];
+      project.mapState.highlightFeatureIds = [];
+    }
     project.updatedAt = now();
     const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
     if (result) {
@@ -935,6 +1099,7 @@ export async function compareScenarios(projectId: string, scenarioIds: string[])
         scenario?.objective.intent === "housing_capacity"
           ? scenario.objective.targetValue
           : undefined,
+      intent: scenario?.objective.intent,
       result: result
         ? {
             candidates: result.candidates,
@@ -1154,6 +1319,12 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
     const housingTarget =
       sc.objective.intent === "housing_capacity" ? sc.objective.targetValue : undefined;
     const totalCapacity = result.aggregateMetrics.find((m) => m.key === "total_capacity")?.value;
+    const schoolUnderserved = result.aggregateMetrics.find(
+      (m) => m.key === "total_school_underserved_pop"
+    )?.value;
+    const parkUnderserved = result.aggregateMetrics.find(
+      (m) => m.key === "total_park_underserved_pop"
+    )?.value;
     const meetsTarget = result.aggregateMetrics.find((m) => m.key === "meets_target_count")?.value;
 
     sections.push({
@@ -1210,11 +1381,12 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
       body: store.datasets
         .filter((d) => sc.enabledDatasetIds.includes(d.id))
         .map((d) => {
-          const updated = formatReportDateTime(d.updatedAt);
+          const synced = formatReportDateTime(d.updatedAt);
+          const vintage = d.dataVintage ? `; data vintage ${d.dataVintage}` : "";
           const synth = d.synthetic ? " (synthetic seed data)" : "";
           const limits =
             d.limitations.length > 0 ? ` — Limitations: ${d.limitations.join("; ")}` : "";
-          return `${d.name} v${d.version} — ${d.source}; last updated ${updated}${synth}${limits}`;
+          return `${d.name} v${d.version} — ${d.source}; catalog synced ${synced}${vintage}${synth}${limits}`;
         })
         .join("\n"),
     });
@@ -1245,6 +1417,13 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
       result.summary,
       housingTarget != null && totalCapacity != null
         ? `Aggregate capacity: ${totalCapacity.toLocaleString()} homes vs ${housingTarget.toLocaleString()}-home target (${Number(meetsTarget ?? 0)} candidates meet target alone).`
+        : isAccessIntent(sc.objective.intent) && schoolUnderserved != null
+          ? `School access gap: ${schoolUnderserved.toLocaleString()} people lack adequate school access across ranked areas.`
+          : isAccessIntent(sc.objective.intent) && parkUnderserved != null
+            ? `Park access gap: ${parkUnderserved.toLocaleString()} people lack adequate park access across ranked areas.`
+            : "",
+      sc.objective.excludesHousing
+        ? "This analysis excludes housing production metrics per the stated objective."
         : "",
       `Top-ranked candidate: ${top?.label ?? "—"} (score ${top?.score?.toFixed(1) ?? "—"})`,
     ]
@@ -1326,10 +1505,15 @@ export async function generateReport(projectId: string, scenarioIds: string[], t
     reportId = report.id;
     logActivity(s, {
       projectId,
+      scenarioId: scenarioIds[0],
       actor: "agent",
       category: "report",
       action: "generate_report",
       summary: `Generated report "${report.title}" at ${generatedAt}`,
+      inputs: {
+        scenarioIds,
+        scenarios: scenarioIds.map((id) => scenarioLabel(s, id)).filter(Boolean),
+      },
       outputs: { reportId, generatedAt },
     });
   });
@@ -1356,7 +1540,8 @@ export async function setDatasetEnabled(datasetId: string, enabled: boolean) {
       actor: "human",
       category: "data",
       action: enabled ? "enable_dataset" : "disable_dataset",
-      summary: `${enabled ? "Enabled" : "Disabled"} dataset ${ds.name}`,
+      summary: `${enabled ? "Enabled" : "Disabled"} dataset ${ds.name} (global catalog)`,
+      inputs: { datasetId, version: ds.version },
       relatedDatasetIds: [datasetId],
     });
   });
@@ -1368,10 +1553,34 @@ export async function markDatasetStale(datasetId: string, stale: boolean) {
     if (!ds) throw new Error("Dataset not found");
     ds.stale = stale;
     if (stale) {
-      ds.limitations = Array.from(
-        new Set([...ds.limitations, "Marked outdated — verify before relying on recommendations"])
+      ds.limitations = dedupeLimitations([
+        ...ds.limitations,
+        "Marked outdated — verify before relying on recommendations",
+      ]);
+    } else {
+      ds.limitations = ds.limitations.filter(
+        (l) => l !== "Marked outdated — verify before relying on recommendations"
       );
     }
+    for (const scenario of store.scenarios) {
+      if (scenario.enabledDatasetIds.includes(datasetId)) {
+        markResultsStale(
+          store,
+          scenario.id,
+          stale ? `Dataset ${ds.name} marked outdated` : `Dataset ${ds.name} freshness restored`
+        );
+      }
+    }
+    const projectId = store.projects[0]?.id ?? "system";
+    logActivity(store, {
+      projectId,
+      actor: "human",
+      category: "data",
+      action: stale ? "mark_dataset_stale" : "clear_dataset_stale",
+      summary: `${stale ? "Marked outdated" : "Cleared outdated flag on"} dataset ${ds.name} (global catalog)`,
+      inputs: { datasetId, version: ds.version, dataVintage: ds.dataVintage },
+      relatedDatasetIds: [datasetId],
+    });
   });
 }
 
@@ -1658,6 +1867,7 @@ export async function exploreScratch(question: string) {
       transit: layers.transit,
       flood: layers.flood,
       schools: layers.schools,
+      parks: layers.parks,
       population: layers.population,
     },
     datasets: store.datasets.filter((d) => d.enabled),

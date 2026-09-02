@@ -56,6 +56,11 @@ function provenanceSource(kind: keyof typeof SOURCE_URLS): string {
   return `${SOURCE_URLS[kind]} (PDDL)`;
 }
 
+function dataVintageLabel(vintage?: string, fallback?: string): string | undefined {
+  const formatted = vintage ? vintageToVersion(vintage) : undefined;
+  return formatted ?? fallback;
+}
+
 export async function loadSanFranciscoCity(): Promise<{
   datasets: DatasetMeta[];
   featuresByDataset: Record<string, GeoJSON.FeatureCollection>;
@@ -86,6 +91,7 @@ export async function loadSanFranciscoCity(): Promise<{
       source: provenanceSource("parcels"),
       version: vintageToVersion(parcelVintage),
       updatedAt: generatedAt,
+      dataVintage: dataVintageLabel(parcelVintage, "SF assessor roll snapshot"),
       synthetic: false,
       coverage: GEOGRAPHY_LABEL,
       limitations: [
@@ -113,6 +119,7 @@ export async function loadSanFranciscoCity(): Promise<{
       source: provenanceSource("transit"),
       version: vintageToVersion(transitVintage),
       updatedAt: generatedAt,
+      dataVintage: dataVintageLabel(transitVintage, "Muni stops snapshot"),
       synthetic: false,
       coverage: GEOGRAPHY_LABEL,
       limitations: [
@@ -130,6 +137,7 @@ export async function loadSanFranciscoCity(): Promise<{
       source: provenanceSource("flood"),
       version: vintageToVersion(floodVintage),
       updatedAt: generatedAt,
+      dataVintage: dataVintageLabel(floodVintage, "2022-07 SFPUC 100-year storm model"),
       synthetic: false,
       coverage: "Clipped to demo AOI from citywide SFPUC layer",
       limitations: [

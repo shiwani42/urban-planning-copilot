@@ -7,8 +7,8 @@ import {
 } from "./explore";
 import { generateSyntheticCity } from "./seed";
 
-function cityLayers() {
-  const city = generateSyntheticCity(7);
+function cityLayers(seed = 3) {
+  const city = generateSyntheticCity(seed);
   const layers: Record<string, GeoJSON.FeatureCollection> = {};
   for (const d of city.datasets) {
     layers[d.kind] = city.featuresByDataset[d.id];

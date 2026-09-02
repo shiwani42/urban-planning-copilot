@@ -2,10 +2,12 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { ProvenanceChip, useWorkspace } from "@/components/workspace-hooks";
 import { WebMcpProvider } from "@/components/WebMcpProvider";
 import {
+  dedupeLimitations,
   formatActivitySummary,
   formatLocaleDateTime,
   formatLocaleTime,
@@ -14,7 +16,9 @@ import {
 import type {
   Candidate,
   CriterionWeight,
+  DatasetMeta,
   GeographicSelection,
+  PlanningIntent,
   WorkspaceSnapshot,
 } from "@/lib/domain/types";
 import {
@@ -22,6 +26,13 @@ import {
   ringFromPolygon,
   uniqueGeographicLabel,
 } from "@/lib/domain/geographic";
+import { isHousingIntent } from "@/lib/domain/intent";
+import {
+  evidenceMetricsForCandidate,
+  headlineMetric,
+  resultsColumnsForIntent,
+  type ResultsColumn,
+} from "@/lib/domain/results-display";
 import type { MapDrawMode } from "@/components/PlanningMap";
 
 const PlanningMap = dynamic(
@@ -54,9 +65,28 @@ const TAB_LABELS: Record<Tab, string> = {
   report: "Report",
 };
 
-export default function WorkspaceClient({ projectId }: { projectId: string }) {
+const TAB_PATHS: Tab[] = [
+  "workspace",
+  "results",
+  "evidence",
+  "compare",
+  "decision",
+  "activity",
+  "report",
+];
+
+export default function WorkspaceClient({
+  projectId,
+  initialTab = "workspace",
+}: {
+  projectId: string;
+  initialTab?: Tab;
+}) {
+  const router = useRouter();
   const { workspace, loading, error, busy, act, refresh } = useWorkspace(projectId);
-  const [tab, setTab] = useState<Tab>("workspace");
+  const [tab, setTabState] = useState<Tab>(
+    TAB_PATHS.includes(initialTab as Tab) ? (initialTab as Tab) : "workspace"
+  );
   const [layerData, setLayerData] = useState<Record<string, GeoJSON.FeatureCollection>>({});
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerPanel, setDrawerPanel] = useState<DrawerPanel>("candidates");
@@ -96,6 +126,24 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const [toast, setToast] = useState<string | null>(null);
   const [decisionError, setDecisionError] = useState<string | null>(null);
 
+  const setTab = useCallback(
+    (next: Tab) => {
+      setTabState(next);
+      const path =
+        next === "workspace"
+          ? `/workspace/${projectId}`
+          : `/workspace/${projectId}/${next}`;
+      router.replace(path, { scroll: false });
+    },
+    [projectId, router]
+  );
+
+  useEffect(() => {
+    if (TAB_PATHS.includes(initialTab as Tab) && initialTab !== tab) {
+      setTabState(initialTab as Tab);
+    }
+  }, [initialTab, tab]);
+
   const scenario = workspace?.scenarios.find(
     (s) => s.id === workspace.project.activeScenarioId
   );
@@ -110,13 +158,30 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   }, [result]);
   const selectedCandidate = useMemo(() => {
     const id = workspace?.project.mapState.selectedCandidateId;
-    if (!id || !candidates.length) return null;
+    const selectionScenarioId = workspace?.project.mapState.selectedCandidateScenarioId;
+    if (!id || !candidates.length || !scenario) return null;
+    if (selectionScenarioId && selectionScenarioId !== scenario.id) return null;
     return candidates.find((x) => x.id === id || x.featureIds.includes(id)) ?? null;
-  }, [workspace?.project.mapState.selectedCandidateId, candidates]);
+  }, [
+    workspace?.project.mapState.selectedCandidateId,
+    workspace?.project.mapState.selectedCandidateScenarioId,
+    candidates,
+    scenario?.id,
+  ]);
   const decisionReason = scenario ? (decisionReasonByScenario[scenario.id] ?? "") : "";
   const runningJob = workspace?.analysisJobs.find(
     (j) => j.scenarioId === scenario?.id && j.status === "running"
   );
+
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "record_open" }),
+    }).catch(() => {
+      /* non-blocking home recency hint */
+    });
+  }, [projectId]);
 
   useEffect(() => {
     if (!workspace) return;
@@ -193,17 +258,19 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
   const selectCandidate = useCallback(
     async (c: Candidate, panel: DrawerPanel = "evidence") => {
+      if (!scenario) return;
       const rowIndex = candidates.findIndex((x) => x.id === c.id);
       if (rowIndex >= 0) setFocusedRowIndex(rowIndex);
       setDrawerOpen(true);
       setDrawerPanel(panel);
       setTab("results");
       await act("select_candidate", {
+        scenarioId: scenario.id,
         candidateId: c.id,
         featureIds: c.featureIds,
       });
     },
-    [act, candidates]
+    [act, candidates, scenario, setTab]
   );
 
   const weightSum = useMemo(() => {
@@ -214,9 +281,24 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const weightSumRounded = Math.round(weightSum);
   const canNormalizeWeights = weightSum > 0 && Math.abs(weightSum - 100) > 0.5;
 
-  const housingTarget = scenario?.objective.targetValue;
+  const housingTarget =
+    scenario?.objective.intent === "housing_capacity"
+      ? scenario.objective.targetValue
+      : undefined;
   const totalCapacity = result?.aggregateMetrics.find((m) => m.key === "total_capacity")?.value;
+  const enabledDatasetCount =
+    scenario?.enabledDatasetIds.filter((id) =>
+      workspace?.datasets.some((d) => d.id === id && d.enabled)
+    ).length ?? workspace?.datasets.filter((d) => d.enabled).length ?? 0;
   const targetGap = result?.aggregateMetrics.find((m) => m.key === "housing_target_gap");
+  const accessHeadline =
+    scenario && result
+      ? headlineMetric(scenario.objective.intent, result.aggregateMetrics)
+      : null;
+  const hasParksDataset = Boolean(workspace?.datasets.some((d) => d.kind === "parks" && d.enabled));
+  const resultsColumns = scenario
+    ? resultsColumnsForIntent(scenario.objective.intent, hasParksDataset)
+    : [];
 
   function constraintFunnelDetail(constraintLabel: string): string | null {
     if (!result?.stepLogs) return null;
@@ -531,16 +613,34 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           </span>
         </div>
         <div className="flex gap-2 flex-wrap min-w-0">
-          {scenario.objective.parsedRequirements.slice(0, 4).map((r) => (
+          {scenario.constraints
+            .filter((c) => c.enabled)
+            .slice(0, 4)
+            .map((c) => (
             <span
-              key={r}
+              key={c.id}
               className="px-2 py-0.5 border border-outline rounded text-caption text-on-surface-variant whitespace-nowrap"
+              title={c.hard ? "Hard constraint (engine-enforced)" : "Soft constraint"}
             >
-              {r}
+              {c.label}
+            </span>
+          ))}
+          {scenario.objective.excludesHousing && (
+            <span className="px-2 py-0.5 border border-secondary rounded text-caption text-secondary whitespace-nowrap">
+              Not a housing analysis
+            </span>
+          )}
+          {scenario.objective.dataGaps?.map((gap) => (
+            <span
+              key={gap}
+              className="px-2 py-0.5 border border-error rounded text-caption text-error whitespace-nowrap"
+              title={gap}
+            >
+              Data gap
             </span>
           ))}
         </div>
-        {result && housingTarget && totalCapacity != null && (
+        {result && housingTarget && totalCapacity != null && isHousingIntent(scenario.objective.intent) && (
           <div
             className={`shrink-0 px-3 py-1 rounded border text-caption font-medium whitespace-nowrap ${
               totalCapacity >= housingTarget
@@ -551,6 +651,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             {totalCapacity >= housingTarget ? "Meets" : "Shortfall"}:{" "}
             {totalCapacity.toLocaleString()} / {housingTarget.toLocaleString()} homes
             {targetGap ? ` (${targetGap.method})` : ""}
+          </div>
+        )}
+        {result && accessHeadline && !isHousingIntent(scenario.objective.intent) && (
+          <div className="shrink-0 px-3 py-1 rounded border border-primary bg-primary-fixed/20 text-primary text-caption font-medium whitespace-nowrap">
+            {accessHeadline.label}: {accessHeadline.value}
           </div>
         )}
         {!result && scenario && (
@@ -1185,12 +1290,12 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             </p>
                             <div className="flex flex-wrap gap-1">
                               {step.datasets.map((d) => (
-                                <span
+                                <DatasetRefChip
                                   key={d}
-                                  className="px-1.5 py-0.5 bg-surface-container border border-outline-variant font-mono text-[10px]"
-                                >
-                                  {d}
-                                </span>
+                                  label={d}
+                                  datasets={workspace.datasets}
+                                  onInspect={() => setTab("evidence")}
+                                />
                               ))}
                             </div>
                           </div>
@@ -1220,7 +1325,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           className="w-full text-left"
                         >
                           <div className="font-mono text-[10px] text-on-surface-variant mb-0.5">
-                            {formatLocaleTime(a.timestamp)}
+                            {formatLocaleDateTime(a.timestamp)}
                           </div>
                           <div className="text-body-sm">{a.summary}</div>
                         </button>
@@ -1317,7 +1422,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
             <div className="p-4 border-t border-outline-variant bg-surface-container-lowest flex flex-col gap-3 shrink-0">
               <div className="font-mono text-[11px] text-on-surface-variant flex justify-center gap-2">
-                <span>{scenario.analysisPlan?.datasets.length ?? 0} DATASETS</span>·
+                <span>{enabledDatasetCount} DATASETS</span>·
                 <span>
                   {scenario.constraints.filter((c) => c.enabled).length} CONSTRAINTS
                 </span>
@@ -1364,8 +1469,13 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           result={result}
           stale={Boolean(result?.stale)}
           selected={selectedCandidate}
+          datasets={workspace.datasets}
+          onInspectDataset={() => setTab("evidence")}
           housingTarget={housingTarget}
           totalCapacity={totalCapacity}
+          intent={scenario.objective.intent}
+          resultsColumns={resultsColumns}
+          accessHeadline={accessHeadline}
           selectionUpdated={selectionUpdated}
           onDismissUpdated={() => setSelectionUpdated(false)}
           focusedRowIndex={focusedRowIndex}
@@ -1386,7 +1496,20 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       ) : null}
 
       {tab === "evidence" && (
-        <EvidenceView workspace={workspace} scenarioId={scenario.id} />
+        <EvidenceView
+          workspace={workspace}
+          scenarioId={scenario.id}
+          onShowOnMap={async (datasetId) => {
+            const layers = workspace.project.mapState.layers.map((l) => ({
+              ...l,
+              visible: l.datasetId === datasetId ? true : l.visible,
+            }));
+            await act("update_map", {
+              mapState: { layers, focusDatasetId: datasetId },
+            });
+            setTab("workspace");
+          }}
+        />
       )}
       {tab === "compare" && (
         <CompareView
@@ -1478,6 +1601,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             setReportId(data.reportId);
             await refresh();
           }}
+          generating={busy}
         />
       )}
     </div>
@@ -1497,37 +1621,33 @@ function ResultsDrawer(props: {
   topCandidateId?: string;
   housingTarget?: number;
   totalCapacity?: number;
+  intent: PlanningIntent;
+  resultsColumns: ResultsColumn[];
+  accessHeadline?: { label: string; value: string } | null;
   selectionUpdated?: boolean;
   onDismissUpdated?: () => void;
   focusedRowIndex: number;
   setFocusedRowIndex: (index: number) => void;
   resultLimitations: string[];
+  datasets: DatasetMeta[];
+  onInspectDataset: () => void;
   onSelect: (c: Candidate) => void;
   onReject: (c: Candidate, reason: string) => Promise<void>;
 }) {
-  const { result, selected, panel } = props;
+  const { result, selected, panel, intent } = props;
   if (!props.open) return null;
 
   const showEvidence = panel === "evidence" || Boolean(selected);
   const visibleCandidates = result?.candidates.slice(0, 40) ?? [];
-  const limitationText =
+  const housingAnalysis = isHousingIntent(intent);
+  const evidenceMetrics = selected
+    ? evidenceMetricsForCandidate(selected, intent)
+    : [];
+  const limitationText = dedupeLimitations(
     props.resultLimitations.length > 0
-      ? props.resultLimitations.join("; ")
-      : selected?.provenance.limitations.join("; ") || "None noted";
-
-  function housingChip(capacity: number | undefined) {
-    if (!props.housingTarget || capacity == null) return null;
-    const meets = capacity >= props.housingTarget;
-    return (
-      <span
-        className={`font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border whitespace-nowrap ${
-          meets ? "border-secondary text-secondary" : "border-error text-error"
-        }`}
-      >
-        {meets ? "Meets" : "Shortfall"}
-      </span>
-    );
-  }
+      ? props.resultLimitations
+      : selected?.provenance.limitations ?? []
+  ).join("; ") || "None noted";
 
   return (
     <div
@@ -1564,7 +1684,7 @@ function ResultsDrawer(props: {
             >
               Evidence
             </button>
-            {props.housingTarget != null && props.totalCapacity != null && (
+            {props.housingTarget != null && props.totalCapacity != null && housingAnalysis && (
               <span
                 className={`hidden md:inline font-mono text-[10px] uppercase px-2 py-0.5 rounded border whitespace-nowrap ${
                   props.totalCapacity >= props.housingTarget
@@ -1574,6 +1694,11 @@ function ResultsDrawer(props: {
               >
                 {props.totalCapacity >= props.housingTarget ? "Meets" : "Shortfall"}{" "}
                 {props.totalCapacity.toLocaleString()} / {props.housingTarget.toLocaleString()} homes
+              </span>
+            )}
+            {props.accessHeadline && !housingAnalysis && (
+              <span className="hidden md:inline font-mono text-[10px] uppercase px-2 py-0.5 rounded border border-primary text-primary whitespace-nowrap">
+                {props.accessHeadline.label}: {props.accessHeadline.value}
               </span>
             )}
             {props.stale && (
@@ -1621,19 +1746,15 @@ function ResultsDrawer(props: {
                 <table className="w-full text-left text-body-sm min-w-[620px]">
                   <thead>
                     <tr className="font-mono text-data-label text-on-surface-variant">
-                      <th className="py-2 pr-2">Rank</th>
-                      <th className="pr-2">Candidate</th>
-                      <th className="pr-2">Score</th>
-                      <th className="pr-2">Capacity</th>
-                      {props.housingTarget != null && <th className="pr-2">vs goal</th>}
-                      <th className="pr-2">Transit</th>
-                      <th>Status</th>
+                      {props.resultsColumns.map((col) => (
+                        <th key={col.key} className="py-2 pr-2">
+                          {col.label}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleCandidates.map((c, rowIndex) => {
-                      const capacity = c.metrics.find((m) => m.key === "capacity")?.value;
-                      return (
+                    {visibleCandidates.map((c, rowIndex) => (
                       <tr
                         key={c.id}
                         tabIndex={props.focusedRowIndex === rowIndex ? 0 : -1}
@@ -1644,6 +1765,7 @@ function ResultsDrawer(props: {
                         aria-label={`Select candidate ${c.label}, rank ${c.rank}`}
                         onClick={() => {
                           props.setFocusedRowIndex(rowIndex);
+                          props.onDismissUpdated?.();
                           props.onSelect(c);
                           props.onPanelChange("evidence");
                         }}
@@ -1654,6 +1776,7 @@ function ResultsDrawer(props: {
                             props.setFocusedRowIndex(next);
                             const nextC = visibleCandidates[next];
                             if (nextC) {
+                              props.onDismissUpdated?.();
                               props.onSelect(nextC);
                               props.onPanelChange("evidence");
                             }
@@ -1663,11 +1786,13 @@ function ResultsDrawer(props: {
                             props.setFocusedRowIndex(prev);
                             const prevC = visibleCandidates[prev];
                             if (prevC) {
+                              props.onDismissUpdated?.();
                               props.onSelect(prevC);
                               props.onPanelChange("evidence");
                             }
                           } else if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
+                            props.onDismissUpdated?.();
                             props.onSelect(c);
                             props.onPanelChange("evidence");
                           }
@@ -1676,21 +1801,13 @@ function ResultsDrawer(props: {
                           selected?.id === c.id ? "bg-primary-fixed/25" : ""
                         } ${props.stale ? "opacity-60" : ""}`}
                       >
-                        <td className="py-2 pr-2 font-mono">{c.rank}</td>
-                        <td className="pr-2">{c.label}</td>
-                        <td className="pr-2 font-mono">{c.score.toFixed(1)}</td>
-                        <td className="pr-2 font-mono">{capacity ?? "—"}</td>
-                        {props.housingTarget != null && (
-                          <td className="pr-2">{housingChip(capacity)}</td>
-                        )}
-                        <td className="pr-2 font-mono">
-                          {c.metrics.find((m) => m.key === "transit_distance_m")?.value ?? "—"}m
-                        </td>
-                        <td>
-                          <span className="text-caption whitespace-nowrap">{c.status}</span>
-                        </td>
+                        {props.resultsColumns.map((col) => (
+                          <td key={col.key} className="py-2 pr-2 font-mono">
+                            {col.format(c)}
+                          </td>
+                        ))}
                       </tr>
-                    );})}
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -1698,7 +1815,11 @@ function ResultsDrawer(props: {
             {result && (
               <div className="mt-4 grid grid-cols-2 gap-3">
                 {result.aggregateMetrics
-                  .filter((m) => m.key !== "housing_target_gap")
+                  .filter(
+                    (m) =>
+                      m.key !== "housing_target_gap" &&
+                      !(m.key === "total_capacity" && !housingAnalysis)
+                  )
                   .map((m) => (
                     <div
                       key={m.key}
@@ -1734,7 +1855,7 @@ function ResultsDrawer(props: {
                       <ProvenanceChip kind="copilot_recommendation" />
                     )}
                     <span className="font-mono text-data-label">Score {selected.score.toFixed(1)}</span>
-                    {props.housingTarget != null && (
+                    {props.housingTarget != null && housingAnalysis && (
                       <span className="text-caption text-on-surface-variant">
                         Capacity{" "}
                         {selected.metrics.find((m) => m.key === "capacity")?.value ?? "—"} vs goal{" "}
@@ -1760,11 +1881,13 @@ function ResultsDrawer(props: {
                     </li>
                   </ul>
                   <p className="text-caption text-on-surface-variant mt-2">
-                    Ranking uses weighted criteria — higher capacity alone does not guarantee rank #1.
+                    {housingAnalysis
+                      ? "Ranking uses weighted criteria — higher capacity alone does not guarantee rank #1."
+                      : "Ranking prioritizes population with poor service access, not farthest distance alone."}
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  {selected.metrics.slice(0, 6).map((m) => (
+                  {evidenceMetrics.map((m) => (
                     <div key={m.key} className="border border-outline-variant p-2">
                       <div className="font-mono text-[10px] uppercase text-on-surface-variant">
                         {m.label}
@@ -1783,7 +1906,19 @@ function ResultsDrawer(props: {
                 <div>
                   <h4 className="font-mono text-data-label uppercase mb-2">Provenance</h4>
                   <ul className="text-caption space-y-1 text-on-surface-variant">
-                    <li>Datasets: {selected.provenance.datasets.join(", ") || "—"}</li>
+                    <li className="flex flex-wrap items-center gap-1">
+                      <span>Datasets:</span>
+                      {selected.provenance.datasets.length > 0
+                        ? selected.provenance.datasets.map((id) => (
+                            <DatasetRefChip
+                              key={id}
+                              label={id}
+                              datasets={props.datasets}
+                              onInspect={props.onInspectDataset}
+                            />
+                          ))
+                        : "—"}
+                    </li>
                     <li>Assumptions: {selected.provenance.assumptions.join(", ")}</li>
                     <li>Constraints: {selected.provenance.constraints.join("; ")}</li>
                     <li>Limitations: {limitationText}</li>
@@ -1819,26 +1954,91 @@ function ResultsDrawer(props: {
   );
 }
 
+function DatasetRefChip({
+  label,
+  datasets,
+  onInspect,
+}: {
+  label: string;
+  datasets: DatasetMeta[];
+  onInspect?: (datasetId: string) => void;
+}) {
+  const match =
+    datasets.find((d) => d.id === label || d.name === label || d.kind === label) ??
+    datasets.find(
+      (d) =>
+        d.name.toLowerCase().includes(label.toLowerCase()) ||
+        label.toLowerCase().includes(d.kind)
+    );
+  if (!match) {
+    return (
+      <span className="px-1.5 py-0.5 bg-surface-container border border-outline-variant font-mono text-[10px]">
+        {label}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onInspect?.(match.id)}
+      className="px-1.5 py-0.5 bg-surface-container border border-outline-variant font-mono text-[10px] hover:border-primary text-primary"
+      title={`Inspect ${match.name}`}
+    >
+      {match.id}
+    </button>
+  );
+}
+
 function EvidenceView({
   workspace,
   scenarioId,
+  onShowOnMap,
 }: {
   workspace: WorkspaceSnapshot;
   scenarioId: string;
+  onShowOnMap: (datasetId: string) => Promise<void>;
 }) {
   const scenario = workspace.scenarios.find((s) => s.id === scenarioId)!;
+  const focusId = workspace.project.mapState.focusDatasetId;
   return (
     <main className="flex-1 overflow-auto p-8">
       <h2 className="text-display mb-2">Evidence &amp; Data</h2>
-      <p className="text-body-sm text-on-surface-variant mb-6">
+      <p className="text-body-sm text-on-surface-variant mb-2">
         Source datasets, versions, coverage, and limitations for this workspace.
       </p>
+      <p className="text-caption text-on-surface-variant mb-6">
+        Dataset enable/disable and outdated flags on the{" "}
+        <Link href="/data" className="text-primary hover:underline">
+          global Data catalog
+        </Link>{" "}
+        apply to all workspaces — changes appear here immediately.
+      </p>
       <div className="grid md:grid-cols-2 gap-4">
-        {workspace.datasets.map((d) => (
-          <div key={d.id} className="border border-outline-variant bg-surface-container-lowest p-4">
+        {workspace.datasets.map((d) => {
+          const enabledForScenario = scenario.enabledDatasetIds.includes(d.id);
+          return (
+          <div
+            key={d.id}
+            id={`dataset-${d.id}`}
+            className={`border bg-surface-container-lowest p-4 ${
+              focusId === d.id ? "border-primary" : "border-outline-variant"
+            }`}
+          >
             <div className="flex justify-between gap-2 mb-2">
               <h3 className="text-headline-md">{d.name}</h3>
-              <ProvenanceChip kind="source_data" />
+              <button
+                type="button"
+                onClick={() => void onShowOnMap(d.id)}
+                className="text-caption text-primary hover:underline shrink-0"
+              >
+                Show on map
+              </button>
+            </div>
+            <div className="mb-2">
+              <DatasetRefChip label={d.id} datasets={workspace.datasets} />
+              <span className="ml-2">
+                <ProvenanceChip kind="source_data" />
+              </span>
             </div>
             <dl className="grid grid-cols-2 gap-2 text-body-sm">
               <div>
@@ -1850,19 +2050,30 @@ function EvidenceView({
                 <dd className="font-mono">{d.version}</dd>
               </div>
               <div>
-                <dt className="font-mono text-[10px] uppercase text-on-surface-variant">Updated</dt>
-                <dd>{new Date(d.updatedAt).toLocaleString()}</dd>
+                <dt className="font-mono text-[10px] uppercase text-on-surface-variant">Data vintage</dt>
+                <dd>{d.dataVintage ?? "Not recorded"}</dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] uppercase text-on-surface-variant">Catalog synced</dt>
+                <dd>{formatLocaleDateTime(d.updatedAt)}</dd>
               </div>
               <div>
                 <dt className="font-mono text-[10px] uppercase text-on-surface-variant">Coverage</dt>
                 <dd>{d.coverage}</dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] uppercase text-on-surface-variant">Scenario</dt>
+                <dd>{enabledForScenario ? "Enabled" : "Not enabled"}</dd>
               </div>
             </dl>
             {d.synthetic && (
               <p className="mt-2 text-caption text-secondary">Synthetic seed data — not authoritative.</p>
             )}
             {d.stale && (
-              <p className="mt-2 text-caption text-error">Marked outdated.</p>
+              <p className="mt-2 text-caption text-error">Marked outdated in global catalog.</p>
+            )}
+            {!d.enabled && (
+              <p className="mt-2 text-caption text-error">Disabled in global catalog.</p>
             )}
             {d.incompleteCoverage && (
               <p className="mt-2 text-caption text-secondary">Incomplete geographic coverage.</p>
@@ -1873,10 +2084,10 @@ function EvidenceView({
               ))}
             </ul>
             <p className="mt-2 text-caption">
-              Enabled: {d.enabled ? "yes" : "no"} · Features: {d.featureCount}
+              Features: {d.featureCount}
             </p>
           </div>
-        ))}
+        );})}
       </div>
       <div className="mt-8">
         <h3 className="text-headline-md mb-3">Active assumptions</h3>
@@ -2087,7 +2298,8 @@ function DecisionView(props: {
   onDecide: (type: "approve_scenario" | "reject_scenario" | "request_changes") => Promise<void>;
 }) {
   const { scenario, result, topCandidate } = props;
-  const hasAnalysis = Boolean(result && !result.stale && result.candidates.length > 0);
+  const analysisReady = Boolean(result && result.status === "completed" && result.candidates.length > 0);
+  const hasFreshAnalysis = analysisReady && !result?.stale;
   const decisionLabel =
     scenario.decisionStatus === "approved" && scenario.decisionStale
       ? "approved (stale)"
@@ -2099,9 +2311,19 @@ function DecisionView(props: {
         Review decision
       </h2>
       <h3 className="text-display mb-6">{scenario.name}</h3>
-      {!hasAnalysis && (
+      {!result && (
         <p className="text-body-sm text-secondary mb-4" role="status">
-          Run analysis on this scenario before approving, rejecting, or requesting changes.
+          No analysis results for this scenario yet — run analysis from the Workspace tab first.
+        </p>
+      )}
+      {result?.stale && (
+        <p className="text-body-sm text-secondary mb-4" role="status">
+          Results are stale ({result.staleReason ?? "inputs changed"}) — recalculate before deciding.
+        </p>
+      )}
+      {hasFreshAnalysis && (
+        <p className="text-body-sm text-on-surface-variant mb-4" role="status">
+          Analysis complete with {result!.candidates.length} candidates — ready for your decision.
         </p>
       )}
       <div className="mb-4">
@@ -2132,7 +2354,8 @@ function DecisionView(props: {
           <strong>Results:</strong> {result?.summary ?? "No analysis yet"}
         </p>
         <p className="text-body-sm text-secondary">
-          <strong>Limitations:</strong> {result?.limitations.join("; ") || "None recorded"}
+          <strong>Limitations:</strong>{" "}
+          {dedupeLimitations(result?.limitations ?? []).join("; ") || "None recorded"}
         </p>
       </section>
       <label className="block mb-4">
@@ -2147,7 +2370,7 @@ function DecisionView(props: {
           }`}
           rows={3}
           placeholder="Required for approve/reject — substantive justification for the audit trail"
-          disabled={!hasAnalysis}
+          disabled={!hasFreshAnalysis}
         />
         {props.error && (
           <p className="text-caption text-error mt-1" role="alert">
@@ -2158,7 +2381,7 @@ function DecisionView(props: {
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          disabled={!hasAnalysis}
+          disabled={!hasFreshAnalysis}
           onClick={() => props.onRequestConfirm("approve_scenario")}
           className="bg-secondary text-on-secondary px-4 py-2 rounded text-body-sm disabled:opacity-40"
         >
@@ -2166,7 +2389,7 @@ function DecisionView(props: {
         </button>
         <button
           type="button"
-          disabled={!hasAnalysis}
+          disabled={!hasFreshAnalysis}
           onClick={() => props.onRequestConfirm("request_changes")}
           className="border border-outline px-4 py-2 rounded text-body-sm disabled:opacity-40"
         >
@@ -2174,7 +2397,7 @@ function DecisionView(props: {
         </button>
         <button
           type="button"
-          disabled={!hasAnalysis}
+          disabled={!hasFreshAnalysis}
           onClick={() => props.onRequestConfirm("reject_scenario")}
           className="border border-error text-error px-4 py-2 rounded text-body-sm disabled:opacity-40"
         >
@@ -2262,12 +2485,70 @@ function ActivityView(props: {
   selected: WorkspaceSnapshot["activities"][0] | undefined;
   onSelect: (id: string) => void;
 }) {
+  const [actorFilter, setActorFilter] = useState<"all" | "human" | "agent" | "system">("all");
+  const [scenarioFilter, setScenarioFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
+
+  const filtered = props.workspace.activities.filter((a) => {
+    if (actorFilter !== "all" && a.actor !== actorFilter) return false;
+    if (scenarioFilter !== "all" && a.scenarioId !== scenarioFilter) return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      const scenarioName =
+        props.workspace.scenarios.find((s) => s.id === a.scenarioId)?.name ?? "";
+      const blob = `${a.summary} ${a.action} ${scenarioName}`.toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const scenarioName = props.selected?.scenarioId
+    ? props.workspace.scenarios.find((s) => s.id === props.selected?.scenarioId)?.name
+    : undefined;
+
   return (
     <main className="flex-1 min-h-0 overflow-hidden grid md:grid-cols-[1fr_360px]">
       <div className="overflow-y-auto p-6 min-h-0">
         <h2 className="text-display mb-4">Activity &amp; provenance</h2>
+        <div className="flex flex-wrap gap-3 mb-4">
+          <label className="text-caption">
+            Actor{" "}
+            <select
+              value={actorFilter}
+              onChange={(e) => setActorFilter(e.target.value as typeof actorFilter)}
+              className="ml-1 border border-outline-variant rounded px-2 py-1 text-body-sm"
+            >
+              <option value="all">All</option>
+              <option value="human">You</option>
+              <option value="agent">Copilot</option>
+              <option value="system">System</option>
+            </select>
+          </label>
+          <label className="text-caption">
+            Scenario{" "}
+            <select
+              value={scenarioFilter}
+              onChange={(e) => setScenarioFilter(e.target.value)}
+              className="ml-1 border border-outline-variant rounded px-2 py-1 text-body-sm"
+            >
+              <option value="all">All</option>
+              {props.workspace.scenarios.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <input
+            type="search"
+            placeholder="Search activity…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="border border-outline-variant rounded px-3 py-1 text-body-sm min-w-[180px]"
+          />
+        </div>
         <ul className="space-y-3">
-          {props.workspace.activities.map((a) => (
+          {filtered.map((a) => (
             <li key={a.id}>
               <button
                 onClick={() => props.onSelect(a.id)}
@@ -2286,9 +2567,18 @@ function ActivityView(props: {
                   </span>
                 </div>
                 <div className="text-body-sm text-on-surface-variant">{a.summary}</div>
+                {a.scenarioId && (
+                  <div className="text-caption text-on-surface-variant mt-1">
+                    Scenario:{" "}
+                    {props.workspace.scenarios.find((s) => s.id === a.scenarioId)?.name ?? a.scenarioId}
+                  </div>
+                )}
               </button>
             </li>
           ))}
+          {filtered.length === 0 && (
+            <li className="text-body-sm text-on-surface-variant">No events match these filters.</li>
+          )}
         </ul>
       </div>
       <aside className="border-l border-outline-variant p-6 overflow-y-auto bg-surface-container-low min-h-0">
@@ -2298,6 +2588,20 @@ function ActivityView(props: {
         ) : (
           <div className="space-y-4 text-body-sm">
             <div>
+              <div className="font-mono text-[10px] uppercase text-outline mb-1">When</div>
+              <p>{formatLocaleDateTime(props.selected.timestamp)}</p>
+            </div>
+            <div>
+              <div className="font-mono text-[10px] uppercase text-outline mb-1">Actor</div>
+              <p>{formatActivitySummary(props.selected)}</p>
+            </div>
+            {scenarioName && (
+              <div>
+                <div className="font-mono text-[10px] uppercase text-outline mb-1">Scenario</div>
+                <p>{scenarioName}</p>
+              </div>
+            )}
+            <div>
               <div className="font-mono text-[10px] uppercase text-outline mb-1">What happened</div>
               <p>{props.selected.summary}</p>
             </div>
@@ -2305,22 +2609,39 @@ function ActivityView(props: {
               <div className="font-mono text-[10px] uppercase text-outline mb-1">Action</div>
               <p className="font-mono">{props.selected.action}</p>
             </div>
-            {props.selected.inputs && (
+            <div>
+              <div className="font-mono text-[10px] uppercase text-outline mb-1">Inputs</div>
+              <pre className="text-caption whitespace-pre-wrap bg-surface p-2 border border-outline-variant">
+                {props.selected.inputs
+                  ? JSON.stringify(props.selected.inputs, null, 2)
+                  : "—"}
+              </pre>
+            </div>
+            <div>
+              <div className="font-mono text-[10px] uppercase text-outline mb-1">Outputs</div>
+              <pre className="text-caption whitespace-pre-wrap bg-surface p-2 border border-outline-variant">
+                {props.selected.outputs &&
+                Object.keys(props.selected.outputs).length > 0
+                  ? JSON.stringify(props.selected.outputs, null, 2)
+                  : "—"}
+              </pre>
+            </div>
+            {props.selected.relatedDatasetIds?.length ? (
               <div>
-                <div className="font-mono text-[10px] uppercase text-outline mb-1">Inputs</div>
-                <pre className="text-caption whitespace-pre-wrap bg-surface p-2 border border-outline-variant">
-                  {JSON.stringify(props.selected.inputs, null, 2)}
-                </pre>
+                <div className="font-mono text-[10px] uppercase text-outline mb-1">Datasets</div>
+                <ul className="text-caption space-y-1">
+                  {props.selected.relatedDatasetIds.map((id) => {
+                    const ds = props.workspace.datasets.find((d) => d.id === id);
+                    return (
+                      <li key={id}>
+                        {ds?.name ?? id} · v{ds?.version ?? "?"} ·{" "}
+                        {ds?.dataVintage ?? "vintage unknown"}
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
-            )}
-            {props.selected.outputs && (
-              <div>
-                <div className="font-mono text-[10px] uppercase text-outline mb-1">Outputs</div>
-                <pre className="text-caption whitespace-pre-wrap bg-surface p-2 border border-outline-variant">
-                  {JSON.stringify(props.selected.outputs, null, 2)}
-                </pre>
-              </div>
-            )}
+            ) : null}
           </div>
         )}
       </aside>
@@ -2335,24 +2656,30 @@ function ReportView(props: {
   selectedReportId: string | null;
   onSelectReport: (id: string) => void;
   onGenerate: () => Promise<void>;
+  generating?: boolean;
 }) {
+  const [localGenerating, setLocalGenerating] = useState(false);
+  const generating = props.generating || localGenerating;
   const scenarioReports = props.workspace.reports.filter((r) =>
     r.scenarioIds.includes(props.scenario.id)
   );
-  const latest =
-    scenarioReports.find((r) => r.id === props.selectedReportId) ?? scenarioReports[0];
+  const otherReports = props.workspace.reports.filter(
+    (r) => !r.scenarioIds.includes(props.scenario.id)
+  );
+  const displayReport =
+    props.workspace.reports.find((r) => r.id === props.selectedReportId) ?? scenarioReports[0];
   const canGenerate = Boolean(props.result && !props.result.stale);
 
   function downloadMarkdown() {
-    if (!latest) return;
+    if (!displayReport) return;
     const lines = [
-      `# ${latest.title}`,
+      `# ${displayReport.title}`,
       ``,
-      `Generated: ${formatReportDateTime(latest.createdAt)}`,
-      `Audience: ${latest.audience}`,
+      `Generated: ${formatReportDateTime(displayReport.createdAt)}`,
+      `Audience: ${displayReport.audience}`,
       ``,
     ];
-    for (const s of latest.sections) {
+    for (const s of displayReport.sections) {
       lines.push(`## ${s.heading}`, ``, s.body, ``);
       if (s.data && Array.isArray(s.data)) {
         lines.push(
@@ -2370,7 +2697,7 @@ function ReportView(props: {
     const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const filename = `${latest.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.md`;
+    const filename = `${displayReport.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.md`;
     a.href = url;
     a.download = filename;
     document.body.appendChild(a);
@@ -2384,7 +2711,7 @@ function ReportView(props: {
       <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
         <h2 className="text-display">Reports</h2>
         <div className="flex gap-2">
-          {latest && (
+          {displayReport && (
             <button
               type="button"
               onClick={downloadMarkdown}
@@ -2395,16 +2722,26 @@ function ReportView(props: {
           )}
           <button
             type="button"
-            onClick={() => void props.onGenerate()}
-            disabled={!canGenerate}
+            onClick={async () => {
+              setLocalGenerating(true);
+              try {
+                await props.onGenerate();
+              } finally {
+                setLocalGenerating(false);
+              }
+            }}
+            disabled={!canGenerate || generating}
             title={
               canGenerate
                 ? undefined
                 : "Run analysis on the active scenario first"
             }
-            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40"
+            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40 flex items-center gap-2"
           >
-            Generate report
+            {generating && (
+              <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
+            )}
+            {generating ? "Generating…" : "Generate report"}
           </button>
         </div>
       </div>
@@ -2415,7 +2752,7 @@ function ReportView(props: {
           be recalculated.
         </p>
       )}
-      {canGenerate && !latest && (
+      {canGenerate && !displayReport && (
         <p className="text-body-sm text-on-surface-variant mb-4">
           Generate a markdown report for <strong>{props.scenario.name}</strong> including objective,
           methodology, datasets, results ({props.result?.candidates.length ?? 0} candidates), and
@@ -2434,7 +2771,7 @@ function ReportView(props: {
                   type="button"
                   onClick={() => props.onSelectReport(r.id)}
                   className={`text-body-sm text-left w-full px-3 py-2 rounded border ${
-                    r.id === latest?.id
+                    r.id === displayReport?.id
                       ? "border-primary bg-primary-fixed/20"
                       : "border-outline-variant hover:bg-surface-container-low"
                   }`}
@@ -2449,17 +2786,17 @@ function ReportView(props: {
           </ul>
         </div>
       )}
-      {!latest ? (
+      {!displayReport ? (
         <p className="text-body-sm text-on-surface-variant">No reports yet for this scenario.</p>
       ) : (
         <article className="border border-outline-variant bg-surface-container-lowest p-8 space-y-6">
           <header>
-            <h1 className="text-headline-md mb-1">{latest.title}</h1>
+            <h1 className="text-headline-md mb-1">{displayReport.title}</h1>
             <p className="text-caption text-on-surface-variant">
-              Generated {formatReportDateTime(latest.createdAt)} · Audience: {latest.audience}
+              Generated {formatReportDateTime(displayReport.createdAt)} · Audience: {displayReport.audience}
             </p>
           </header>
-          {latest.sections.map((s, i) => (
+          {displayReport.sections.map((s, i) => (
             <section key={i}>
               <div className="flex items-center gap-2 mb-2">
                 <h3 className="text-body-sm font-medium">{s.heading}</h3>
@@ -2536,6 +2873,39 @@ function ReportView(props: {
             </section>
           ))}
         </article>
+      )}
+      {otherReports.length > 0 && (
+        <section className="mt-10 border-t border-outline-variant pt-6">
+          <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">
+            Reports for other scenarios ({otherReports.length})
+          </h3>
+          <p className="text-caption text-on-surface-variant mb-3">
+            These reports were generated for different scenarios — switch the active scenario or
+            open them below.
+          </p>
+          <ul className="space-y-1">
+            {otherReports.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => props.onSelectReport(r.id)}
+                  className="text-body-sm text-left w-full px-3 py-2 rounded border border-outline-variant hover:bg-surface-container-low"
+                >
+                  {r.title}
+                  <span className="block text-caption text-on-surface-variant">
+                    {formatReportDateTime(r.createdAt)} · scenarios:{" "}
+                    {r.scenarioIds
+                      .map(
+                        (id) =>
+                          props.workspace.scenarios.find((s) => s.id === id)?.name ?? id
+                      )
+                      .join(", ")}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </main>
   );

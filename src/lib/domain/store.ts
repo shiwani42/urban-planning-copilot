@@ -7,8 +7,13 @@ import {
   syntheticSupplementDatasets,
 } from "./sf-data";
 
-const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
-const STORE_PATH = path.join(DATA_DIR, "store.json");
+function dataDir(): string {
+  return process.env.DATA_DIR ?? path.join(process.cwd(), "data");
+}
+
+function storePath(): string {
+  return path.join(dataDir(), "store.json");
+}
 
 async function buildDefaultStore(): Promise<AppStore> {
   const now = new Date().toISOString();
@@ -51,25 +56,48 @@ async function buildDefaultStore(): Promise<AppStore> {
   };
 }
 
+async function catalogTemplate(): Promise<Pick<AppStore, "datasets" | "featuresByDataset">> {
+  const store = await buildDefaultStore();
+  return { datasets: store.datasets, featuresByDataset: store.featuresByDataset };
+}
+
 let memory: AppStore | null = null;
+let memoryDataDir: string | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 export async function ensureStore(): Promise<AppStore> {
+  const dir = dataDir();
+  if (memory && memoryDataDir !== dir) {
+    memory = null;
+  }
   if (memory) return memory;
-  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.mkdir(dir, { recursive: true });
+  const pathToStore = storePath();
   try {
-    const raw = await fs.readFile(STORE_PATH, "utf8");
+    const raw = await fs.readFile(pathToStore, "utf8");
     memory = JSON.parse(raw) as AppStore;
+    memoryDataDir = dir;
     if (!memory.proposals) memory.proposals = [];
+    const catalog = await catalogTemplate();
     if (!memory.datasets?.length || !memory.featuresByDataset) {
-      const fresh = await buildDefaultStore();
-      memory.datasets = fresh.datasets;
-      memory.featuresByDataset = fresh.featuresByDataset;
+      memory.datasets = catalog.datasets;
+      memory.featuresByDataset = catalog.featuresByDataset;
       await persist(memory);
+    } else {
+      let upgraded = false;
+      for (const ds of catalog.datasets) {
+        if (!memory.datasets.some((d) => d.kind === ds.kind)) {
+          memory.datasets.push(ds);
+          memory.featuresByDataset[ds.id] = catalog.featuresByDataset[ds.id];
+          upgraded = true;
+        }
+      }
+      if (upgraded) await persist(memory);
     }
     return memory;
   } catch {
     memory = await buildDefaultStore();
+    memoryDataDir = dir;
     await persist(memory);
     return memory;
   }
@@ -80,12 +108,15 @@ export async function getStore(): Promise<AppStore> {
 }
 
 export async function persist(store: AppStore): Promise<void> {
+  const dir = dataDir();
+  const pathToStore = storePath();
   memory = store;
+  memoryDataDir = dir;
   writeQueue = writeQueue.then(async () => {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    const tmp = `${STORE_PATH}.tmp`;
+    await fs.mkdir(dir, { recursive: true });
+    const tmp = `${pathToStore}.tmp`;
     await fs.writeFile(tmp, JSON.stringify(store, null, 2), "utf8");
-    await fs.rename(tmp, STORE_PATH);
+    await fs.rename(tmp, pathToStore);
   });
   await writeQueue;
 }
@@ -100,11 +131,14 @@ export async function updateStore(
 }
 
 export async function resetStore(): Promise<AppStore> {
+  memory = null;
+  memoryDataDir = null;
   memory = await buildDefaultStore();
+  memoryDataDir = dataDir();
   await persist(memory);
   return memory;
 }
 
 export function getStorePath(): string {
-  return STORE_PATH;
+  return storePath();
 }

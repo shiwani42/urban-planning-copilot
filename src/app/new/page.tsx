@@ -35,6 +35,8 @@ export default function NewProjectPage() {
   const [busy, setBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [objectiveError, setObjectiveError] = useState<string | null>(null);
+  const [duplicateNameWarning, setDuplicateNameWarning] = useState(false);
+  const [existingNames, setExistingNames] = useState<string[]>([]);
   const [submitStatus, setSubmitStatus] = useState<{
     kind: "success" | "error";
     message: string;
@@ -68,6 +70,19 @@ export default function NewProjectPage() {
   }, []);
 
   useEffect(() => {
+    fetch("/api/projects")
+      .then((r) => r.json())
+      .then((d) => {
+        setExistingNames(
+          (d.projects ?? []).map((p: { name: string }) => p.name.trim().toLowerCase())
+        );
+      })
+      .catch(() => {
+        /* list optional for duplicate hint */
+      });
+  }, []);
+
+  useEffect(() => {
     try {
       if (!name.trim() && !objective.trim()) {
         sessionStorage.removeItem(DRAFT_KEY);
@@ -80,6 +95,13 @@ export default function NewProjectPage() {
   }, [name, objective]);
 
   const objectiveQuality = useMemo(() => assessObjectiveQuality(objective), [objective]);
+
+  useEffect(() => {
+    const trimmed = name.trim().toLowerCase();
+    setDuplicateNameWarning(
+      trimmed.length >= 2 && existingNames.some((n) => n === trimmed)
+    );
+  }, [name, existingNames]);
 
   const preview = useMemo(() => {
     const lower = objective.toLowerCase();
@@ -216,7 +238,13 @@ export default function NewProjectPage() {
               }}
               placeholder="e.g. San Francisco Housing Strategy"
               aria-invalid={Boolean(nameError)}
-              aria-describedby={nameError ? "project-name-error" : undefined}
+              aria-describedby={
+                nameError
+                  ? "project-name-error"
+                  : duplicateNameWarning
+                    ? "project-name-duplicate"
+                    : undefined
+              }
               className={`w-full border-b bg-transparent py-2 text-body-lg focus:outline-none ${
                 nameError ? "border-error" : "border-outline focus:border-primary"
               }`}
@@ -224,6 +252,11 @@ export default function NewProjectPage() {
             {nameError && (
               <p id="project-name-error" role="alert" className="text-body-sm text-error mt-1">
                 {nameError}
+              </p>
+            )}
+            {!nameError && duplicateNameWarning && (
+              <p id="project-name-duplicate" role="status" className="text-body-sm text-secondary mt-1">
+                A project with this name already exists. Consider a unique name to avoid confusion.
               </p>
             )}
           </div>
