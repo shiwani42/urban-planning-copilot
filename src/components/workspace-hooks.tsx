@@ -12,7 +12,12 @@ export function useWorkspace(projectId: string) {
 
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/projects/${projectId}`, { cache: "no-store" });
-    if (!res.ok) throw new Error("Project not found");
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const message =
+        typeof data.error === "string" ? data.error : "Project not found";
+      throw new Error(message);
+    }
     const data = await res.json();
     setWorkspace(data);
     return data as WorkspaceSnapshot;
@@ -43,13 +48,14 @@ export function useWorkspace(projectId: string) {
           body: JSON.stringify({ action, ...body }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Action failed");
-        if (data.project) setWorkspace(data);
-        else if (data.workspace) setWorkspace(data.workspace);
-        else if (data.comparison) {
-          await refresh();
-          return data;
-        } else await refresh();
+        if (!res.ok) {
+          const message =
+            typeof data.error === "string" && data.error.length > 0
+              ? data.error
+              : "Action failed";
+          throw new Error(message);
+        }
+        await refresh();
         return data;
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));

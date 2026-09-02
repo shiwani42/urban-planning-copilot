@@ -8,6 +8,7 @@ import { assessObjectiveQuality } from "@/lib/domain/objective";
 import { EXPLORE_CONVERT_KEY, type ExploreConvertDraft } from "@/lib/domain/explore";
 
 const DRAFT_KEY = "upc-new-project-draft";
+const LOCAL_DRAFT_KEY = "upc-new-project-draft-local";
 
 const EXAMPLES = [
   {
@@ -46,6 +47,19 @@ export default function NewProjectPage() {
 
   useEffect(() => {
     try {
+      const localRaw = localStorage.getItem(LOCAL_DRAFT_KEY);
+      if (localRaw) {
+        const draft = JSON.parse(localRaw) as { name?: string; objective?: string; error?: string };
+        if (draft.name) setName(draft.name);
+        if (draft.objective) setObjective(draft.objective);
+        if (draft.error) {
+          setSubmitStatus({
+            kind: "error",
+            message: `Previous create failed: ${draft.error}. Draft restored — retry when storage is healthy.`,
+          });
+        }
+        return;
+      }
       const raw = sessionStorage.getItem(DRAFT_KEY);
       if (raw) {
         const draft = JSON.parse(raw) as { name?: string; objective?: string };
@@ -178,6 +192,7 @@ export default function NewProjectPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create workspace");
       sessionStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(LOCAL_DRAFT_KEY);
       sessionStorage.removeItem(EXPLORE_CONVERT_KEY);
       setSubmitStatus({
         kind: "success",
@@ -186,7 +201,23 @@ export default function NewProjectPage() {
       router.push(`/workspace/${data.project.id}`);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      setSubmitStatus({ kind: "error", message });
+      try {
+        localStorage.setItem(
+          LOCAL_DRAFT_KEY,
+          JSON.stringify({
+            name: name.trim(),
+            objective: objective.trim(),
+            error: message,
+            savedAt: new Date().toISOString(),
+          })
+        );
+      } catch {
+        /* storage unavailable */
+      }
+      setSubmitStatus({
+        kind: "error",
+        message: `${message} Your draft is saved in this browser — retry when workspace storage recovers.`,
+      });
       setObjectiveError(message);
       setBusy(false);
     }

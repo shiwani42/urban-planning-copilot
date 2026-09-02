@@ -8,6 +8,8 @@ import {
   ProvenanceChip,
   useWorkspace,
 } from "@/components/workspace-hooks";
+import { StorageBanner } from "@/components/StorageBanner";
+import { DatasetInspectPanel } from "@/components/DatasetInspectPanel";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
 import { setWebMcpBrowserContext, clearWebMcpBrowserContext } from "@/lib/webmcp/browser-context";
 import {
@@ -43,6 +45,8 @@ import {
   resultsColumnsForIntent,
   type ResultsColumn,
 } from "@/lib/domain/results-display";
+import { filterAnalysisCaveats } from "@/lib/domain/caveats";
+import { layerSwatch } from "@/lib/domain/layer-styles";
 import type { MapDrawMode } from "@/components/PlanningMap";
 
 const PlanningMap = dynamic(
@@ -125,6 +129,9 @@ export default function WorkspaceClient({
   const [compareError, setCompareError] = useState<string | null>(null);
   const [compareHint, setCompareHint] = useState<string | null>(null);
   const [legendOpen, setLegendOpen] = useState(false);
+  const [legendDocked, setLegendDocked] = useState(true);
+  const [inspectDatasetId, setInspectDatasetId] = useState<string | null>(null);
+  const [analysisProgress, setAnalysisProgress] = useState<string | null>(null);
   const [renamingScenarioId, setRenamingScenarioId] = useState<string | null>(null);
   const [scenarioNameDraft, setScenarioNameDraft] = useState("");
   const [focusedRowIndex, setFocusedRowIndex] = useState(0);
@@ -285,15 +292,44 @@ export default function WorkspaceClient({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [drawingActive, drawMode, drawClicks.length, editingSelectionId]);
 
-  const visibleLayerKinds = useMemo(() => {
-    if (!workspace) return new Set<string>();
-    const ids = new Set(
-      workspace.project.mapState.layers.filter((l) => l.visible).map((l) => l.datasetId)
-    );
-    return new Set(
-      workspace.datasets.filter((d) => ids.has(d.id)).map((d) => d.kind)
+  const syncedMapLayers = useMemo(() => {
+    if (!workspace) return [];
+    const existing = new Map(workspace.project.mapState.layers.map((l) => [l.datasetId, l]));
+    return workspace.datasets.map((d) =>
+      existing.get(d.id) ?? {
+        datasetId: d.id,
+        visible: ["parcels", "transit", "flood", "population", "schools", "parks"].includes(d.kind),
+      }
     );
   }, [workspace]);
+
+  const visibleLayerKinds = useMemo(() => {
+    if (!workspace) return new Set<string>();
+    const ids = new Set(syncedMapLayers.filter((l) => l.visible).map((l) => l.datasetId));
+    return new Set(workspace.datasets.filter((d) => ids.has(d.id)).map((d) => d.kind));
+  }, [workspace, syncedMapLayers]);
+
+  const floodCoverageWarning = useMemo(() => {
+    if (!workspace || !result) return null;
+    const flood = workspace.datasets.find((d) => d.kind === "flood");
+    if (!flood || (!flood.incompleteCoverage && flood.featureCount > 1)) return null;
+    const floodLog = result.stepLogs?.find((s) => /flood/i.test(s.detail));
+    if (!floodLog) return null;
+    const excluded = floodLog.detail.match(/(\d+)\s*→\s*(\d+)/);
+    if (!excluded) return null;
+    const before = Number(excluded[1]);
+    const after = Number(excluded[2]);
+    if (before - after < 10) return null;
+    return `Flood layer has incomplete coverage (${flood.featureCount} feature${flood.featureCount === 1 ? "" : "s"}). ${before - after} parcels were excluded — verify site-specific flood risk before decisions.`;
+  }, [workspace, result]);
+
+  function openDatasetInspect(datasetId: string) {
+    setInspectDatasetId(datasetId);
+    setTab("evidence");
+    requestAnimationFrame(() => {
+      document.getElementById(`dataset-${datasetId}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  }
 
   const selectCandidate = useCallback(
     async (c: Candidate, panel: DrawerPanel = "evidence") => {
@@ -360,9 +396,23 @@ export default function WorkspaceClient({
   async function runAnalysis() {
     if (!scenario) return;
     setTab("workspace");
-    await act("run_analysis", { scenarioId: scenario.id });
-    setDrawerOpen(true);
-    setTab("results");
+    const steps = scenario.analysisPlan?.steps.length ?? 4;
+    setAnalysisProgress(`Running analysis (0/${steps} steps)…`);
+    try {
+      await act("run_analysis", { scenarioId: scenario.id });
+      setAnalysisProgress(null);
+      setDrawerOpen(true);
+      setTab("results");
+    } catch {
+      setAnalysisProgress(null);
+    }
+  }
+
+  async function exportMapImage() {
+    const container = document.querySelector(".leaflet-container") as HTMLElement | null;
+    const { captureMapPng } = await import("@/components/PlanningMap");
+    captureMapPng(container, `${workspace?.project.name ?? "map"}-workspace.png`);
+    setToast("Map exported as PNG");
   }
 
   async function applyWeights() {
@@ -525,11 +575,30 @@ export default function WorkspaceClient({
 
   if (!workspace || !scenario) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center gap-3">
-        <p className="text-body-sm text-error">{error ?? "Workspace not found"}</p>
-        <Link href="/" className="text-primary text-body-sm hover:underline">
-          Back to projects
-        </Link>
+      <div className="h-screen flex flex-col bg-background">
+        <StorageBanner />
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
+          <p className="text-headline-md text-on-surface">Project not found</p>
+          <p className="text-body-sm text-on-surface-variant max-w-md">
+            {error ??
+              "This workspace is missing from server storage. If you just created it, storage may be degraded — try reloading the project list or creating a new workspace."}
+          </p>
+          <div className="flex flex-wrap gap-3 justify-center">
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm"
+            >
+              Retry load
+            </button>
+            <Link href="/new" className="border border-outline-variant px-4 py-2 rounded text-body-sm">
+              New project
+            </Link>
+            <Link href="/" className="text-primary text-body-sm hover:underline py-2">
+              Back to projects
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }
@@ -538,6 +607,7 @@ export default function WorkspaceClient({
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background relative">
+      <StorageBanner />
       <header className="bg-surface-container-high border-b border-outline-variant flex justify-between items-center px-section-padding h-14 shrink-0 z-50">
         <div className="flex items-center gap-6 min-w-0">
           <Link href="/" className="font-display text-[18px] font-semibold text-primary shrink-0">
@@ -1020,23 +1090,26 @@ export default function WorkspaceClient({
                 </h3>
                 <div className="space-y-2">
                   {workspace.datasets.map((d) => {
-                    const vis = workspace.project.mapState.layers.find(
-                      (l) => l.datasetId === d.id
-                    )?.visible;
+                    const vis = syncedMapLayers.find((l) => l.datasetId === d.id)?.visible;
+                    const swatch = layerSwatch(d.kind);
                     return (
                       <label key={d.id} className="flex items-center gap-3 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={Boolean(vis)}
                           onChange={async (e) => {
-                            const layers = workspace.project.mapState.layers.map((l) =>
-                              l.datasetId === d.id
-                                ? { ...l, visible: e.target.checked }
-                                : l
+                            const layers = syncedMapLayers.map((l) =>
+                              l.datasetId === d.id ? { ...l, visible: e.target.checked } : l
                             );
                             await act("update_map", { mapState: { layers } });
                           }}
                           className="rounded border-outline text-primary h-4 w-4"
+                        />
+                        <span
+                          className={`w-3 h-3 shrink-0 ${swatch.className} ${
+                            d.kind === "transit" || d.kind === "schools" ? "rounded-full" : ""
+                          }`}
+                          aria-hidden
                         />
                         <span className="text-body-sm">
                           {d.name.replace(" (Illustrative)", "").replace(" (Synthetic)", "")}
@@ -1288,29 +1361,48 @@ export default function WorkspaceClient({
             )}
 
             <div
-              className={`absolute left-4 top-16 z-[1001] max-w-[220px] ${
+              className={`absolute bottom-20 right-4 z-[1001] max-w-[200px] ${
                 drawingActive ? "pointer-events-none" : "pointer-events-auto"
               }`}
             >
               <button
                 type="button"
                 onClick={() => setLegendOpen((v) => !v)}
-                className="glass-panel px-3 py-1.5 rounded border border-outline-variant text-caption font-mono uppercase text-on-surface-variant flex items-center gap-2 w-full pointer-events-auto"
+                className="glass-panel px-2.5 py-1 rounded border border-outline-variant text-[10px] font-mono uppercase text-on-surface-variant flex items-center gap-1.5 w-full pointer-events-auto"
                 aria-expanded={legendOpen}
               >
-                <span className="material-symbols-outlined text-[16px]">legend</span>
+                <span className="material-symbols-outlined text-[14px]">legend</span>
                 Legend {legendOpen ? "▾" : "▸"}
               </button>
               {legendOpen && (
-                <div className="glass-panel p-3 rounded border border-outline-variant mt-1 pointer-events-auto">
+                <div className="glass-panel p-2 rounded border border-outline-variant mt-1 pointer-events-auto max-h-48 overflow-y-auto">
                   <MapLegend
+                    compact
                     visibleKinds={visibleLayerKinds}
                     hasExclusions={scenario.geographicSelections.some(
                       (g) => g.type === "exclusion"
                     )}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setLegendDocked((v) => !v)}
+                    className="mt-2 text-[10px] text-primary hover:underline"
+                  >
+                    {legendDocked ? "Float legend" : "Dock legend"}
+                  </button>
                 </div>
               )}
+            </div>
+
+            <div className="absolute top-16 right-4 z-[1000] pointer-events-auto">
+              <button
+                type="button"
+                onClick={() => void exportMapImage()}
+                className="glass-panel px-2.5 py-1 rounded border border-outline-variant text-[10px] font-mono uppercase text-on-surface-variant"
+                title="Export map as PNG"
+              >
+                Export PNG
+              </button>
             </div>
 
             <div
@@ -1408,7 +1500,7 @@ export default function WorkspaceClient({
                                   key={d}
                                   label={d}
                                   datasets={workspace.datasets}
-                                  onInspect={() => setTab("evidence")}
+                                  onInspect={(id) => openDatasetInspect(id)}
                                 />
                               ))}
                             </div>
@@ -1549,8 +1641,23 @@ export default function WorkspaceClient({
                 className="w-full bg-primary hover:bg-on-primary-fixed-variant text-on-primary font-medium py-2 px-4 rounded flex justify-center items-center gap-2 disabled:opacity-50"
               >
                 <span className="material-symbols-outlined text-[18px]">play_arrow</span>
-                {result ? "Recalculate" : "Run analysis"}
+                {busy && analysisProgress ? "Running…" : result ? "Recalculate" : "Run analysis"}
               </button>
+              {(busy || analysisProgress || runningJob) && (
+                <p className="text-caption text-on-surface-variant flex items-center gap-2">
+                  <span className="material-symbols-outlined animate-spin text-[14px] text-primary">
+                    progress_activity
+                  </span>
+                  {analysisProgress ??
+                    runningJob?.currentStep ??
+                    "Analysis in progress — typically 5–15s for demo datasets"}
+                  {scenario.analysisPlan && (
+                    <span className="block text-[10px] text-outline">
+                      ETA ~{Math.max(3, scenario.analysisPlan.steps.length * 2)}s
+                    </span>
+                  )}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={() => setAssumptionsOpen((v) => !v)}
@@ -1584,7 +1691,8 @@ export default function WorkspaceClient({
           stale={Boolean(result?.stale)}
           selected={selectedCandidate}
           datasets={workspace.datasets}
-          onInspectDataset={() => setTab("evidence")}
+          onInspectDataset={(datasetId) => openDatasetInspect(datasetId)}
+          floodCoverageWarning={floodCoverageWarning}
           housingTarget={housingTarget}
           totalCapacity={totalCapacity}
           intent={scenario.objective.intent}
@@ -1613,8 +1721,9 @@ export default function WorkspaceClient({
         <EvidenceView
           workspace={workspace}
           scenarioId={scenario.id}
+          onInspect={(datasetId) => openDatasetInspect(datasetId)}
           onShowOnMap={async (datasetId) => {
-            const layers = workspace.project.mapState.layers.map((l) => ({
+            const layers = syncedMapLayers.map((l) => ({
               ...l,
               visible: l.datasetId === datasetId ? true : l.visible,
             }));
@@ -1725,6 +1834,28 @@ export default function WorkspaceClient({
           generating={busy}
         />
       )}
+      {inspectDatasetId && workspace && (() => {
+        const inspectDataset = workspace.datasets.find((d) => d.id === inspectDatasetId);
+        if (!inspectDataset) return null;
+        return (
+        <DatasetInspectPanel
+          dataset={inspectDataset}
+          enabledForScenario={scenario.enabledDatasetIds.includes(inspectDatasetId)}
+          onClose={() => setInspectDatasetId(null)}
+          onShowOnMap={async () => {
+            const layers = syncedMapLayers.map((l) => ({
+              ...l,
+              visible: l.datasetId === inspectDatasetId ? true : l.visible,
+            }));
+            await act("update_map", {
+              mapState: { layers, focusDatasetId: inspectDatasetId },
+            });
+            setInspectDatasetId(null);
+            setTab("workspace");
+          }}
+        />
+        );
+      })()}
     </div>
   );
 }
@@ -1750,7 +1881,8 @@ function ResultsDrawer(props: {
   setFocusedRowIndex: (index: number) => void;
   resultLimitations: string[];
   datasets: DatasetMeta[];
-  onInspectDataset: () => void;
+  onInspectDataset: (datasetId: string) => void;
+  floodCoverageWarning?: string | null;
   onSelect: (c: Candidate) => void;
   onReject: (c: Candidate, reason: string) => Promise<void>;
 }) {
@@ -1852,6 +1984,14 @@ function ResultsDrawer(props: {
           <div
             className={`bg-surface p-4 overflow-auto min-h-0 ${panel === "evidence" ? "hidden md:block" : ""}`}
           >
+            {props.floodCoverageWarning && (
+              <div
+                role="alert"
+                className="mb-3 border border-secondary/50 bg-secondary-fixed/15 text-secondary text-caption px-3 py-2 rounded"
+              >
+                {props.floodCoverageWarning}
+              </div>
+            )}
             {!result ? (
               <p className="text-body-sm text-on-surface-variant">No results yet.</p>
             ) : result.status === "failed" ? (
@@ -2113,10 +2253,12 @@ function EvidenceView({
   workspace,
   scenarioId,
   onShowOnMap,
+  onInspect,
 }: {
   workspace: WorkspaceSnapshot;
   scenarioId: string;
   onShowOnMap: (datasetId: string) => Promise<void>;
+  onInspect: (datasetId: string) => void;
 }) {
   const scenario = workspace.scenarios.find((s) => s.id === scenarioId)!;
   const focusId = workspace.project.mapState.focusDatasetId;
@@ -2146,13 +2288,22 @@ function EvidenceView({
           >
             <div className="flex justify-between gap-2 mb-2">
               <h3 className="text-headline-md">{d.name}</h3>
-              <button
-                type="button"
-                onClick={() => void onShowOnMap(d.id)}
-                className="text-caption text-primary hover:underline shrink-0"
-              >
-                Show on map
-              </button>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onInspect(d.id)}
+                  className="text-caption text-primary hover:underline"
+                >
+                  Inspect
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onShowOnMap(d.id)}
+                  className="text-caption text-primary hover:underline"
+                >
+                  Show on map
+                </button>
+              </div>
             </div>
             <div className="mb-2">
               <DatasetRefChip label={d.id} datasets={workspace.datasets} />

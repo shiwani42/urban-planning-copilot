@@ -17,6 +17,7 @@ import { formatReportDateTime, dedupeLimitations } from "../format";
 import { isHousingIntent, isAccessIntent } from "./intent";
 import { runSpatialAnalysis, compareScenarioMetrics, buildComparisonInsights } from "./spatial";
 import { getStore, updateStore, reloadStoreFromDisk } from "./store";
+import { cloneScenarioForBranch } from "./scenario-clone";
 import { STUDY_BOUNDS } from "./study-bounds";
 import { ToolError } from "./tool-errors";
 import {
@@ -45,6 +46,43 @@ import type {
 
 function now() {
   return new Date().toISOString();
+}
+
+const analysisGateByProject = new Map<string, Promise<void>>();
+
+async function withAnalysisGate<T>(projectId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = analysisGateByProject.get(projectId) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const chained = prev.then(() => gate);
+  analysisGateByProject.set(projectId, chained);
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (analysisGateByProject.get(projectId) === chained) {
+      analysisGateByProject.delete(projectId);
+    }
+  }
+}
+
+function syncMapLayers(
+  mapState: MapState,
+  datasets: AppStore["datasets"]
+): MapState {
+  const existing = new Map(mapState.layers.map((l) => [l.datasetId, l]));
+  const layers = datasets.map((d) => {
+    const prior = existing.get(d.id);
+    if (prior) return prior;
+    return {
+      datasetId: d.id,
+      visible: ["parcels", "transit", "flood", "population", "schools", "parks"].includes(d.kind),
+    };
+  });
+  return { ...mapState, layers };
 }
 
 function defaultMapState(datasets: AppStore["datasets"]): MapState {
@@ -294,8 +332,11 @@ export async function getWorkspace(projectId: string): Promise<WorkspaceSnapshot
   const store = await reloadStoreFromDisk();
   const project = store.projects.find((p) => p.id === projectId);
   if (!project) return null;
+  const syncedMap = syncMapLayers(project.mapState, store.datasets);
   return {
-    project,
+    project: syncedMap.layers.length !== project.mapState.layers.length
+      ? { ...project, mapState: syncedMap }
+      : project,
     scenarios: store.scenarios.filter((s) => s.projectId === projectId),
     decisions: store.decisions.filter((d) => d.projectId === projectId),
     activities: store.activities.filter((a) => a.projectId === projectId).slice(0, 200),
@@ -388,7 +429,14 @@ export async function createProject(input: {
     projectId = project.id;
   });
   const ws = await getWorkspace(projectId);
-  if (!ws) throw new Error("Failed to create project");
+  if (!ws) {
+    const listed = await listProjects();
+    throw new Error(
+      listed.length
+        ? "Project was created but could not be loaded — storage may be degraded. Retry or check /api/health."
+        : "Failed to create project — workspace storage may be unavailable."
+    );
+  }
   return duplicateNameWarning ? { ...ws, duplicateNameWarning: true } : ws;
 }
 
@@ -784,6 +832,7 @@ export async function getAnalysisRunStatus(projectId: string, scenarioId: string
 }
 
 export async function runAnalysis(projectId: string, scenarioId: string) {
+  return withAnalysisGate(projectId, async () => {
   await requireProject(projectId);
   const store = await reloadStoreFromDisk();
   const scenario = requireScenario(store, projectId, scenarioId);
@@ -1040,6 +1089,7 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
   });
 
   return getWorkspace(projectId);
+  });
 }
 
 export async function createScenario(
@@ -1051,23 +1101,12 @@ export async function createScenario(
     const project = store.projects.find((p) => p.id === projectId);
     if (!project) throw new Error("Project not found");
     const source = fromScenarioId
-      ? store.scenarios.find((s) => s.id === fromScenarioId)
+      ? store.scenarios.find((s) => s.id === fromScenarioId && s.projectId === projectId)
       : store.scenarios.find((s) => s.id === project.activeScenarioId);
 
+    const createdAt = now();
     const scenario: Scenario = source
-      ? {
-          ...structuredClone(source),
-          id: nanoid(),
-          name,
-          status: "draft",
-          parentScenarioId: source.id,
-          latestResultId: undefined,
-          decisionStatus: "none",
-          preferredCandidateId: undefined,
-          createdAt: now(),
-          updatedAt: now(),
-          savedAt: undefined,
-        }
+      ? cloneScenarioForBranch(source, nanoid(), name, createdAt)
       : (() => {
           const parsed = parseForStore(store, "Explore planning options", project.geographyLabel);
           return {

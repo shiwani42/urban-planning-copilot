@@ -4,14 +4,21 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { DatasetMeta } from "@/lib/domain/types";
 import { ProvenanceChip } from "@/components/workspace-hooks";
+import { StorageBanner } from "@/components/StorageBanner";
 
 export default function DataPage() {
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
+  const [loading, setLoading] = useState(true);
 
   async function load() {
-    const res = await fetch("/api/datasets");
-    const data = await res.json();
-    setDatasets(data.datasets ?? []);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/datasets");
+      const data = await res.json();
+      setDatasets(data.datasets ?? []);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -19,6 +26,17 @@ export default function DataPage() {
   }, []);
 
   async function patch(action: string, body: Record<string, unknown>) {
+    if (action === "mark_stale" && body.stale !== false) {
+      const dataset = datasets.find((d) => d.id === body.datasetId);
+      const label = dataset?.name ?? "this dataset";
+      if (
+        !window.confirm(
+          `Mark "${label}" as outdated in the global catalog? Every workspace will see this flag immediately.`
+        )
+      ) {
+        return;
+      }
+    }
     await fetch("/api/datasets", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -29,6 +47,7 @@ export default function DataPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <StorageBanner />
       <header className="h-14 border-b border-outline-variant px-section-padding flex items-center gap-6">
         <Link href="/" className="font-display text-[18px] font-semibold text-primary">
           Urban Planning Copilot
@@ -51,7 +70,17 @@ export default function DataPage() {
           mark outdated here and Evidence tabs will reflect it.
         </p>
         <div className="space-y-4">
-          {datasets.map((d) => (
+          {loading ? (
+            <>
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="border border-outline-variant p-4 bg-surface-container-lowest animate-pulse h-32"
+                />
+              ))}
+            </>
+          ) : (
+            datasets.map((d) => (
             <div key={d.id} className="border border-outline-variant p-4 bg-surface-container-lowest">
               <div className="flex flex-wrap justify-between gap-3 mb-3">
                 <div>
@@ -85,7 +114,8 @@ export default function DataPage() {
                 </button>
               </div>
             </div>
-          ))}
+            ))
+          )}
         </div>
       </main>
     </div>
