@@ -292,14 +292,18 @@ export async function executePlanningTool(
     }
     case "create_scenario_branch": {
       const projectId = resolveProjectId(input, context);
+      const name = String(input.name ?? "").trim();
+      if (!name) {
+        throw new ToolError("MISSING_FIELD", "name is required", "name");
+      }
       const ws = await services.createScenario(
         projectId,
-        input.name as string,
+        name,
         input.fromScenarioId as string | undefined
       );
       return {
         activeScenarioId: ws?.project.activeScenarioId,
-        name: input.name,
+        name,
       };
     }
     case "select_candidate": {

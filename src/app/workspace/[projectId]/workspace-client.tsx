@@ -550,7 +550,7 @@ export default function WorkspaceClient({
     setCriteriaStaleHint(true);
   }
 
-  async function commitTransitThreshold(rawText: string) {
+  async function commitTransitThreshold(constraintId: string, rawText: string) {
     if (!scenario) return;
     const parsed = Number(rawText.replace(/,/g, "").trim());
     if (!Number.isFinite(parsed)) {
@@ -559,13 +559,10 @@ export default function WorkspaceClient({
     }
     const normalized = normalizeTransitThresholdMeters(parsed);
     setTransitThresholdWarning(normalized.warning ?? null);
-    if (normalized.adjusted && normalized.warning) {
-      setTransitDraftText((prev) => ({
-        ...prev,
-        [scenario.constraints.find((c) => c.operator === "within_distance")?.id ?? "transit"]:
-          String(normalized.meters),
-      }));
-    }
+    setTransitDraftText((prev) => ({
+      ...prev,
+      [constraintId]: String(normalized.meters),
+    }));
     setCriteriaStaleHint(true);
     const constraints = scenario.constraints.map((c) =>
       c.operator === "within_distance"
@@ -576,9 +573,16 @@ export default function WorkspaceClient({
           }
         : c
     );
-    await act("update_constraints", { scenarioId: scenario.id, constraints });
-    if (normalized.adjusted || normalized.warning) {
-      setToast(normalized.warning ?? `Transit threshold set to ${normalized.meters}m`);
+    try {
+      await act("update_constraints", { scenarioId: scenario.id, constraints });
+      if (normalized.adjusted || normalized.warning) {
+        setToast(normalized.warning ?? `Transit threshold set to ${normalized.meters}m`);
+      }
+    } catch {
+      setTransitDraftText((prev) => ({
+        ...prev,
+        [constraintId]: String(Number(scenario.constraints.find((c) => c.id === constraintId)?.value ?? normalized.meters)),
+      }));
     }
   }
 
@@ -1256,10 +1260,11 @@ export default function WorkspaceClient({
                               }
                               onFocus={(e) => {
                                 e.target.select();
-                                setTransitDraftText((prev) => ({
-                                  ...prev,
-                                  [c.id]: String(Number(c.value)),
-                                }));
+                                setTransitDraftText((prev) =>
+                                  prev[c.id] !== undefined
+                                    ? prev
+                                    : { ...prev, [c.id]: String(Number(c.value)) }
+                                );
                               }}
                               onChange={(e) => {
                                 const digits = e.target.value.replace(/[^\d]/g, "");
@@ -1267,17 +1272,13 @@ export default function WorkspaceClient({
                                 setTransitThresholdWarning(null);
                               }}
                               onBlur={(e) => {
-                                void commitTransitThreshold(e.target.value);
-                                setTransitDraftText((prev) => {
-                                  const next = { ...prev };
-                                  delete next[c.id];
-                                  return next;
-                                });
+                                void commitTransitThreshold(c.id, e.target.value);
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
                                   e.preventDefault();
                                   void commitTransitThreshold(
+                                    c.id,
                                     (e.target as HTMLInputElement).value
                                   );
                                   (e.target as HTMLInputElement).blur();
