@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -8,14 +8,21 @@ import {
   CircleMarker,
   useMap,
   Polygon,
+  ZoomControl,
+  ScaleControl,
 } from "react-leaflet";
 import type { WorkspaceSnapshot, Candidate, GeographicSelection } from "@/lib/domain/types";
 import L from "leaflet";
 
-function FitBounds({ bounds }: { bounds?: { west: number; south: number; east: number; north: number } }) {
+function FitBoundsOnce({
+  bounds,
+}: {
+  bounds?: { west: number; south: number; east: number; north: number };
+}) {
   const map = useMap();
+  const fitted = useRef(false);
   useEffect(() => {
-    if (!bounds) return;
+    if (!bounds || fitted.current) return;
     map.fitBounds(
       [
         [bounds.south, bounds.west],
@@ -23,21 +30,8 @@ function FitBounds({ bounds }: { bounds?: { west: number; south: number; east: n
       ],
       { padding: [24, 24] }
     );
+    fitted.current = true;
   }, [map, bounds]);
-  return null;
-}
-
-function SyncViewport({
-  center,
-  zoom,
-}: {
-  center: [number, number];
-  zoom: number;
-}) {
-  const map = useMap();
-  useEffect(() => {
-    map.setView([center[1], center[0]], zoom);
-  }, [map, center, zoom]);
   return null;
 }
 
@@ -48,7 +42,26 @@ type Props = {
   onSelectCandidate: (c: Candidate) => void;
   onMapClickExclude?: (latlng: { lat: number; lng: number }) => void;
   drawingExclusion?: boolean;
+  excludeClicks?: [number, number][];
 };
+
+function tileConfig(): { url: string; attribution: string; subdomains?: string } {
+  const cartoKey = process.env.NEXT_PUBLIC_CARTO_API_KEY;
+  if (cartoKey) {
+    return {
+      url: `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=${cartoKey}`,
+      subdomains: "abcd",
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    };
+  }
+  return {
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    subdomains: "abc",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  };
+}
 
 export default function PlanningMap({
   workspace,
@@ -57,9 +70,11 @@ export default function PlanningMap({
   onSelectCandidate,
   onMapClickExclude,
   drawingExclusion,
+  excludeClicks = [],
 }: Props) {
   const { mapState } = workspace.project;
   const selectedId = mapState.selectedCandidateId;
+  const tiles = tileConfig();
 
   const visibleKinds = useMemo(() => {
     const ids = new Set(
@@ -82,31 +97,38 @@ export default function PlanningMap({
         ? rejected
           ? "#ba1a1a"
           : `rgba(0, 94, 125, ${0.15 + Math.min(candidate.score, 100) / 250})`
-        : "#ffffff",
-      fillOpacity: candidate ? 0.55 : 0.15,
+        : "#e8eef0",
+      fillOpacity: candidate ? 0.55 : 0.35,
     };
   };
+
+  const activeScenario = workspace.scenarios.find(
+    (s) => s.id === workspace.project.activeScenarioId
+  );
+
+  const previewRing: [number, number][] | null =
+    excludeClicks.length >= 2
+      ? excludeClicks.map(([lng, lat]) => [lat, lng] as [number, number])
+      : null;
 
   return (
     <div className="absolute inset-0">
       <MapContainer
         center={[mapState.viewport.center[1], mapState.viewport.center[0]]}
         zoom={mapState.viewport.zoom}
-        className="h-full w-full"
+        className="h-full w-full z-0"
         zoomControl={false}
+        scrollWheelZoom
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url={
-            process.env.NEXT_PUBLIC_CARTO_API_KEY
-              ? `https://{s}.basemaps.cartocdn.com/rastertiles/positron/{z}/{x}/{y}{r}.png?key=${process.env.NEXT_PUBLIC_CARTO_API_KEY}`
-              : "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
-          }
-          subdomains={process.env.NEXT_PUBLIC_CARTO_API_KEY ? "abcd" : undefined}
+          attribution={tiles.attribution}
+          url={tiles.url}
+          subdomains={tiles.subdomains}
           maxZoom={20}
         />
-        <FitBounds bounds={mapState.viewport.bounds} />
-        <SyncViewport center={mapState.viewport.center} zoom={mapState.viewport.zoom} />
+        <ZoomControl position="topright" />
+        <ScaleControl position="bottomleft" imperial={false} />
+        <FitBoundsOnce bounds={mapState.viewport.bounds} />
 
         {visibleKinds.has("flood") && layerData.flood && (
           <GeoJSON
@@ -115,9 +137,8 @@ export default function PlanningMap({
             style={(f) => ({
               color: "#005e7d",
               weight: 1,
-              fillColor:
-                f?.properties?.risk === "high" ? "#8ccff3" : "#c1e8ff",
-              fillOpacity: 0.35,
+              fillColor: f?.properties?.risk === "high" ? "#8ccff3" : "#c1e8ff",
+              fillOpacity: 0.4,
             })}
           />
         )}
@@ -132,7 +153,8 @@ export default function PlanningMap({
               const candidate = candidates.find(
                 (c) => c.id === id || c.featureIds.includes(id)
               );
-              layer.on("click", () => {
+              layer.on("click", (e) => {
+                L.DomEvent.stopPropagation(e);
                 if (candidate) onSelectCandidate(candidate);
               });
             }}
@@ -146,8 +168,8 @@ export default function PlanningMap({
               <CircleMarker
                 key={`t-${i}`}
                 center={[lat, lng]}
-                radius={5}
-                pathOptions={{ color: "#00455d", fillColor: "#00455d", fillOpacity: 1 }}
+                radius={6}
+                pathOptions={{ color: "#00455d", fillColor: "#005e7d", fillOpacity: 1, weight: 2 }}
               />
             );
           })}
@@ -159,34 +181,75 @@ export default function PlanningMap({
               <CircleMarker
                 key={`s-${i}`}
                 center={[lat, lng]}
-                radius={6}
-                pathOptions={{ color: "#815504", fillColor: "#fdc26c", fillOpacity: 0.9 }}
+                radius={7}
+                pathOptions={{ color: "#815504", fillColor: "#fdc26c", fillOpacity: 0.95, weight: 2 }}
               />
             );
           })}
 
-        {workspace.scenarios
-          .find((s) => s.id === workspace.project.activeScenarioId)
-          ?.geographicSelections.map((sel: GeographicSelection) => {
-            const rings =
-              sel.geometry.type === "Polygon"
-                ? sel.geometry.coordinates
-                : sel.geometry.coordinates[0];
-            const positions = (rings[0] as number[][]).map(
-              ([lng, lat]) => [lat, lng] as [number, number]
-            );
+        {visibleKinds.has("population") &&
+          layerData.population?.features.map((f, i) => {
+            const [lng, lat] = (f.geometry as GeoJSON.Point).coordinates;
+            const pop = Number(f.properties?.population ?? 100);
+            const radius = Math.min(14, Math.max(3, Math.sqrt(pop) / 8));
             return (
-              <Polygon
-                key={sel.id}
-                positions={positions}
+              <CircleMarker
+                key={`p-${i}`}
+                center={[lat, lng]}
+                radius={radius}
                 pathOptions={{
-                  color: sel.type === "exclusion" ? "#ba1a1a" : "#815504",
-                  fillOpacity: 0.2,
-                  dashArray: "4 4",
+                  color: "#70787e",
+                  fillColor: "#bfc8ce",
+                  fillOpacity: 0.45,
+                  weight: 1,
                 }}
               />
             );
           })}
+
+        {visibleKinds.has("infrastructure") &&
+          layerData.infrastructure?.features.map((f, i) => {
+            const [lng, lat] = (f.geometry as GeoJSON.Point).coordinates;
+            return (
+              <CircleMarker
+                key={`i-${i}`}
+                center={[lat, lng]}
+                radius={4}
+                pathOptions={{
+                  color: "#565756",
+                  fillColor: "#3f403f",
+                  fillOpacity: 0.8,
+                  weight: 1,
+                }}
+              />
+            );
+          })}
+
+        {activeScenario?.geographicSelections.map((sel: GeographicSelection) => (
+          <SelectionPolygon key={sel.id} selection={sel} />
+        ))}
+
+        {previewRing && (
+          <Polygon
+            positions={previewRing}
+            pathOptions={{
+              color: "#ba1a1a",
+              fillColor: "#ba1a1a",
+              fillOpacity: 0.12,
+              weight: 2,
+              dashArray: "6 4",
+            }}
+          />
+        )}
+
+        {excludeClicks.map(([lng, lat], i) => (
+          <CircleMarker
+            key={`ex-${i}`}
+            center={[lat, lng]}
+            radius={4}
+            pathOptions={{ color: "#ba1a1a", fillColor: "#fff", fillOpacity: 1, weight: 2 }}
+          />
+        ))}
 
         <ClickHandler
           enabled={Boolean(drawingExclusion)}
@@ -194,6 +257,25 @@ export default function PlanningMap({
         />
       </MapContainer>
     </div>
+  );
+}
+
+function SelectionPolygon({ selection }: { selection: GeographicSelection }) {
+  const geom = selection.geometry;
+  if (geom.type !== "Polygon") return null;
+  const ring = geom.coordinates[0] as number[][];
+  const positions = ring.map(([lng, lat]) => [lat, lng] as [number, number]);
+  return (
+    <Polygon
+      positions={positions}
+      pathOptions={{
+        color: selection.type === "exclusion" ? "#ba1a1a" : "#815504",
+        fillColor: selection.type === "exclusion" ? "#ba1a1a" : "#815504",
+        fillOpacity: 0.15,
+        weight: 2,
+        dashArray: "6 4",
+      }}
+    />
   );
 }
 
@@ -207,13 +289,74 @@ function ClickHandler({
   const map = useMap();
   useEffect(() => {
     if (!enabled) return;
-    const handler = (e: L.LeafletMouseEvent) => onClick(e.latlng.lat, e.latlng.lng);
+    const handler = (e: L.LeafletMouseEvent) => {
+      L.DomEvent.stopPropagation(e);
+      onClick(e.latlng.lat, e.latlng.lng);
+    };
     map.on("click", handler);
-    map.getContainer().style.cursor = "crosshair";
+    const container = map.getContainer();
+    container.style.cursor = "crosshair";
     return () => {
       map.off("click", handler);
-      map.getContainer().style.cursor = "";
+      container.style.cursor = "";
     };
   }, [map, enabled, onClick]);
   return null;
+}
+
+/** Legend entries for the workspace map overlay */
+export function MapLegend({ visibleKinds }: { visibleKinds: Set<string> }) {
+  const items: Array<{ label: string; swatch: ReactNode }> = [];
+  if (visibleKinds.has("flood")) {
+    items.push({
+      label: "Flood risk",
+      swatch: <div className="w-3 h-3 bg-[#8ccff3]/70 border border-[#005e7d]" />,
+    });
+  }
+  if (visibleKinds.has("parcels")) {
+    items.push({
+      label: "Parcels / candidates",
+      swatch: <div className="w-3 h-3 bg-primary/30 border border-primary" />,
+    });
+  }
+  if (visibleKinds.has("transit")) {
+    items.push({
+      label: "Transit",
+      swatch: <div className="w-2.5 h-2.5 bg-primary-container rounded-full" />,
+    });
+  }
+  if (visibleKinds.has("schools")) {
+    items.push({
+      label: "Schools",
+      swatch: <div className="w-2.5 h-2.5 bg-secondary-container rounded-full border border-secondary" />,
+    });
+  }
+  if (visibleKinds.has("population")) {
+    items.push({
+      label: "Population",
+      swatch: <div className="w-3 h-3 bg-outline-variant/50 rounded-full" />,
+    });
+  }
+  if (visibleKinds.has("infrastructure")) {
+    items.push({
+      label: "Infrastructure",
+      swatch: <div className="w-2 h-2 bg-tertiary rounded-sm" />,
+    });
+  }
+  if (items.length === 0) {
+    items.push({
+      label: "No layers visible",
+      swatch: <div className="w-3 h-3 border border-outline-variant" />,
+    });
+  }
+  return (
+    <div className="space-y-1.5 text-caption">
+      {items.map((item) => (
+        <div key={item.label} className="flex items-center gap-2">
+          {item.swatch}
+          {item.label}
+        </div>
+      ))}
+    </div>
+  );
 }
