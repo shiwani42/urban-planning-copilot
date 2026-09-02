@@ -922,17 +922,7 @@ export default function WorkspaceClient({
   }
 
   if (loading) {
-    return (
-      <div className="h-screen flex flex-col bg-background">
-        <div className="h-14 border-b border-outline-variant bg-surface-container-high px-section-padding flex items-center gap-4">
-          <div className="h-5 w-48 bg-surface-variant rounded animate-pulse" />
-        </div>
-        <div className="flex-1 flex items-center justify-center text-body-sm text-on-surface-variant gap-3">
-          <span className="material-symbols-outlined animate-spin text-primary">progress_activity</span>
-          Loading workspace…
-        </div>
-      </div>
-    );
+    return <WorkspaceLoadingSkeleton />;
   }
 
   if (!loading && !workspace) {
@@ -2175,6 +2165,10 @@ export default function WorkspaceClient({
             <UrbanPlanningCopilot
               projectId={projectId}
               scenarioId={scenario.id}
+              scenarioCount={workspace.scenarios.length}
+              scenarioIds={workspace.scenarios.map((s) => s.id)}
+              topCandidateId={topCandidate?.id}
+              topCandidateLabel={topCandidate?.label}
               variant="sidebar"
               showActivityFeed={false}
               onToolComplete={() => void refresh()}
@@ -4334,5 +4328,63 @@ function ReportView(props: {
         </section>
       )}
     </main>
+  );
+}
+
+function WorkspaceLoadingSkeleton() {
+  return (
+    <div className="h-screen flex flex-col bg-background overflow-hidden" aria-busy="true">
+      <div className="h-14 border-b border-outline-variant bg-surface-container-high px-section-padding flex items-center justify-between gap-4 shrink-0">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="h-5 w-40 bg-surface-variant rounded animate-pulse" />
+          <div className="h-4 w-56 bg-surface-variant/70 rounded animate-pulse hidden sm:block" />
+        </div>
+        <div className="flex gap-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-8 w-8 bg-surface-variant rounded animate-pulse" />
+          ))}
+        </div>
+      </div>
+      <div className="flex flex-1 min-h-0">
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="h-10 border-b border-outline-variant bg-surface-container-low px-4 flex items-center gap-3 shrink-0">
+            <div className="h-4 w-24 bg-surface-variant rounded animate-pulse" />
+            <div className="h-4 w-32 bg-surface-variant/70 rounded animate-pulse" />
+            <div className="h-4 w-20 bg-surface-variant/70 rounded animate-pulse" />
+          </div>
+          <div className="flex-1 relative bg-surface-container-low">
+            <div className="absolute inset-0 bg-gradient-to-br from-surface-container-low via-surface-container to-surface-container-high animate-pulse" />
+            <div className="absolute bottom-6 left-6 h-24 w-36 border border-outline-variant/50 bg-surface/60 rounded animate-pulse" />
+            <div className="absolute bottom-6 right-6 h-10 w-28 border border-outline-variant/50 bg-surface/60 rounded animate-pulse" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-body-sm text-on-surface-variant">
+              <span className="material-symbols-outlined animate-spin text-primary text-[28px]">
+                progress_activity
+              </span>
+              <p className="font-medium text-on-surface">Loading workspace…</p>
+              <p className="text-caption max-w-sm text-center">
+                Restoring project, scenarios, and map layers from the server.
+              </p>
+            </div>
+          </div>
+        </div>
+        <aside className="hidden lg:flex w-[300px] shrink-0 border-l border-outline-variant flex-col bg-surface-container-lowest">
+          <div className="p-4 border-b border-outline-variant space-y-2">
+            <div className="h-5 w-40 bg-surface-variant rounded animate-pulse" />
+            <div className="h-3 w-full bg-surface-variant/70 rounded animate-pulse" />
+          </div>
+          <div className="p-4 space-y-3 flex-1">
+            <div className="h-4 w-28 bg-surface-variant rounded animate-pulse" />
+            <div className="h-16 w-full bg-surface-variant/60 rounded animate-pulse" />
+            <div className="h-16 w-full bg-surface-variant/60 rounded animate-pulse" />
+            <div className="h-4 w-24 bg-surface-variant rounded animate-pulse mt-4" />
+            <div className="h-8 w-full bg-surface-variant/50 rounded animate-pulse" />
+          </div>
+          <div className="p-3 border-t border-outline-variant space-y-2">
+            <div className="h-10 w-full bg-surface-variant/60 rounded animate-pulse" />
+            <div className="h-9 w-24 bg-primary/30 rounded animate-pulse ml-auto" />
+          </div>
+        </aside>
+      </div>
+    </div>
   );
 }

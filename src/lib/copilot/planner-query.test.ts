@@ -1,7 +1,26 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { routePlannerQuery, plannerSuggestions } from "./planner-query";
+import {
+  routePlannerQuery,
+  plannerSuggestions,
+  extractBranchName,
+  summarizeToolResult,
+} from "./planner-query";
 import { buildCopilotToolGroups, groupIdForTool } from "./tool-groups";
+
+const workspaceCtx = {
+  hasProject: true,
+  scenarioCount: 1,
+  scenarioIds: ["sc-a"],
+  topCandidateId: "cand-1",
+  topCandidateLabel: "Mission — Blk/Lot 3595/006",
+};
+
+const multiScenarioCtx = {
+  ...workspaceCtx,
+  scenarioCount: 2,
+  scenarioIds: ["sc-a", "sc-b"],
+};
 
 describe("planner query routing", () => {
   it("blocks project-scoped queries when no project is open", () => {
@@ -13,22 +32,128 @@ describe("planner query routing", () => {
   });
 
   it("routes run analysis when a project is open", () => {
-    const route = routePlannerQuery("please run analysis now", { hasProject: true });
+    const route = routePlannerQuery("please run analysis now", workspaceCtx);
     assert.equal(route.kind, "tool");
     if (route.kind === "tool") {
       assert.equal(route.tool, "run_analysis");
     }
   });
 
+  it("pins top site to shortlist instead of listing", () => {
+    const route = routePlannerQuery("pin the top site", workspaceCtx);
+    assert.equal(route.kind, "tool");
+    if (route.kind === "tool") {
+      assert.equal(route.tool, "add_to_shortlist");
+      assert.equal(route.args.candidateId, "cand-1");
+    }
+  });
+
+  it("shortlist top site routes to add_to_shortlist", () => {
+    const route = routePlannerQuery("shortlist top site", workspaceCtx);
+    assert.equal(route.kind, "tool");
+    if (route.kind === "tool") {
+      assert.equal(route.tool, "add_to_shortlist");
+    }
+  });
+
+  it("explicit list shortlist still reads the shortlist", () => {
+    const route = routePlannerQuery("show shortlist count", workspaceCtx);
+    assert.equal(route.kind, "tool");
+    if (route.kind === "tool") {
+      assert.equal(route.tool, "list_shortlist");
+    }
+  });
+
+  it("duplicate scenario creates a branch with a name", () => {
+    const route = routePlannerQuery("duplicate this scenario", workspaceCtx);
+    assert.equal(route.kind, "tool");
+    if (route.kind === "tool") {
+      assert.equal(route.tool, "create_scenario_branch");
+      assert.ok(typeof route.args.name === "string" && route.args.name.length >= 2);
+    }
+  });
+
+  it("flood-weighted branch uses a descriptive name", () => {
+    const route = routePlannerQuery("create a flood-weighted branch", workspaceCtx);
+    assert.equal(route.kind, "tool");
+    if (route.kind === "tool") {
+      assert.equal(route.tool, "create_scenario_branch");
+      assert.equal(route.args.name, "Flood-weighted branch");
+    }
+  });
+
+  it("compare with one scenario explains the requirement", () => {
+    const route = routePlannerQuery("compare scenarios", workspaceCtx);
+    assert.equal(route.kind, "message");
+    if (route.kind === "message") {
+      assert.match(route.message, /two scenarios/i);
+      assert.match(route.message, /Flood-weighted branch/i);
+    }
+  });
+
+  it("compare with two scenarios calls compare_scenarios", () => {
+    const route = routePlannerQuery("compare scenarios", multiScenarioCtx);
+    assert.equal(route.kind, "tool");
+    if (route.kind === "tool") {
+      assert.equal(route.tool, "compare_scenarios");
+      assert.deepEqual(route.args.scenarioIds, ["sc-a", "sc-b"]);
+    }
+  });
+
+  it("exclude area does not pretend to list shortlist", () => {
+    const route = routePlannerQuery("exclude this area from analysis", workspaceCtx);
+    assert.equal(route.kind, "message");
+    if (route.kind === "message") {
+      assert.match(route.message, /map/i);
+      assert.doesNotMatch(route.message, /shortlist/i);
+    }
+  });
+
   it("home suggestions do not require a project", () => {
-    const suggestions = plannerSuggestions(false);
+    const suggestions = plannerSuggestions({ hasProject: false });
     assert.ok(suggestions.some((s) => s.label.includes("new planning project")));
     assert.ok(!suggestions.some((s) => s.requiresProject));
   });
 
   it("workspace suggestions require a project", () => {
-    const suggestions = plannerSuggestions(true);
+    const suggestions = plannerSuggestions(workspaceCtx);
     assert.ok(suggestions.every((s) => s.requiresProject));
+  });
+
+  it("offers flood branch instead of compare with one scenario", () => {
+    const suggestions = plannerSuggestions(workspaceCtx);
+    assert.ok(suggestions.some((s) => s.label.includes("Flood-weighted branch")));
+    assert.ok(!suggestions.some((s) => s.tool === "compare_scenarios"));
+  });
+
+  it("offers compare when two scenarios exist", () => {
+    const suggestions = plannerSuggestions(multiScenarioCtx);
+    assert.ok(suggestions.some((s) => s.tool === "compare_scenarios"));
+  });
+});
+
+describe("branch name extraction", () => {
+  it("extracts flood-weighted branch name", () => {
+    assert.equal(extractBranchName("make a flood weighted branch"), "Flood-weighted branch");
+  });
+});
+
+describe("copilot summaries", () => {
+  it("formats pin activity in human sentences", () => {
+    const summary = summarizeToolResult(
+      "add_to_shortlist",
+      { shortlistCount: 1, note: "Pinned to shortlist (1 site)" },
+      { candidateLabel: "Mission — Blk/Lot 3595/006" }
+    );
+    assert.match(summary, /Pinned Mission — Blk\/Lot 3595\/006 to the shortlist/);
+  });
+
+  it("uses list_shortlist message instead of JSON", () => {
+    const summary = summarizeToolResult("list_shortlist", {
+      count: 0,
+      message: "Shortlist is empty (0 sites).",
+    });
+    assert.equal(summary, "Shortlist is empty (0 sites).");
   });
 });
 

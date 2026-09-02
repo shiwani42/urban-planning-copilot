@@ -30,6 +30,7 @@ type Project = {
   activeScenarioNote?: string;
   actionRequiredLabel?: string;
   actionRequiredKind?: "manual" | "data" | "ai";
+  shortlistCount?: number;
 };
 
 const SHOW_WEBMCP_UI = process.env.NEXT_PUBLIC_SHOW_WEBMCP_UI === "true";
@@ -479,6 +480,12 @@ export default function HomePage() {
           {project.activeScenarioNote && (
             <p className="text-body-sm text-primary bg-primary-fixed/20 border border-primary-fixed/40 px-3 py-2 rounded text-left">
               {project.activeScenarioNote}
+            </p>
+          )}
+          {project.shortlistCount != null && project.shortlistCount > 0 && (
+            <p className="text-body-sm text-[#815504] bg-[#815504]/10 border border-[#815504]/30 px-3 py-2 rounded text-left mt-2">
+              Shortlist: {project.shortlistCount} pinned site
+              {project.shortlistCount === 1 ? "" : "s"}
             </p>
           )}
           {!project.approvedScenarioName && !project.activeScenarioNote && project.resumeNote && (

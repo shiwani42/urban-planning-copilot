@@ -442,6 +442,8 @@ export interface ProjectListItem {
   /** Sidebar “Action required” label when the project needs planner attention. */
   actionRequiredLabel?: string;
   actionRequiredKind?: "manual" | "data" | "ai";
+  /** Pinned sites on the active scenario shortlist, when non-zero. */
+  shortlistCount?: number;
 }
 
 export interface WorkspaceSnapshot {
