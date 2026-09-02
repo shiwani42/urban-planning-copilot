@@ -22,6 +22,8 @@ export function useWorkspace(projectId: string) {
     return data;
   }, [projectId]);
 
+  const clearError = useCallback(() => setError(null), []);
+
   useEffect(() => {
     setLoading(true);
     setError(null);
@@ -66,7 +68,16 @@ export function useWorkspace(projectId: string) {
         return data;
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
-        setError(message);
+        if (/scenario not found/i.test(message)) {
+          try {
+            await refresh();
+            setError(null);
+          } catch {
+            setError(message);
+          }
+        } else {
+          setError(message);
+        }
         throw e;
       } finally {
         setBusy(false);
@@ -75,7 +86,7 @@ export function useWorkspace(projectId: string) {
     [projectId, refresh]
   );
 
-  return { workspace, setWorkspace, loading, error, busy, refresh, act };
+  return { workspace, setWorkspace, loading, error, busy, refresh, act, clearError };
 }
 
 export function ProvenanceChip({

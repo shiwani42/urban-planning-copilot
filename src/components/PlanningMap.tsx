@@ -621,39 +621,58 @@ export function MapLegend({
   );
 }
 
-export function captureMapPng(container: HTMLElement | null, filename: string): void {
-  if (!container) return;
+export async function captureMapPng(
+  container: HTMLElement | null,
+  filename: string
+): Promise<boolean> {
+  if (!container || typeof document === "undefined") return false;
+
   const rect = container.getBoundingClientRect();
+  if (rect.width < 1 || rect.height < 1) return false;
+
+  await waitForMapTiles(container);
+
   const canvas = document.createElement("canvas");
   const scale = 2;
   canvas.width = Math.max(1, Math.floor(rect.width * scale));
   canvas.height = Math.max(1, Math.floor(rect.height * scale));
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
+  if (!ctx) return false;
+
   ctx.fillStyle = "#f0eded";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.scale(scale, scale);
+
   const origin = container.getBoundingClientRect();
-  container.querySelectorAll("img.leaflet-tile").forEach((node) => {
+  let drewTiles = false;
+
+  for (const node of container.querySelectorAll("img.leaflet-tile")) {
     const img = node as HTMLImageElement;
-    if (!img.complete || !img.naturalWidth) return;
-    const box = img.getBoundingClientRect();
-    ctx.drawImage(
-      img,
-      box.left - origin.left,
-      box.top - origin.top,
-      box.width,
-      box.height
-    );
-  });
+    if (!img.complete || !img.naturalWidth) continue;
+    try {
+      const box = img.getBoundingClientRect();
+      ctx.drawImage(
+        img,
+        box.left - origin.left,
+        box.top - origin.top,
+        box.width,
+        box.height
+      );
+      drewTiles = true;
+    } catch {
+      // Skip tainted tiles — vector overlay may still render.
+    }
+  }
+
   const svg = container.querySelector("svg.leaflet-zoom-animated") as SVGSVGElement | null;
   if (svg) {
-    const svgBox = svg.getBoundingClientRect();
-    const svgData = new XMLSerializer().serializeToString(svg);
-    const blob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const overlay = new Image();
-    overlay.onload = () => {
+    try {
+      const svgBox = svg.getBoundingClientRect();
+      const svgData = new XMLSerializer().serializeToString(svg);
+      const blob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const overlay = await loadImage(url);
+      URL.revokeObjectURL(url);
       ctx.drawImage(
         overlay,
         svgBox.left - origin.left,
@@ -661,22 +680,55 @@ export function captureMapPng(container: HTMLElement | null, filename: string): 
         svgBox.width,
         svgBox.height
       );
-      URL.revokeObjectURL(url);
-      triggerDownload(canvas, filename);
-    };
-    overlay.onerror = () => {
-      URL.revokeObjectURL(url);
-      triggerDownload(canvas, filename);
-    };
-    overlay.src = url;
-    return;
+    } catch {
+      // Continue with tiles-only export when overlay capture fails.
+    }
   }
-  triggerDownload(canvas, filename);
+
+  if (!drewTiles && !svg) return false;
+
+  return triggerDownload(canvas, filename);
 }
 
-function triggerDownload(canvas: HTMLCanvasElement, filename: string) {
+function waitForMapTiles(container: HTMLElement): Promise<void> {
+  const tiles = [...container.querySelectorAll("img.leaflet-tile")] as HTMLImageElement[];
+  if (tiles.length === 0) {
+    return new Promise((resolve) => window.setTimeout(resolve, 250));
+  }
+  const pending = tiles.filter((img) => !img.complete);
+  if (pending.length === 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    let remaining = pending.length;
+    const done = () => {
+      remaining -= 1;
+      if (remaining <= 0) resolve();
+    };
+    for (const img of pending) {
+      img.addEventListener("load", done, { once: true });
+      img.addEventListener("error", done, { once: true });
+    }
+    window.setTimeout(resolve, 1500);
+  });
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const overlay = new Image();
+    overlay.onload = () => resolve(overlay);
+    overlay.onerror = () => reject(new Error("overlay load failed"));
+    overlay.src = url;
+  });
+}
+
+function triggerDownload(canvas: HTMLCanvasElement, filename: string): boolean {
   const link = document.createElement("a");
-  link.download = filename;
-  link.href = canvas.toDataURL("image/png");
+  link.download = filename.endsWith(".png") ? filename : `${filename}.png`;
+  const dataUrl = canvas.toDataURL("image/png");
+  if (!dataUrl || dataUrl === "data:,") return false;
+  link.href = dataUrl;
+  link.style.display = "none";
+  document.body.appendChild(link);
   link.click();
+  document.body.removeChild(link);
+  return true;
 }

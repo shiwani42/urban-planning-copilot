@@ -165,7 +165,7 @@ export default function WorkspaceClient({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { workspace, loading, error, busy, act, refresh } = useWorkspace(projectId);
+  const { workspace, loading, error, busy, act, refresh, clearError } = useWorkspace(projectId);
   const [tab, setTabState] = useState<Tab>(() => {
     const fromQuery =
       typeof window !== "undefined"
@@ -223,6 +223,10 @@ export default function WorkspaceClient({
   const [toast, setToast] = useState<string | null>(null);
   const [transitDraftText, setTransitDraftText] = useState<Record<string, string>>({});
   const [transitThresholdWarning, setTransitThresholdWarning] = useState<string | null>(null);
+  const [analysisBusy, setAnalysisBusy] = useState(false);
+  const [geoSaving, setGeoSaving] = useState(false);
+  const [exportingMap, setExportingMap] = useState(false);
+  const [recoveringScenario, setRecoveringScenario] = useState(false);
   const [criteriaStaleHint, setCriteriaStaleHint] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const [pendingPlannerActions, setPendingPlannerActions] = useState<PendingPlannerAction[]>([]);
@@ -260,10 +264,33 @@ export default function WorkspaceClient({
   }, [tab, workspace?.activities, activityId]);
 
   const scenario = useMemo(() => {
-    const activeId = workspace?.project?.activeScenarioId;
-    if (!workspace || !activeId) return undefined;
-    return workspace.scenarios.find((s) => s.id === activeId);
+    if (!workspace) return undefined;
+    const scenarios = workspace.scenarios;
+    const activeId = workspace.project.activeScenarioId;
+    if (activeId) {
+      const active = scenarios.find((s) => s.id === activeId);
+      if (active) return active;
+    }
+    return (
+      scenarios.find((s) => s.name.trim().toLowerCase() === "baseline") ?? scenarios[0]
+    );
   }, [workspace]);
+
+  const scenarioIdForActions = useCallback(() => {
+    return workspace?.project.activeScenarioId ?? scenario?.id;
+  }, [workspace?.project.activeScenarioId, scenario?.id]);
+
+  useEffect(() => {
+    if (!workspace || scenario || recoveringScenario) return;
+    const fallback =
+      workspace.scenarios.find((s) => s.name.trim().toLowerCase() === "baseline") ??
+      workspace.scenarios[0];
+    if (!fallback) return;
+    setRecoveringScenario(true);
+    act("activate_scenario", { scenarioId: fallback.id })
+      .catch(() => undefined)
+      .finally(() => setRecoveringScenario(false));
+  }, [workspace, scenario, recoveringScenario, act]);
 
   useEffect(() => {
     if (!highlightWeightsPanel) return;
@@ -608,27 +635,42 @@ export default function WorkspaceClient({
   }
 
   async function runAnalysis() {
-    if (!scenario) return;
-    const scenarioId = scenario.id;
+    const scenarioId = scenarioIdForActions();
+    if (!scenarioId) return;
     setTab("workspace");
-    const steps = scenario.analysisPlan?.steps.length ?? 4;
+    setAnalysisBusy(true);
+    const steps = scenario?.analysisPlan?.steps.length ?? 4;
     setAnalysisProgress(`Running analysis (0/${steps} steps)…`);
     try {
       await act("run_analysis", { scenarioId });
-      setAnalysisProgress(null);
       setCriteriaStaleHint(false);
       setDrawerOpen(true);
       setTab("results");
+      setToast("Analysis complete — results updated.");
     } catch {
+      setToast("Analysis could not complete — check the error banner and retry.");
+    } finally {
+      setAnalysisBusy(false);
       setAnalysisProgress(null);
     }
   }
 
   async function exportMapImage() {
-    const container = document.querySelector(".leaflet-container") as HTMLElement | null;
-    const { captureMapPng } = await import("@/components/PlanningMap");
-    captureMapPng(container, `${workspace?.project.name ?? "map"}-workspace.png`);
-    setToast("Map exported as PNG");
+    if (exportingMap) return;
+    setExportingMap(true);
+    try {
+      const container = document.querySelector(".leaflet-container") as HTMLElement | null;
+      const { captureMapPng } = await import("@/components/PlanningMap");
+      const safeName = (workspace?.project.name ?? "map").replace(/[^\w.-]+/g, "-");
+      const ok = await captureMapPng(container, `${safeName}-workspace.png`);
+      if (ok) {
+        setToast("Map exported as PNG — check your Downloads folder.");
+      } else {
+        setToast("Map export failed — try again after tiles finish loading.");
+      }
+    } finally {
+      setExportingMap(false);
+    }
   }
 
   async function applyWeights() {
@@ -730,14 +772,21 @@ export default function WorkspaceClient({
   async function finishDrawPolygon() {
     if (!scenario || drawClicks.length < 3) return;
     if (drawMode === "edit" && editingSelectionId) {
-      await act("update_geo_selection", {
-        scenarioId: scenario.id,
-        selectionId: editingSelectionId,
-        patch: { geometry: polygonFromRing(drawClicks) },
-      });
-      setCriteriaStaleHint(true);
-      setToast("Geographic area updated — recalculate to apply.");
-      cancelDrawing();
+      const scenarioId = scenarioIdForActions();
+      if (!scenarioId) return;
+      setGeoSaving(true);
+      try {
+        await act("update_geo_selection", {
+          scenarioId,
+          selectionId: editingSelectionId,
+          patch: { geometry: polygonFromRing(drawClicks) },
+        });
+        setCriteriaStaleHint(true);
+        setToast("Geographic area updated — recalculate to apply.");
+        cancelDrawing();
+      } finally {
+        setGeoSaving(false);
+      }
       return;
     }
     if (drawMode !== "exclude" && drawMode !== "include") return;
@@ -752,36 +801,50 @@ export default function WorkspaceClient({
   async function confirmFinishPolygon() {
     if (!scenario || drawClicks.length < 3) return;
     if (drawMode !== "exclude" && drawMode !== "include") return;
+    const scenarioId = scenarioIdForActions();
+    if (!scenarioId) return;
     const label = uniqueGeographicLabel(
       scenario.geographicSelections,
       drawMode === "include" ? "inclusion" : "exclusion",
       finishLabelDraft
     );
-    await act("add_geo_selection", {
-      scenarioId: scenario.id,
-      selection: {
-        type: drawMode === "include" ? "inclusion" : "exclusion",
-        label,
-        geometry: polygonFromRing(drawClicks),
-        createdBy: "human",
-      },
-    });
-    setCriteriaStaleHint(true);
-    setToast(`${drawMode === "include" ? "Inclusion" : "Exclusion"} "${label}" added — recalculate.`);
-    cancelDrawing();
+    setGeoSaving(true);
+    try {
+      await act("add_geo_selection", {
+        scenarioId,
+        selection: {
+          type: drawMode === "include" ? "inclusion" : "exclusion",
+          label,
+          geometry: polygonFromRing(drawClicks),
+          createdBy: "human",
+        },
+      });
+      setCriteriaStaleHint(true);
+      setToast(`${drawMode === "include" ? "Inclusion" : "Exclusion"} "${label}" added — recalculate.`);
+      cancelDrawing();
+    } finally {
+      setGeoSaving(false);
+    }
   }
 
   async function removeGeographicSelection(selectionId: string) {
     if (!scenario) return;
+    const scenarioId = scenarioIdForActions();
+    if (!scenarioId) return;
     const sel = scenario.geographicSelections.find((s) => s.id === selectionId);
-    await act("remove_geo_selection", { scenarioId: scenario.id, selectionId });
-    if (editingSelectionId === selectionId) cancelDrawing();
-    setCriteriaStaleHint(true);
-    setToast(
-      sel
-        ? `Removed "${sel.label}" — recalculate to restore excluded candidates.`
-        : "Geographic area removed — recalculate."
-    );
+    setGeoSaving(true);
+    try {
+      await act("remove_geo_selection", { scenarioId, selectionId });
+      if (editingSelectionId === selectionId) cancelDrawing();
+      setCriteriaStaleHint(true);
+      setToast(
+        sel
+          ? `Removed "${sel.label}" — recalculate to restore excluded candidates.`
+          : "Geographic area removed — recalculate."
+      );
+    } finally {
+      setGeoSaving(false);
+    }
   }
 
   async function renameGeographicSelection(selectionId: string, label: string) {
@@ -917,7 +980,7 @@ export default function WorkspaceClient({
     );
   }
 
-  if (workspace && !scenario) {
+  if (workspace && !scenario && !recoveringScenario) {
     return (
       <div className="h-screen flex flex-col bg-background">
         <StorageBanner />
@@ -928,15 +991,15 @@ export default function WorkspaceClient({
         </header>
         <main className="flex-1 flex items-center justify-center p-8">
           <div className="max-w-lg text-center border border-outline-variant bg-surface-container-lowest p-10">
-            <h1 className="text-headline-md text-on-surface mb-3">Active scenario unavailable</h1>
+            <h1 className="text-headline-md text-on-surface mb-3">Restoring active scenario…</h1>
             <p className="text-body-sm text-on-surface-variant mb-4">
-              Project <span className="font-mono text-caption">{workspace.project.name}</span> loaded,
-              but its active scenario could not be resolved.
-              {error ? ` ${error}` : ""}
+              Project <span className="font-mono text-caption">{workspace.project.name}</span> loaded
+              but no valid active scenario was set. Switching to Baseline or the first remaining
+              scenario.
             </p>
             {workspace.scenarios.length > 0 && (
               <div className="space-y-2 mb-6 text-left">
-                <p className="text-caption text-on-surface-variant">Switch to another scenario:</p>
+                <p className="text-caption text-on-surface-variant">Or choose manually:</p>
                 {workspace.scenarios.map((s) => (
                   <button
                     key={s.id}
@@ -963,6 +1026,15 @@ export default function WorkspaceClient({
             </div>
           </div>
         </main>
+      </div>
+    );
+  }
+
+  if (recoveringScenario || (workspace && !scenario)) {
+    return (
+      <div className="h-screen flex flex-col bg-background items-center justify-center gap-3 text-body-sm text-on-surface-variant">
+        <span className="material-symbols-outlined animate-spin text-primary">progress_activity</span>
+        Restoring scenario…
       </div>
     );
   }
@@ -1000,6 +1072,11 @@ export default function WorkspaceClient({
             >
               Scenario: {scenario.name}
             </span>
+            {shortlist.length > 0 && (
+              <span className="shrink-0 ml-2 px-2 py-0.5 rounded border border-[#815504] text-[#815504] text-caption font-medium">
+                Shortlist: {shortlist.length}
+              </span>
+            )}
           </nav>
         </div>
         <div className="flex items-center gap-1 text-primary">
@@ -1257,7 +1334,10 @@ export default function WorkspaceClient({
           <span>{error}</span>
           <button
             type="button"
-            onClick={() => void refresh()}
+            onClick={() => {
+              clearError();
+              void refresh().catch(() => undefined);
+            }}
             className="underline text-body-sm"
           >
             Retry
@@ -1701,7 +1781,7 @@ export default function WorkspaceClient({
             </div>
           </aside>
 
-          <section className="flex-1 relative bg-surface-container-low">
+          <section className="flex-1 relative bg-surface-container-low min-w-0 overflow-visible">
             <PlanningMap
               workspace={workspace}
               layerData={layerData}
@@ -1731,7 +1811,7 @@ export default function WorkspaceClient({
             />
 
             <div
-              className="absolute right-4 top-4 flex flex-col gap-2 z-[1000]"
+              className="absolute right-4 top-4 flex flex-col gap-2 z-[1000] max-h-[calc(100%-6rem)] overflow-y-auto overflow-x-visible pr-1"
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
             >
@@ -1876,15 +1956,22 @@ export default function WorkspaceClient({
               )}
             </div>
 
-            <div className="absolute top-16 right-4 z-[1000] pointer-events-auto">
+            <div className="absolute top-16 right-4 z-[1000] pointer-events-auto flex flex-col gap-2 items-end">
               <button
                 type="button"
                 onClick={() => void exportMapImage()}
-                className="glass-panel px-2.5 py-1 rounded border border-outline-variant text-[10px] font-mono uppercase text-on-surface-variant"
+                disabled={exportingMap}
+                className="glass-panel px-2.5 py-1 rounded border border-outline-variant text-[10px] font-mono uppercase text-on-surface-variant disabled:opacity-50"
                 title="Export map as PNG"
               >
-                Export PNG
+                {exportingMap ? "Exporting…" : "Export PNG"}
               </button>
+              {geoSaving && (
+                <span className="glass-panel px-2 py-1 rounded border border-outline-variant text-[10px] font-mono text-on-surface-variant flex items-center gap-1">
+                  <span className="material-symbols-outlined animate-spin text-[12px]">progress_activity</span>
+                  Saving area…
+                </span>
+              )}
             </div>
 
             <div
@@ -2124,13 +2211,22 @@ export default function WorkspaceClient({
               </div>
               <button
                 onClick={runAnalysis}
-                disabled={busy}
+                disabled={busy || analysisBusy}
                 className="w-full bg-primary hover:bg-on-primary-fixed-variant text-on-primary font-medium py-2 px-4 rounded flex justify-center items-center gap-2 disabled:opacity-50"
               >
-                <span className="material-symbols-outlined text-[18px]">play_arrow</span>
-                {busy && analysisProgress ? "Running…" : result ? "Recalculate" : "Run analysis"}
+                {(analysisBusy || (busy && analysisProgress)) && (
+                  <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+                )}
+                {!analysisBusy && !(busy && analysisProgress) && (
+                  <span className="material-symbols-outlined text-[18px]">play_arrow</span>
+                )}
+                {analysisBusy || (busy && analysisProgress)
+                  ? "Running…"
+                  : result
+                    ? "Recalculate"
+                    : "Run analysis"}
               </button>
-              {(runningJob || (busy && analysisProgress)) && (
+              {(runningJob || analysisBusy || (busy && analysisProgress)) && (
                 <p className="text-caption text-on-surface-variant flex items-center gap-2">
                   <span className="material-symbols-outlined animate-spin text-[14px] text-primary">
                     progress_activity
@@ -2540,9 +2636,10 @@ function ShortlistPanel(props: {
                   type="button"
                   aria-label={`Remove ${entry.label} from shortlist`}
                   onClick={() => void props.onUnpin(id)}
-                  className="shrink-0 p-1 hover:bg-surface-variant rounded text-on-surface-variant"
+                  className="shrink-0 px-2 py-1 hover:bg-surface-variant rounded text-on-surface-variant text-caption font-medium inline-flex items-center gap-1"
                 >
-                  <span className="material-symbols-outlined text-[18px]">keep_off</span>
+                  <span className="material-symbols-outlined text-[16px]">keep_off</span>
+                  Unpin
                 </button>
               </div>
               <label className="block mt-2">
@@ -2817,16 +2914,17 @@ function ResultsDrawer(props: {
                               e.stopPropagation();
                               void props.onToggleShortlist(c);
                             }}
-                            className="p-1 rounded hover:bg-surface-variant disabled:opacity-30"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-surface-variant disabled:opacity-30 text-caption font-medium"
                           >
                             <span
-                              className={`material-symbols-outlined text-[18px] ${
+                              className={`material-symbols-outlined text-[16px] ${
                                 pinned ? "text-[#815504]" : "text-on-surface-variant"
                               }`}
                               style={{ fontVariationSettings: pinned ? "'FILL' 1" : "'FILL' 0" }}
                             >
                               keep
                             </span>
+                            {pinned ? "Unpin" : "Pin"}
                           </button>
                         </td>
                         {props.resultsColumns.map((col) => (

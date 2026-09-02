@@ -16,6 +16,10 @@ import {
 import { formatReportDateTime, dedupeLimitations, formatDecisionType } from "../format";
 import { cloneScenarioForBranch } from "./scenario-clone";
 import {
+  activeScenarioNeedsRepair,
+  resolveScenarioId,
+} from "./scenario-resolution";
+import {
   findCandidateInResult,
   findShortlistEntry,
   featureIdsOverlap,
@@ -514,7 +518,34 @@ function workspaceSnapshotFromStore(
   };
 }
 
+async function repairActiveScenarioIfNeeded(projectId: string): Promise<void> {
+  await updateStore((store) => {
+    const repairId = activeScenarioNeedsRepair(store, projectId);
+    if (!repairId) return;
+    const project = store.projects.find((p) => p.id === projectId);
+    if (!project) return;
+    project.activeScenarioId = repairId;
+    project.updatedAt = now();
+    const scenario = store.scenarios.find((s) => s.id === repairId);
+    const result = scenario?.latestResultId
+      ? store.analysisResults.find((r) => r.id === scenario.latestResultId)
+      : undefined;
+    project.resumeNote = scenario
+      ? resumeNoteForScenario(scenario, result)
+      : "Active scenario restored — review and recalculate if needed.";
+    logActivity(store, {
+      projectId,
+      scenarioId: repairId,
+      actor: "system",
+      category: "scenario",
+      action: "repair_active_scenario",
+      summary: `Restored active scenario to "${scenario?.name ?? "default"}"`,
+    });
+  });
+}
+
 export async function getWorkspace(projectId: string): Promise<WorkspaceSnapshot | null> {
+  await repairActiveScenarioIfNeeded(projectId);
   const store = await reloadStoreFromDisk();
   return workspaceSnapshotFromStore(store, projectId);
 }
@@ -1077,8 +1108,17 @@ export function getShortlistForScenario(
 }
 
 function requireScenario(store: AppStore, projectId: string, scenarioId: string): Scenario {
-  const scenario = store.scenarios.find((s) => s.id === scenarioId && s.projectId === projectId);
+  const resolvedId = resolveScenarioId(store, projectId, scenarioId);
+  if (!resolvedId) throw new Error("Scenario not found");
+  const scenario = store.scenarios.find(
+    (s) => s.id === resolvedId && s.projectId === projectId
+  );
   if (!scenario) throw new Error("Scenario not found");
+  const project = store.projects.find((p) => p.id === projectId);
+  if (project && project.activeScenarioId !== resolvedId) {
+    project.activeScenarioId = resolvedId;
+    project.updatedAt = now();
+  }
   return scenario;
 }
 
