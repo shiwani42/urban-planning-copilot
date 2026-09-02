@@ -79,6 +79,33 @@ export function greetingForHour(hour: number): string {
   return "Good evening";
 }
 
-export function plannerGreeting(): string {
-  return `${greetingForHour(new Date().getHours())}, planner`;
+/** Uses the runtime local hour (browser or Node process timezone). */
+export function plannerGreeting(at: Date = new Date()): string {
+  return `${greetingForHour(at.getHours())}, planner`;
+}
+
+export function formatRelativeTime(iso: string, at: Date = new Date()): string {
+  try {
+    const then = new Date(iso);
+    const diffMs = at.getTime() - then.getTime();
+    if (Number.isNaN(diffMs)) return formatLocaleDateTime(iso);
+    const diffMins = Math.floor(diffMs / 60_000);
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins} min ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays} days ago`;
+    return formatLocaleDateTime(iso);
+  } catch {
+    return formatLocaleDateTime(iso);
+  }
+}
+
+export function projectRecencyIso(project: {
+  lastOpenedAt?: string;
+  updatedAt: string;
+}): string {
+  return project.lastOpenedAt ?? project.updatedAt;
 }

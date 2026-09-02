@@ -119,6 +119,16 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   );
 
   useEffect(() => {
+    fetch(`/api/projects/${projectId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "record_open" }),
+    }).catch(() => {
+      /* non-blocking home recency hint */
+    });
+  }, [projectId]);
+
+  useEffect(() => {
     if (!workspace) return;
     Promise.all(
       workspace.datasets.map(async (d) => {
