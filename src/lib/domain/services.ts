@@ -953,10 +953,10 @@ export function resumeNoteForScenario(
   if (scenario.decisionStatus === "changes_requested") {
     return `Decision recorded: ${formatDecisionType("request_changes")}`;
   }
-  if (result) {
+  if (result && result.status === "completed" && result.candidates.length > 0) {
     return `Analysis complete — ${result.candidates.length} candidates (${scenario.name}).`;
   }
-  return `Scenario "${scenario.name}" — no analysis results yet.`;
+  return "No analysis yet — run analysis for this scenario.";
 }
 
 export async function requireProject(projectId: string): Promise<Project> {
@@ -1377,9 +1377,12 @@ export async function createScenario(
     store.scenarios.push(scenario);
     project.activeScenarioId = scenario.id;
     project.updatedAt = now();
-    project.resumeNote = fromScenarioId
-      ? `Duplicated "${source?.name ?? "scenario"}" — run analysis on "${name}" when ready.`
-      : project.resumeNote;
+    const branchResult = scenario.latestResultId
+      ? store.analysisResults.find((r) => r.id === scenario.latestResultId)
+      : undefined;
+    project.resumeNote = source
+      ? `Branched from "${source.name}" — no analysis yet. Prior results and decision were not copied.`
+      : resumeNoteForScenario(scenario, branchResult);
     logActivity(store, {
       projectId,
       scenarioId: scenario.id,

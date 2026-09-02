@@ -199,6 +199,25 @@ export default function WorkspaceClient({
   const hasAnyResult = Boolean(result);
   const isFreshResult = Boolean(result && result.status === "completed" && !result.stale);
   const candidates = result?.candidates ?? [];
+  const headerResumeNote = useMemo(() => {
+    if (!workspace || !scenario) return undefined;
+    if (scenario.decisionStatus === "approved" && !scenario.decisionStale) {
+      return `Decision recorded: ${formatDecisionType("approve_scenario")}`;
+    }
+    if (scenario.decisionStatus === "rejected" && !scenario.decisionStale) {
+      return `Decision recorded: ${formatDecisionType("reject_scenario")}`;
+    }
+    if (scenario.decisionStatus === "changes_requested") {
+      return `Decision recorded: ${formatDecisionType("request_changes")}`;
+    }
+    if (isFreshResult && result) {
+      return `Analysis complete — ${result.candidates.length} candidates (${scenario.name}).`;
+    }
+    if (!hasAnyResult) {
+      return "No analysis yet — run analysis for this scenario.";
+    }
+    return workspace.project.resumeNote;
+  }, [workspace, scenario, result, isFreshResult, hasAnyResult]);
   const topCandidate = useMemo(() => {
     if (!result?.candidates.length) return null;
     return (
@@ -708,7 +727,9 @@ export default function WorkspaceClient({
       await act("create_scenario", { name, fromScenarioId: scenario.id });
       setCriteriaStaleHint(true);
       setDuplicateDialogOpen(false);
-      setToast(`Created scenario "${name}" — run analysis when ready.`);
+      setToast(
+        `Created scenario "${name}" — analysis and decision were not copied. Run analysis when ready.`
+      );
     } catch (e) {
       setToast(
         e instanceof Error ? e.message : "Could not duplicate scenario — try again."
@@ -884,9 +905,16 @@ export default function WorkspaceClient({
               Projects
             </Link>
             <span className="text-outline-variant">/</span>
-            <span className="truncate">{workspace.project.name}</span>
+            <span className="max-w-[9rem] sm:max-w-[14rem] truncate" title={workspace.project.name}>
+              {workspace.project.name}
+            </span>
             <span className="text-outline-variant">/</span>
-            <span className="text-primary font-medium truncate">Scenario: {scenario.name}</span>
+            <span
+              className="text-primary font-medium max-w-[9rem] sm:max-w-[14rem] truncate"
+              title={`Scenario: ${scenario.name}`}
+            >
+              Scenario: {scenario.name}
+            </span>
           </nav>
         </div>
         <div className="flex items-center gap-1 text-primary">
@@ -1118,9 +1146,9 @@ export default function WorkspaceClient({
             Changes requested — address before approving
           </span>
         )}
-        {workspace.project.resumeNote && !result?.stale && !criteriaStaleHint && (
+        {headerResumeNote && !result?.stale && !criteriaStaleHint && (
           <span className="text-caption text-on-surface-variant truncate max-w-md ml-auto">
-            {workspace.project.resumeNote}
+            {headerResumeNote}
           </span>
         )}
         {titleObjectiveMismatch && (

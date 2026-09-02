@@ -15,6 +15,7 @@ import {
   intentUsesParkMetrics,
   intentUsesSchoolMetrics,
 } from "./intent";
+import { candidateLabelFromFeature } from "./candidate-label";
 
 export type FeatureProps = GeoJSON.GeoJsonProperties & {
   id?: string;
@@ -571,9 +572,7 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
       ? intersectsRisk(f, input.layers.flood, "moderate")
       : false;
     const floodExposure = intersectsHigh ? 100 : intersectsModerate ? 65 : 15;
-    const labelBase =
-      (f.properties as FeatureProps | null)?.name ||
-      `Area ${String.fromCharCode(65 + (i % 26))}${i >= 26 ? `-${i}` : ""}`;
+    const labelBase = candidateLabelFromFeature(f, id);
     return {
       feature: f,
       id,
