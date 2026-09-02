@@ -114,13 +114,14 @@ export function housingGoalSummary(input: {
   const { target, totalCapacity, targetGapMetric } = input;
   if (target == null || totalCapacity == null) return null;
   const gap = target - totalCapacity;
+  const pct = Math.round((totalCapacity / target) * 100);
   if (gap <= 0) {
-    return `Estimated ${totalCapacity.toLocaleString()} homes — meets ${target.toLocaleString()}-home target.`;
+    return `Estimated ${totalCapacity.toLocaleString()} homes (${pct}% of ${target.toLocaleString()}-home goal) — meets target.`;
   }
   const gapNote = targetGapMetric
     ? ` (${targetGapMetric.method ?? "aggregate shortfall"})`
     : "";
-  return `Estimated ${totalCapacity.toLocaleString()} homes — ${gap.toLocaleString()} short of ${target.toLocaleString()}-home target${gapNote}.`;
+  return `Estimated ${totalCapacity.toLocaleString()} homes (${pct}% of ${target.toLocaleString()}-home goal) — ${gap.toLocaleString()} short${gapNote}.`;
 }
 
 export function headlineMetric(
