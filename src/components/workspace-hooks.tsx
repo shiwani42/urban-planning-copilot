@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { WorkspaceSnapshot } from "@/lib/domain/types";
+import { fetchJsonWithRetry } from "@/lib/fetch-json";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
 
 export function useWorkspace(projectId: string) {
@@ -11,54 +12,54 @@ export function useWorkspace(projectId: string) {
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}`, { cache: "no-store" });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      const message =
-        typeof data.error === "string" ? data.error : "Project not found";
-      throw new Error(message);
-    }
-    const data = await res.json();
+    const { data } = await fetchJsonWithRetry<WorkspaceSnapshot>(
+      `/api/projects/${projectId}`,
+      { cache: "no-store" },
+      { label: "Load project" }
+    );
     setWorkspace(data);
-    return data as WorkspaceSnapshot;
+    setError(null);
+    return data;
   }, [projectId]);
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     refresh()
-      .catch((e) => setError(e.message))
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : String(e));
+        setWorkspace(null);
+      })
       .finally(() => setLoading(false));
   }, [refresh]);
 
   useEffect(() => {
     return onWorkspaceMutated((detail) => {
       if (detail.projectId && detail.projectId !== projectId) return;
-      refresh().catch((e) => setError(e.message));
+      refresh().catch((e) => {
+        setError(e instanceof Error ? e.message : String(e));
+      });
     });
   }, [projectId, refresh]);
 
   const act = useCallback(
     async (action: string, body: Record<string, unknown> = {}) => {
       setBusy(true);
-      setError(null);
       try {
-        const res = await fetch(`/api/projects/${projectId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action, ...body }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          const message =
-            typeof data.error === "string" && data.error.length > 0
-              ? data.error
-              : "Action failed";
-          throw new Error(message);
-        }
+        const { data } = await fetchJsonWithRetry<Record<string, unknown>>(
+          `/api/projects/${projectId}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action, ...body }),
+          },
+          { label: "Workspace action" }
+        );
         await refresh();
         return data;
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        const message = e instanceof Error ? e.message : String(e);
+        setError(message);
         throw e;
       } finally {
         setBusy(false);
