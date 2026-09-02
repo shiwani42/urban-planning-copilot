@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: urban-planning-copilot
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_CARTO_API_KEY
+        sync: false
