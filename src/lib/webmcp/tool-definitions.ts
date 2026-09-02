@@ -245,6 +245,42 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
   },
   {
     layer: "action",
+    name: "remove_map_area",
+    description: "Remove a geographic exclusion/inclusion polygon by id; marks results stale.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioId: { type: "string" },
+        selectionId: { type: "string" },
+      },
+      required: ["projectId", "scenarioId", "selectionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "update_map_area",
+    description: "Update label or geometry of an existing geographic selection polygon.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        scenarioId: { type: "string" },
+        selectionId: { type: "string" },
+        label: { type: "string" },
+        coordinates: {
+          type: "array",
+          description: "Polygon ring as [lng,lat] pairs (min 3)",
+          items: { type: "array", items: { type: "number" } },
+        },
+      },
+      required: ["projectId", "scenarioId", "selectionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
     name: "stage_proposal",
     description:
       "Stage a visible ghost proposal for human review. Does not apply until approved. Revision-bound.",
