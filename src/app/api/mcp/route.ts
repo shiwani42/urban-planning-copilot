@@ -12,19 +12,26 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: { code: "INVALID_JSON", message: "Invalid JSON body" } },
+      { status: 400 }
+    );
   }
 
-  const { tool, arguments: args, name } = body as {
+  const { tool, arguments: args, name, context } = body as {
     tool?: string;
     name?: string;
     arguments?: unknown;
+    context?: { projectId?: string; scenarioId?: string };
   };
   const toolName = tool ?? name;
   if (!toolName) {
-    return NextResponse.json({ ok: false, error: "Missing tool name" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: { code: "MISSING_FIELD", field: "tool", message: "Missing tool name" } },
+      { status: 400 }
+    );
   }
 
-  const result = await invokeTool(toolName, args ?? body.args ?? {});
+  const result = await invokeTool(toolName, args ?? (body as { args?: unknown }).args ?? {}, context);
   return NextResponse.json(result, { status: result.ok ? 200 : 400 });
 }

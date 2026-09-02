@@ -4,8 +4,18 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import { ProvenanceChip, useWorkspace } from "@/components/workspace-hooks";
-import { WebMcpProvider } from "@/components/WebMcpProvider";
+import {
+  ProvenanceChip,
+  useWorkspace,
+} from "@/components/workspace-hooks";
+import { onWorkspaceMutated } from "@/lib/workspace-sync";
+import { setWebMcpBrowserContext, clearWebMcpBrowserContext } from "@/lib/webmcp/browser-context";
+import {
+  listPendingPlannerActions,
+  onPlannerPending,
+  type PendingPlannerAction,
+} from "@/lib/planner-pending";
+import { resolvePendingPlannerAction } from "@/lib/webmcp/register-browser";
 import {
   dedupeLimitations,
   formatActivitySummary,
@@ -124,7 +134,10 @@ export default function WorkspaceClient({
   const [activityId, setActivityId] = useState<string | null>(null);
   const [assumptionsOpen, setAssumptionsOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [criteriaStaleHint, setCriteriaStaleHint] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
+  const [pendingPlannerActions, setPendingPlannerActions] = useState<PendingPlannerAction[]>([]);
+  const [pendingBusy, setPendingBusy] = useState(false);
 
   const setTab = useCallback(
     (next: Tab) => {
@@ -228,6 +241,32 @@ export default function WorkspaceClient({
     const t = setTimeout(() => setToast(null), 3200);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    setWebMcpBrowserContext({ projectId, scenarioId: scenario?.id });
+    return () => clearWebMcpBrowserContext(["projectId", "scenarioId"]);
+  }, [projectId, scenario?.id]);
+
+  useEffect(() => {
+    setPendingPlannerActions(listPendingPlannerActions(projectId));
+    return onPlannerPending((detail) => {
+      if (detail.projectId === projectId) {
+        setPendingPlannerActions(detail.actions);
+      }
+    });
+  }, [projectId]);
+
+  useEffect(() => {
+    return onWorkspaceMutated((detail) => {
+      if (detail.projectId && detail.projectId !== projectId) return;
+      if (detail.criteriaStale) setCriteriaStaleHint(true);
+      if (detail.resumeNote?.match(/stale|recalculate/i)) setCriteriaStaleHint(true);
+    });
+  }, [projectId]);
+
+  useEffect(() => {
+    if (result?.stale) setCriteriaStaleHint(false);
+  }, [result?.stale, result?.id]);
 
   const drawingActive = drawMode !== "none";
 
@@ -498,54 +537,7 @@ export default function WorkspaceClient({
   const activeActivity = workspace.activities.find((a) => a.id === activityId);
 
   return (
-    <WebMcpProvider projectId={projectId}>
     <div className="h-screen flex flex-col overflow-hidden bg-background relative">
-      {workspace.proposals.length > 0 && (
-        <div className="bg-secondary-fixed/20 border-b border-secondary/30 px-section-padding py-3 shrink-0 z-50">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <ProvenanceChip kind="planner_decision" />
-                <span className="font-mono text-data-label uppercase text-secondary">
-                  Human review required
-                </span>
-              </div>
-              {workspace.proposals.map((prop) => (
-                <div key={prop.id} className="text-body-sm">
-                  <strong>{prop.title}</strong> — {prop.description}
-                  <span className="font-mono text-caption text-on-surface-variant ml-2">
-                    revision {prop.baseRevision.slice(0, 8)}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <button
-                disabled={busy}
-                onClick={async () => {
-                  const prop = workspace.proposals[0];
-                  if (!prop) return;
-                  await act("approve_proposal", { proposalId: prop.id });
-                }}
-                className="bg-secondary text-on-secondary px-4 py-2 rounded text-body-sm font-medium disabled:opacity-50"
-              >
-                Approve proposal
-              </button>
-              <button
-                disabled={busy}
-                onClick={async () => {
-                  const prop = workspace.proposals[0];
-                  if (!prop) return;
-                  await act("reject_proposal", { proposalId: prop.id, reason: "Rejected in UI" });
-                }}
-                className="border border-outline-variant px-4 py-2 rounded text-body-sm"
-              >
-                Reject
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       <header className="bg-surface-container-high border-b border-outline-variant flex justify-between items-center px-section-padding h-14 shrink-0 z-50">
         <div className="flex items-center gap-6 min-w-0">
           <Link href="/" className="font-display text-[18px] font-semibold text-primary shrink-0">
@@ -600,6 +592,113 @@ export default function WorkspaceClient({
           </button>
         </div>
       </header>
+
+      {pendingPlannerActions.length > 0 && (
+        <div className="bg-tertiary-fixed/20 border-b border-tertiary/30 px-section-padding py-2.5 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <ProvenanceChip kind="copilot_recommendation" />
+                <span className="font-mono text-data-label uppercase text-tertiary">
+                  Agent awaiting planner
+                </span>
+              </div>
+              {pendingPlannerActions.map((pending) => (
+                <div key={pending.id} className="text-body-sm">
+                  <strong>{pending.title ?? pending.tool.replace(/_/g, " ")}</strong>
+                  <span className="text-on-surface-variant"> — {pending.message}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button
+                disabled={pendingBusy}
+                onClick={async () => {
+                  const pending = pendingPlannerActions[0];
+                  if (!pending) return;
+                  setPendingBusy(true);
+                  try {
+                    await resolvePendingPlannerAction(pending.id, projectId, true);
+                    setToast(`Approved: ${pending.tool.replace(/_/g, " ")}`);
+                    await refresh();
+                  } catch (e) {
+                    setToast(e instanceof Error ? e.message : String(e));
+                  } finally {
+                    setPendingBusy(false);
+                  }
+                }}
+                className="bg-tertiary text-on-tertiary px-4 py-2 rounded text-body-sm font-medium disabled:opacity-50"
+              >
+                Approve
+              </button>
+              <button
+                disabled={pendingBusy}
+                onClick={async () => {
+                  const pending = pendingPlannerActions[0];
+                  if (!pending) return;
+                  setPendingBusy(true);
+                  try {
+                    await resolvePendingPlannerAction(pending.id, projectId, false);
+                    setToast("Agent action rejected");
+                  } finally {
+                    setPendingBusy(false);
+                  }
+                }}
+                className="border border-outline-variant px-4 py-2 rounded text-body-sm"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {workspace.proposals.length > 0 && (
+        <div className="bg-secondary-fixed/20 border-b border-secondary/30 px-section-padding py-2.5 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <ProvenanceChip kind="planner_decision" />
+                <span className="font-mono text-data-label uppercase text-secondary">
+                  Human review required
+                </span>
+              </div>
+              {workspace.proposals.map((prop) => (
+                <div key={prop.id} className="text-body-sm">
+                  <strong>{prop.title}</strong>
+                  {prop.description && prop.description !== prop.title ? (
+                    <span className="text-on-surface-variant"> — {prop.description}</span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button
+                disabled={busy}
+                onClick={async () => {
+                  const prop = workspace.proposals[0];
+                  if (!prop) return;
+                  await act("approve_proposal", { proposalId: prop.id });
+                }}
+                className="bg-secondary text-on-secondary px-4 py-2 rounded text-body-sm font-medium disabled:opacity-50"
+              >
+                Approve proposal
+              </button>
+              <button
+                disabled={busy}
+                onClick={async () => {
+                  const prop = workspace.proposals[0];
+                  if (!prop) return;
+                  await act("reject_proposal", { proposalId: prop.id, reason: "Rejected in UI" });
+                }}
+                className="border border-outline-variant px-4 py-2 rounded text-body-sm"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-surface border-b border-outline-variant px-section-padding py-2 flex flex-wrap items-center gap-3 text-body-sm shrink-0">
         <div className="flex items-center gap-2 shrink-0 min-w-0">
@@ -663,7 +762,7 @@ export default function WorkspaceClient({
             {scenarioStatusLabel()}
           </span>
         )}
-        {result?.stale && (
+        {(result?.stale || criteriaStaleHint) && (
           <span className="shrink-0 px-3 py-1 rounded border border-secondary bg-secondary-fixed/20 text-secondary text-caption font-medium whitespace-nowrap">
             Results stale — recalculate
           </span>
@@ -678,7 +777,7 @@ export default function WorkspaceClient({
             Changes requested — address before approving
           </span>
         )}
-        {workspace.project.resumeNote && !result?.stale && (
+        {workspace.project.resumeNote && !result?.stale && !criteriaStaleHint && (
           <span className="text-caption text-on-surface-variant truncate max-w-md ml-auto">
             {workspace.project.resumeNote}
           </span>
@@ -1235,7 +1334,10 @@ export default function WorkspaceClient({
             </div>
           </section>
 
-          <aside className="w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0">
+          <aside
+            id="agent-activity-panel"
+            className="w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0"
+          >
             <div className="p-4 border-b border-outline-variant bg-surface-container-low flex justify-between items-center shrink-0">
               <div>
                 <h2 className="text-headline-md text-primary-container">Agent activity</h2>
@@ -1250,7 +1352,19 @@ export default function WorkspaceClient({
                   </p>
                 </div>
               </div>
-              <span className="material-symbols-outlined text-outline">smart_toy</span>
+              <button
+                type="button"
+                title="Jump to agent activity"
+                aria-label="Jump to agent activity"
+                onClick={() =>
+                  document
+                    .getElementById("agent-activity-panel")
+                    ?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+                }
+                className="material-symbols-outlined text-primary hover:text-primary-container transition-colors"
+              >
+                smart_toy
+              </button>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
@@ -1529,8 +1643,15 @@ export default function WorkspaceClient({
             setCompareError(null);
             try {
               const data = await act("compare_scenarios", { scenarioIds: ids });
-              setComparison(data.comparison ?? null);
-              setCompareInsights(data.insights ?? null);
+              if (data.status === "incomplete") {
+                setComparison(null);
+                setCompareInsights(null);
+                setCompareHint(data.message ?? "Run analysis first for selected scenarios.");
+              } else {
+                setComparison(data.comparison ?? null);
+                setCompareInsights(data.insights ?? null);
+                setCompareHint(null);
+              }
               setCompareIds(ids);
             } catch (e) {
               setCompareError(e instanceof Error ? e.message : "Compare failed");
@@ -1605,7 +1726,6 @@ export default function WorkspaceClient({
         />
       )}
     </div>
-    </WebMcpProvider>
   );
 }
 

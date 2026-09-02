@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { WorkspaceSnapshot } from "@/lib/domain/types";
+import { onWorkspaceMutated } from "@/lib/workspace-sync";
 
 export function useWorkspace(projectId: string) {
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
@@ -10,7 +11,7 @@ export function useWorkspace(projectId: string) {
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}`);
+    const res = await fetch(`/api/projects/${projectId}`, { cache: "no-store" });
     if (!res.ok) throw new Error("Project not found");
     const data = await res.json();
     setWorkspace(data);
@@ -23,6 +24,13 @@ export function useWorkspace(projectId: string) {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [refresh]);
+
+  useEffect(() => {
+    return onWorkspaceMutated((detail) => {
+      if (detail.projectId && detail.projectId !== projectId) return;
+      refresh().catch((e) => setError(e.message));
+    });
+  }, [projectId, refresh]);
 
   const act = useCallback(
     async (action: string, body: Record<string, unknown> = {}) => {

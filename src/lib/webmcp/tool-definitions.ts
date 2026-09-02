@@ -10,6 +10,18 @@ export type PlanningToolMeta = {
   layer: ToolLayer;
 };
 
+const PROJECT_ID = {
+  type: "string" as const,
+  description:
+    "Planning project id. Optional when a workspace tab is open — defaults to the active project.",
+};
+
+const SCENARIO_ID = {
+  type: "string" as const,
+  description:
+    "Scenario id. Optional when a workspace tab is open — defaults to the active scenario.",
+};
+
 /** Canonical WebMCP tool catalog — shared by browser registration and HTTP /api/mcp */
 export const PLANNING_TOOL_META: PlanningToolMeta[] = [
   {
@@ -20,8 +32,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
-      properties: { projectId: { type: "string", description: "Project id" } },
-      required: ["projectId"],
+      properties: { projectId: PROJECT_ID },
       additionalProperties: false,
     },
   },
@@ -33,10 +44,9 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        scenarioId: { type: "string", description: "Optional; defaults to active scenario" },
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
       },
-      required: ["projectId"],
       additionalProperties: false,
     },
   },
@@ -48,11 +58,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        scenarioId: { type: "string" },
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
         limit: { type: "number", description: "Max candidates (default 10)" },
       },
-      required: ["projectId"],
       additionalProperties: false,
     },
   },
@@ -65,11 +74,11 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
+        projectId: PROJECT_ID,
         candidateId: { type: "string" },
-        scenarioId: { type: "string" },
+        scenarioId: SCENARIO_ID,
       },
-      required: ["projectId", "candidateId"],
+      required: ["candidateId"],
       additionalProperties: false,
     },
   },
@@ -88,14 +97,14 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
+        projectId: PROJECT_ID,
         scenarioIds: {
           type: "array",
           items: { type: "string" },
           description: "At least two scenario ids",
         },
       },
-      required: ["projectId", "scenarioIds"],
+      required: ["scenarioIds"],
       additionalProperties: false,
     },
   },
@@ -108,10 +117,9 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
+        projectId: PROJECT_ID,
         proposalId: { type: "string", description: "Optional; defaults to latest approved" },
       },
-      required: ["projectId"],
       additionalProperties: false,
     },
   },
@@ -119,7 +127,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "action",
     name: "start_planning_project",
     description:
-      "Create a planning project from a natural-language objective and open its analysis plan.",
+      "Create a planning project, navigate the browser to its workspace URL, and return projectId plus workspaceUrl.",
     inputSchema: {
       type: "object",
       properties: {
@@ -138,10 +146,15 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
+        projectId: PROJECT_ID,
         objectiveText: { type: "string" },
+        confirmConstraintChange: {
+          type: "boolean",
+          description:
+            "Set true after planner review when the new objective would drop enabled flood/transit constraints",
+        },
       },
-      required: ["projectId", "objectiveText"],
+      required: ["objectiveText"],
       additionalProperties: false,
     },
   },
@@ -152,11 +165,11 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        scenarioId: { type: "string" },
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
         meters: { type: "number", description: "Distance threshold in meters", minimum: 1 },
       },
-      required: ["projectId", "scenarioId", "meters"],
+      required: ["meters"],
       additionalProperties: false,
     },
   },
@@ -168,15 +181,15 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        scenarioId: { type: "string" },
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
         weights: {
           type: "object",
           description: "Map of criterion key → weight",
           additionalProperties: { type: "number" },
         },
       },
-      required: ["projectId", "scenarioId", "weights"],
+      required: ["weights"],
       additionalProperties: false,
     },
   },
@@ -187,10 +200,9 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        scenarioId: { type: "string" },
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
       },
-      required: ["projectId", "scenarioId"],
       additionalProperties: false,
     },
   },
@@ -201,11 +213,14 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
+        projectId: PROJECT_ID,
         name: { type: "string" },
-        fromScenarioId: { type: "string", description: "Source scenario to duplicate" },
+        fromScenarioId: {
+          type: "string",
+          description: "Source scenario to duplicate; defaults to active scenario",
+        },
       },
-      required: ["projectId", "name"],
+      required: ["name"],
       additionalProperties: false,
     },
   },
@@ -216,10 +231,31 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
         candidateId: { type: "string" },
       },
-      required: ["projectId", "candidateId"],
+      required: ["candidateId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "set_map_view",
+    description:
+      "Pan/zoom the workspace map viewport to a lng/lat center (optional zoom 1–20). Live map follows immediately.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: PROJECT_ID,
+        center: {
+          type: "array",
+          description: "[lng, lat] — exactly two numbers",
+          items: { type: "number" },
+        },
+        zoom: { type: "number", description: "Optional zoom level (1–20)" },
+      },
+      required: ["center"],
       additionalProperties: false,
     },
   },
@@ -230,8 +266,8 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        scenarioId: { type: "string" },
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
         label: { type: "string" },
         coordinates: {
           type: "array",
@@ -239,7 +275,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
           items: { type: "array", items: { type: "number" } },
         },
       },
-      required: ["projectId", "scenarioId", "label", "coordinates"],
+      required: ["label", "coordinates"],
       additionalProperties: false,
     },
   },
@@ -250,11 +286,11 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        scenarioId: { type: "string" },
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
         selectionId: { type: "string" },
       },
-      required: ["projectId", "scenarioId", "selectionId"],
+      required: ["selectionId"],
       additionalProperties: false,
     },
   },
@@ -265,8 +301,8 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        scenarioId: { type: "string" },
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
         selectionId: { type: "string" },
         label: { type: "string" },
         coordinates: {
@@ -275,7 +311,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
           items: { type: "array", items: { type: "number" } },
         },
       },
-      required: ["projectId", "scenarioId", "selectionId"],
+      required: ["selectionId"],
       additionalProperties: false,
     },
   },
@@ -287,8 +323,8 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        scenarioId: { type: "string" },
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
         title: { type: "string" },
         description: { type: "string" },
         action: {
@@ -297,7 +333,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
         },
         payload: { type: "object", description: "Action-specific parameters" },
       },
-      required: ["projectId", "scenarioId", "title", "description", "action", "payload"],
+      required: ["title", "description", "action", "payload"],
       additionalProperties: false,
     },
   },
@@ -305,33 +341,41 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "sensitive",
     name: "reject_candidate",
     description:
-      "Record a planner rejection of a candidate with reason. Requires user confirmation.",
+      "Record a planner rejection of a candidate. Without confirmed:true returns pending_planner for on-screen review.",
     annotations: { destructiveHint: true },
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        scenarioId: { type: "string" },
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
         candidateId: { type: "string" },
         reason: { type: "string" },
+        confirmed: {
+          type: "boolean",
+          description: "Set true after the planner confirms in the workspace UI",
+        },
       },
-      required: ["projectId", "scenarioId", "candidateId"],
+      required: ["candidateId"],
       additionalProperties: false,
     },
   },
   {
     layer: "sensitive",
     name: "prefer_scenario",
-    description: "Select the planner's preferred scenario among alternatives. Confirms with user.",
+    description:
+      "Select the planner's preferred scenario. Without confirmed:true returns pending_planner for on-screen review.",
     annotations: { destructiveHint: true },
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        scenarioId: { type: "string" },
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
         reason: { type: "string" },
+        confirmed: {
+          type: "boolean",
+          description: "Set true after the planner confirms in the workspace UI",
+        },
       },
-      required: ["projectId", "scenarioId"],
       additionalProperties: false,
     },
   },
@@ -339,16 +383,19 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "sensitive",
     name: "approve_scenario",
     description:
-      "Approve a scenario as a formal planning decision. Always confirms with the human planner.",
+      "Approve a scenario as a formal planning decision. Without confirmed:true returns pending_planner for on-screen review.",
     annotations: { destructiveHint: true },
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        scenarioId: { type: "string" },
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
         reason: { type: "string", description: "Optional decision rationale" },
+        confirmed: {
+          type: "boolean",
+          description: "Set true after the planner confirms in the workspace UI",
+        },
       },
-      required: ["projectId", "scenarioId"],
       additionalProperties: false,
     },
   },
@@ -356,31 +403,43 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "sensitive",
     name: "approve_proposal",
     description:
-      "Apply a staged proposal after human confirmation. Rejects stale proposals if criteria changed.",
+      "Apply a staged proposal after human confirmation. Without confirmed:true returns pending_planner with proposalId.",
     annotations: { destructiveHint: true },
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
+        projectId: PROJECT_ID,
         proposalId: { type: "string" },
+        confirmed: {
+          type: "boolean",
+          description: "Set true after the planner clicks Approve proposal in the UI",
+        },
       },
-      required: ["projectId", "proposalId"],
+      required: ["proposalId"],
       additionalProperties: false,
     },
   },
   {
     layer: "sensitive",
     name: "generate_report",
-    description: "Generate a planning report from scenarios. Confirms before creating the document.",
+    description:
+      "Generate a planning report for one or more scenarios. Without confirmed:true returns pending_planner for on-screen review.",
     annotations: { destructiveHint: true },
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        scenarioIds: { type: "array", items: { type: "string" } },
+        projectId: PROJECT_ID,
+        scenarioIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Scenario ids to include; defaults to active scenario",
+        },
         title: { type: "string" },
+        confirmed: {
+          type: "boolean",
+          description: "Set true after the planner confirms report generation in the UI",
+        },
       },
-      required: ["projectId", "scenarioIds"],
       additionalProperties: false,
     },
   },
