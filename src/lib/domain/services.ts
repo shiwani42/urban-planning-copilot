@@ -29,6 +29,7 @@ import type {
   HumanDecision,
   MapState,
   Project,
+  ProjectListItem,
   Report,
   Scenario,
   StagedProposal,
@@ -179,11 +180,101 @@ function invalidateScenarioDecision(store: AppStore, scenarioId: string, reason:
   }
 }
 
-export async function listProjects() {
+function normalizeProjectName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+export function projectNameTaken(
+  store: AppStore,
+  name: string,
+  excludeProjectId?: string
+): boolean {
+  const norm = normalizeProjectName(name);
+  if (norm.length < 2) return false;
+  return store.projects.some(
+    (p) => p.id !== excludeProjectId && normalizeProjectName(p.name) === norm
+  );
+}
+
+function assertProjectName(name: string) {
+  const trimmed = name.trim();
+  if (trimmed.length < 2) {
+    throw new Error("Project name must be at least 2 characters.");
+  }
+  return trimmed;
+}
+
+export async function listProjects(): Promise<ProjectListItem[]> {
   const store = await getStore();
   return store.projects
     .slice()
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      updatedAt: p.updatedAt,
+      lastOpenedAt: p.lastOpenedAt,
+      resumeNote: p.resumeNote,
+      geographyLabel: p.geographyLabel,
+    }));
+}
+
+export async function recordProjectOpen(projectId: string): Promise<void> {
+  await updateStore((store) => {
+    const project = store.projects.find((p) => p.id === projectId);
+    if (!project) throw new Error("Project not found");
+    project.lastOpenedAt = now();
+  });
+}
+
+export async function renameProject(projectId: string, name: string): Promise<ProjectListItem> {
+  const trimmed = assertProjectName(name);
+  let updated: Project | undefined;
+  await updateStore((store) => {
+    const project = store.projects.find((p) => p.id === projectId);
+    if (!project) throw new Error("Project not found");
+    if (projectNameTaken(store, trimmed, projectId)) {
+      throw new Error(`A project named "${trimmed}" already exists.`);
+    }
+    project.name = trimmed;
+    project.updatedAt = now();
+    updated = project;
+    logActivity(store, {
+      projectId,
+      actor: "human",
+      category: "objective",
+      action: "rename_project",
+      summary: `Renamed project to "${trimmed}"`,
+    });
+  });
+  if (!updated) throw new Error("Project not found");
+  return {
+    id: updated.id,
+    name: updated.name,
+    updatedAt: updated.updatedAt,
+    lastOpenedAt: updated.lastOpenedAt,
+    resumeNote: updated.resumeNote,
+    geographyLabel: updated.geographyLabel,
+  };
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  await updateStore((store) => {
+    const idx = store.projects.findIndex((p) => p.id === projectId);
+    if (idx < 0) throw new Error("Project not found");
+    const scenarioIds = new Set(
+      store.scenarios.filter((s) => s.projectId === projectId).map((s) => s.id)
+    );
+    store.projects.splice(idx, 1);
+    store.scenarios = store.scenarios.filter((s) => s.projectId !== projectId);
+    store.decisions = store.decisions.filter((d) => d.projectId !== projectId);
+    store.activities = store.activities.filter((a) => a.projectId !== projectId);
+    store.confirmations = store.confirmations.filter((c) => c.projectId !== projectId);
+    store.proposals = store.proposals.filter((p) => p.projectId !== projectId);
+    store.analysisJobs = store.analysisJobs.filter((j) => !scenarioIds.has(j.scenarioId));
+    store.analysisResults = store.analysisResults.filter((r) => !scenarioIds.has(r.scenarioId));
+    store.reports = store.reports.filter((r) => r.projectId !== projectId);
+  });
 }
 
 export async function getWorkspace(projectId: string): Promise<WorkspaceSnapshot | null> {
@@ -213,18 +304,21 @@ export async function createProject(input: {
   objectiveText: string;
   geographyLabel?: string;
   mode?: "explore" | "planning";
-}): Promise<WorkspaceSnapshot> {
+}): Promise<WorkspaceSnapshot & { duplicateNameWarning?: boolean }> {
   const quality = assessObjectiveQuality(input.objectiveText);
   if (!quality.interpretable) {
     throw new Error(quality.warning ?? "Planning objective is not interpretable.");
   }
+  const trimmedName = assertProjectName(input.name);
+  const storeBefore = await getStore();
+  const duplicateNameWarning = projectNameTaken(storeBefore, trimmedName);
   let projectId = "";
   await updateStore((store) => {
     const geographyLabel = input.geographyLabel ?? "Study area";
     const parsed = parseObjective(input.objectiveText, geographyLabel);
     const project: Project = {
       id: nanoid(),
-      name: input.name,
+      name: trimmedName,
       createdAt: now(),
       updatedAt: now(),
       geographyLabel,
@@ -282,7 +376,7 @@ export async function createProject(input: {
   });
   const ws = await getWorkspace(projectId);
   if (!ws) throw new Error("Failed to create project");
-  return ws;
+  return duplicateNameWarning ? { ...ws, duplicateNameWarning: true } : ws;
 }
 
 export async function updateObjective(projectId: string, text: string) {
