@@ -6,6 +6,7 @@ import os from "os";
 import * as services from "./services";
 import {
   getStorePath,
+  getStore,
   reloadStoreFromDisk,
   resetStore,
   updateStore,
@@ -115,6 +116,51 @@ describe("store persistence", () => {
     );
     assert.ok(branchResult);
     assert.ok(branchResult!.candidates.length > 0);
+  });
+
+  it("createProject is visible via getStore, listProjects, getWorkspace, and reload", async () => {
+    const ws = await services.createProject({
+      name: "Round trip create",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const projectId = ws.project.id;
+
+    const memory = await getStore();
+    assert.ok(memory.projects.some((p) => p.id === projectId));
+
+    const listed = await services.listProjects();
+    assert.ok(listed.some((p) => p.id === projectId));
+
+    const workspace = await services.getWorkspace(projectId);
+    assert.ok(workspace);
+    assert.equal(workspace!.project.name, "Round trip create");
+
+    const reloaded = await reloadStoreFromDisk();
+    assert.ok(reloaded.projects.some((p) => p.id === projectId));
+    assert.ok(reloaded.scenarios.some((s) => s.projectId === projectId));
+  });
+
+  it("recovers update chain after a failed mutation so create still works", async () => {
+    await assert.rejects(
+      () => services.renameProject("missing-project-id", "Ghost"),
+      /Project not found/
+    );
+
+    const ws = await services.createProject({
+      name: "After failed mutation",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    assert.ok(ws.project.id);
+    assert.equal((await services.listProjects()).length, 1);
+  });
+
+  it("recordProjectOpen on a missing project is a no-op and does not break create", async () => {
+    await services.recordProjectOpen("stale-browser-project-id");
+    const ws = await services.createProject({
+      name: "After stale open",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    assert.ok(ws.project.id);
   });
 });
 

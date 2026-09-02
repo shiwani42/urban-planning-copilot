@@ -550,8 +550,8 @@ export default function HomePage() {
                           <p className="text-headline-md text-on-surface mb-2">No projects yet</p>
                           <p className="text-body-sm text-on-surface-variant mb-6">
                             Create a workspace and describe your planning question in natural
-                            language. Projects are saved on the server and persist across sessions
-                            when the Render data disk is attached.
+                            language. Projects are saved on the server and persist across
+                            sessions.
                           </p>
                           <Link
                             href="/new"

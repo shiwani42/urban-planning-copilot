@@ -282,7 +282,7 @@ export async function listProjects(): Promise<ProjectListItem[]> {
 export async function recordProjectOpen(projectId: string): Promise<void> {
   await updateStore((store) => {
     const project = store.projects.find((p) => p.id === projectId);
-    if (!project) throw new Error("Project not found");
+    if (!project) return;
     project.lastOpenedAt = now();
   });
 }
@@ -337,15 +337,18 @@ export async function deleteProject(projectId: string): Promise<void> {
   });
 }
 
-export async function getWorkspace(projectId: string): Promise<WorkspaceSnapshot | null> {
-  const store = await reloadStoreFromDisk();
+function workspaceSnapshotFromStore(
+  store: AppStore,
+  projectId: string
+): WorkspaceSnapshot | null {
   const project = store.projects.find((p) => p.id === projectId);
   if (!project) return null;
   const syncedMap = syncMapLayers(project.mapState, store.datasets);
   return {
-    project: syncedMap.layers.length !== project.mapState.layers.length
-      ? { ...project, mapState: syncedMap }
-      : project,
+    project:
+      syncedMap.layers.length !== project.mapState.layers.length
+        ? { ...project, mapState: syncedMap }
+        : project,
     scenarios: store.scenarios.filter((s) => s.projectId === projectId),
     decisions: store.decisions.filter((d) => d.projectId === projectId),
     activities: store.activities.filter((a) => a.projectId === projectId).slice(0, 200),
@@ -362,6 +365,11 @@ export async function getWorkspace(projectId: string): Promise<WorkspaceSnapshot
   };
 }
 
+export async function getWorkspace(projectId: string): Promise<WorkspaceSnapshot | null> {
+  const store = await reloadStoreFromDisk();
+  return workspaceSnapshotFromStore(store, projectId);
+}
+
 export async function createProject(input: {
   name: string;
   objectiveText: string;
@@ -376,7 +384,7 @@ export async function createProject(input: {
   const storeBefore = await getStore();
   const duplicateNameWarning = projectNameTaken(storeBefore, trimmedName);
   let projectId = "";
-  await updateStore((store) => {
+  const storeAfter = await updateStore((store) => {
     const geographyLabel = input.geographyLabel ?? "Study area";
     const parsed = parseForStore(store, input.objectiveText, geographyLabel);
     const project: Project = {
@@ -437,13 +445,14 @@ export async function createProject(input: {
     });
     projectId = project.id;
   });
-  const ws = await getWorkspace(projectId);
+  let ws = workspaceSnapshotFromStore(storeAfter, projectId);
   if (!ws) {
-    const listed = await listProjects();
+    const reloaded = await reloadStoreFromDisk();
+    ws = workspaceSnapshotFromStore(reloaded, projectId);
+  }
+  if (!ws) {
     throw new Error(
-      listed.length
-        ? "Project was created but could not be loaded — storage may be degraded. Retry or check /api/health."
-        : "Failed to create project — workspace storage may be unavailable."
+      `Project was saved (id ${projectId || "unknown"}) but could not be loaded from workspace storage. Check /api/health and retry.`
     );
   }
   return duplicateNameWarning ? { ...ws, duplicateNameWarning: true } : ws;

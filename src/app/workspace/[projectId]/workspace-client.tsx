@@ -736,8 +736,8 @@ export default function WorkspaceClient({
                 : " It may have been removed or workspace storage may be degraded."}
             </p>
             <p className="text-body-sm text-on-surface-variant mb-6">
-              If you were mid-analysis, check whether other projects are still listed on the home page.
-              Storage issues show a banner at the top when the Render disk is unavailable.
+              If you were mid-analysis, check whether other projects are still listed on the home
+              page. A storage warning banner appears only when workspace storage is degraded.
             </p>
             <div className="flex flex-wrap justify-center gap-3">
               <button
