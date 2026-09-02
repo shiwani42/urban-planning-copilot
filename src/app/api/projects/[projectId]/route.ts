@@ -110,6 +110,15 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         return NextResponse.json(
           await services.compareScenarios(projectId, body.scenarioIds)
         );
+      case "rename_scenario":
+        return NextResponse.json(
+          await services.renameScenario(
+            projectId,
+            body.scenarioId,
+            body.name,
+            body.description
+          )
+        );
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }

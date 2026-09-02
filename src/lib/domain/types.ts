@@ -244,6 +244,7 @@ export interface Scenario {
   id: string;
   projectId: string;
   name: string;
+  description?: string;
   status: ScenarioStatus;
   parentScenarioId?: string;
   objective: PlanningObjective;
