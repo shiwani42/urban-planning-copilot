@@ -8,6 +8,7 @@ export type ClientStorageStatus = {
   writeProbeOk?: boolean;
   projectCount?: number;
   storeExists?: boolean;
+  lastBoot?: string;
   message?: string;
   fetchError?: string;
 };
@@ -20,6 +21,7 @@ type HealthPayload = {
     writeProbeOk?: boolean;
     projectCount?: number;
     storeExists?: boolean;
+    lastBoot?: string;
     message?: string;
     storeReadError?: string;
   };
@@ -38,6 +40,7 @@ function normalizeHealthPayload(data: HealthPayload): ClientStorageStatus {
       writeProbeOk: false,
       projectCount: storage.projectCount,
       storeExists: storage.storeExists,
+      lastBoot: storage.lastBoot,
       message: storage.message ?? storage.storeReadError ?? "Write probe failed",
     };
   }
@@ -49,6 +52,7 @@ function normalizeHealthPayload(data: HealthPayload): ClientStorageStatus {
       writeProbeOk: writeProbeOk ?? true,
       projectCount: storage.projectCount,
       storeExists: storage.storeExists,
+      lastBoot: storage.lastBoot,
       message: storage.message,
     };
   }
@@ -60,6 +64,7 @@ function normalizeHealthPayload(data: HealthPayload): ClientStorageStatus {
       writeProbeOk,
       projectCount: storage.projectCount,
       storeExists: storage.storeExists,
+      lastBoot: storage.lastBoot,
       message: storage.message ?? storage.storeReadError,
     };
   }
@@ -70,6 +75,7 @@ function normalizeHealthPayload(data: HealthPayload): ClientStorageStatus {
     writeProbeOk,
     projectCount: storage.projectCount,
     storeExists: storage.storeExists,
+    lastBoot: storage.lastBoot,
     message: storage.message,
   };
 }

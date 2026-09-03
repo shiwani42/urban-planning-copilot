@@ -16,8 +16,48 @@ import {
   getStorageHealth,
   markStorageDegraded,
   markStorageHealthy,
+  getRenderDiskPrefix,
+  type BootRecoveryKind,
   type StorageHealth,
 } from "./storage-health";
+import { projectCountFromRawJson } from "./store-shape";
+
+const DEFAULT_DISK_READ_RETRY_DELAYS_MS = [2000, 3000, 5000];
+
+function diskReadRetryDelays(): number[] {
+  const raw = process.env.STORE_DISK_READ_RETRY_MS;
+  if (raw) {
+    const parsed = raw
+      .split(",")
+      .map((part) => Number.parseInt(part.trim(), 10))
+      .filter((n) => Number.isFinite(n) && n >= 0);
+    if (parsed.length > 0) return parsed;
+  }
+  return DEFAULT_DISK_READ_RETRY_DELAYS_MS;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isPersistentDataDir(dir: string): boolean {
+  return dir.startsWith(getRenderDiskPrefix());
+}
+
+export type PersistOptions = {
+  /** Allow replacing a non-empty on-disk catalog with zero projects (tests / explicit wipe). */
+  allowEmptyCatalog?: boolean;
+};
+
+let lastBootRecovery: BootRecoveryKind = "normal";
+
+export function getLastBootRecovery(): BootRecoveryKind {
+  return lastBootRecovery;
+}
+
+function setLastBootRecovery(kind: BootRecoveryKind): void {
+  lastBootRecovery = kind;
+}
 
 function dataDir(): string {
   return process.env.DATA_DIR ?? path.join(process.cwd(), "data");
@@ -105,6 +145,72 @@ async function fileExists(file: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function projectCountInFile(file: string): Promise<number | null> {
+  try {
+    const raw = await fs.readFile(file, "utf8");
+    return projectCountFromRawJson(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function maxProjectCountOnDisk(
+  pathToStore: string,
+  pathToBackup: string
+): Promise<number> {
+  const counts = await Promise.all([
+    projectCountInFile(pathToStore),
+    projectCountInFile(pathToBackup),
+    projectCountInFile(`${pathToStore}.tmp`),
+  ]);
+  return Math.max(0, ...counts.filter((c): c is number => c !== null));
+}
+
+async function hasPriorCatalogEvidence(
+  pathToStore: string,
+  pathToBackup: string
+): Promise<boolean> {
+  if (await fileExists(pathToStore)) return true;
+  if (await fileExists(pathToBackup)) return true;
+  if (await fileExists(`${pathToStore}.tmp`)) return true;
+  return (await maxProjectCountOnDisk(pathToStore, pathToBackup)) > 0;
+}
+
+async function waitForStoreFilesOnDisk(
+  pathToStore: string,
+  pathToBackup: string
+): Promise<"primary" | "backup" | "none"> {
+  for (let attempt = 0; attempt <= diskReadRetryDelays().length; attempt++) {
+    if (await fileExists(pathToStore)) return "primary";
+    if (await fileExists(pathToBackup)) return "backup";
+    const delays = diskReadRetryDelays();
+    if (attempt < delays.length) {
+      const delayMs = delays[attempt]!;
+      console.error(
+        `[store] store.json and backup missing — waiting ${delayMs}ms for disk mount (attempt ${attempt + 1}/${delays.length})`
+      );
+      await sleep(delayMs);
+    }
+  }
+  return "none";
+}
+
+async function assertNotClobberingNonemptyCatalog(
+  pathToStore: string,
+  pathToBackup: string,
+  store: AppStore,
+  options?: PersistOptions
+): Promise<void> {
+  if (options?.allowEmptyCatalog) return;
+  if (store.projects.length > 0) return;
+  const existingCount = await maxProjectCountOnDisk(pathToStore, pathToBackup);
+  if (existingCount > 0) {
+    const message = `Refusing to persist empty catalog over disk store with ${existingCount} project(s)`;
+    console.error(`[store] ${message}`);
+    throw new StorePersistError(message);
   }
 }
 
@@ -203,8 +309,10 @@ async function writeStorePayload(
   dir: string,
   pathToStore: string,
   pathToBackup: string,
-  store: AppStore
+  store: AppStore,
+  options?: PersistOptions
 ): Promise<void> {
+  await assertNotClobberingNonemptyCatalog(pathToStore, pathToBackup, store, options);
   const payload = JSON.stringify(prepareStoreForPersistence(store), null, 2);
   const tmp = `${pathToStore}.tmp`;
   await fs.writeFile(tmp, payload, "utf8");
@@ -248,10 +356,12 @@ async function restoreStoreFromBackup(
   const store = await parseStoreFile(raw, pathToBackup);
   hydrateAnalysisResultsInStore(store);
   await upgradeCatalog(store);
+  setLastBootRecovery("recovered-backup");
   await writeStorePayload(dir, pathToStore, pathToBackup, store);
   memory = store;
   memoryDataDir = dir;
-  markStorageHealthy(dir, message);
+  markStorageHealthy(dir, message, { lastBoot: "recovered-backup" });
+  console.error(`[store] ${message}`);
   return store;
 }
 
@@ -270,7 +380,8 @@ async function readStoreFromDisk(): Promise<AppStore> {
       const store = await parseStoreFile(raw, pathToStore);
       hydrateAnalysisResultsInStore(store);
       const upgraded = await upgradeCatalog(store);
-      markStorageHealthy(dir);
+      setLastBootRecovery("normal");
+      markStorageHealthy(dir, undefined, { lastBoot: "normal" });
       if (upgraded) await persist(store);
       return store;
     } catch (primaryErr) {
@@ -303,19 +414,87 @@ async function readStoreFromDisk(): Promise<AppStore> {
     );
   }
 
+  const located = await waitForStoreFilesOnDisk(pathToStore, pathToBackup);
+  if (located === "primary") {
+    return readStoreFromDisk();
+  }
+  if (located === "backup") {
+    return restoreStoreFromBackup(
+      dir,
+      pathToStore,
+      pathToBackup,
+      "Restored workspace from backup after disk mount delay."
+    );
+  }
+
+  const hadEvidence = await hasPriorCatalogEvidence(pathToStore, pathToBackup);
+  const onPersistent = isPersistentDataDir(dir);
   const store = await buildDefaultStore();
+
+  if (hadEvidence || onPersistent) {
+    const message = hadEvidence
+      ? "Store files were missing but prior catalog evidence exists — refusing to write an empty catalog."
+      : "Persistent disk has no store.json after mount retries — refusing to write an empty catalog.";
+    console.error(`[store] ${message}`);
+    setLastBootRecovery("empty-after-missing-file");
+    memory = store;
+    memoryDataDir = dir;
+    markStorageDegraded(dir, message, {
+      writeProbeOk: true,
+      lastBoot: "empty-after-missing-file",
+    });
+    return store;
+  }
+
+  setLastBootRecovery("first-run");
   try {
-    await persist(store);
-    markStorageHealthy(dir, undefined, { writeProbeOk: true });
+    await persist(store, { allowEmptyCatalog: true });
+    markStorageHealthy(dir, undefined, { writeProbeOk: true, lastBoot: "first-run" });
   } catch (err) {
     markStorageDegraded(
       dir,
       err instanceof Error ? err.message : String(err),
-      { writeProbeOk: false }
+      { writeProbeOk: false, lastBoot: "first-run" }
     );
     throw err;
   }
   return store;
+}
+
+/** Retry disk reads until store files appear or retries exhaust — for seed / boot. */
+export async function waitForStableStoreRead(): Promise<AppStore> {
+  const dir = dataDir();
+  const pathToStore = storePath();
+  const pathToBackup = backupPath();
+
+  for (let attempt = 0; attempt <= diskReadRetryDelays().length; attempt++) {
+    memory = null;
+    memoryDataDir = null;
+    try {
+      const store = await readStoreFromDisk();
+      if (store.projects.length > 0) {
+        return store;
+      }
+      if ((await fileExists(pathToStore)) || (await fileExists(pathToBackup))) {
+        return store;
+      }
+      if (attempt === diskReadRetryDelays().length) {
+        return store;
+      }
+    } catch (err) {
+      if (attempt === diskReadRetryDelays().length) {
+        throw err;
+      }
+    }
+    const delays = diskReadRetryDelays();
+    const delayMs = delays[attempt]!;
+    console.error(
+      `[store] seed/boot waiting ${delayMs}ms for stable disk read (attempt ${attempt + 1}/${delays.length})`
+    );
+    await sleep(delayMs);
+  }
+
+  return ensureStore();
 }
 
 export async function ensureStore(): Promise<AppStore> {
@@ -336,7 +515,17 @@ export async function getStore(): Promise<AppStore> {
 
 /** Wait for any in-flight disk write before reading store.json. */
 export async function flushStoreWrites(): Promise<void> {
-  await writeQueue;
+  try {
+    await writeQueue;
+  } catch {
+    /* A failed persist must not block subsequent reads */
+  }
+}
+
+/** Clear in-memory cache — tests and seed stability waits only. */
+export function clearStoreCache(): void {
+  memory = null;
+  memoryDataDir = null;
 }
 
 /** Re-read store.json from disk — ensures handlers see the latest persisted state. */
@@ -352,17 +541,19 @@ function resetWriteQueues(): void {
   updateChain = Promise.resolve(null as unknown as AppStore);
 }
 
-export async function persist(store: AppStore): Promise<void> {
+export async function persist(store: AppStore, options?: PersistOptions): Promise<void> {
   const dir = dataDir();
   const pathToStore = storePath();
   const pathToBackup = backupPath();
   memory = store;
   memoryDataDir = dir;
-  writeQueue = writeQueue.then(async () => {
+  writeQueue = writeQueue
+    .catch(() => undefined)
+    .then(async () => {
     try {
       await verifyWritableDataDir(dir);
-      await writeStorePayload(dir, pathToStore, pathToBackup, store);
-      markStorageHealthy(dir);
+      await writeStorePayload(dir, pathToStore, pathToBackup, store, options);
+      markStorageHealthy(dir, undefined, { lastBoot: lastBootRecovery });
     } catch (err) {
       markStorageDegraded(
         dir,
@@ -375,7 +566,8 @@ export async function persist(store: AppStore): Promise<void> {
 }
 
 async function runStoreMutation(
-  mutator: (store: AppStore) => void | Promise<void>
+  mutator: (store: AppStore) => void | Promise<void>,
+  options?: PersistOptions
 ): Promise<AppStore> {
   const dir = dataDir();
   if (memoryDataDir && memoryDataDir !== dir) {
@@ -388,7 +580,7 @@ async function runStoreMutation(
   const projectCountBefore = store.projects.length;
   await mutator(store);
   try {
-    await persist(store);
+    await persist(store, options);
   } catch (err) {
     memory = null;
     memoryDataDir = null;
@@ -410,11 +602,12 @@ async function runStoreMutation(
 }
 
 export async function updateStore(
-  mutator: (store: AppStore) => void | Promise<void>
+  mutator: (store: AppStore) => void | Promise<void>,
+  options?: PersistOptions
 ): Promise<AppStore> {
   const scheduled = updateChain.then(
-    () => runStoreMutation(mutator),
-    () => runStoreMutation(mutator)
+    () => runStoreMutation(mutator, options),
+    () => runStoreMutation(mutator, options)
   );
   updateChain = scheduled.then(
     () => undefined as unknown as AppStore,
@@ -427,9 +620,10 @@ export async function resetStore(): Promise<AppStore> {
   memory = null;
   memoryDataDir = null;
   resetWriteQueues();
+  setLastBootRecovery("first-run");
   const store = await buildDefaultStore();
   memoryDataDir = dataDir();
-  await persist(store);
+  await persist(store, { allowEmptyCatalog: true });
   return store;
 }
 
