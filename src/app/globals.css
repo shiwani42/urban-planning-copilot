@@ -69,6 +69,16 @@ body {
   border-radius: 4px;
 }
 
+@layer utilities {
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+
+  .workspace-tab-scroll {
+    scrollbar-width: thin;
+  }
+}
+
 .leaflet-container {
   width: 100%;
   height: 100%;

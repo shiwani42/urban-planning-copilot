@@ -15,6 +15,7 @@ import {
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
 import { fetchJsonWithRetry } from "@/lib/fetch-json";
 import { UrbanPlanningCopilot } from "@/components/UrbanPlanningCopilot";
+import { projectStatusLine, projectStatusTone } from "@/lib/project-status";
 import { useStorageStatus } from "@/lib/storage-status";
 
 const DELETED_LAST_PROJECT_KEY = "upc-deleted-last-project";
@@ -72,20 +73,31 @@ function ProjectSkeleton({ cards = 4 }: { cards?: number }) {
 
 function ContinueSkeleton() {
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4 -mx-section-padding px-section-padding">
+    <div className="flex gap-3 overflow-x-auto pb-2 -mx-section-padding px-section-padding">
       {Array.from({ length: 3 }).map((_, i) => (
         <div
           key={i}
-          className="min-w-[260px] w-[260px] shrink-0 border border-outline-variant bg-surface-container-lowest p-5 animate-pulse"
+          className="min-w-[240px] w-[240px] shrink-0 border border-outline-variant bg-surface-container-lowest p-4 animate-pulse"
           aria-hidden="true"
         >
-          <div className="h-5 bg-surface-container rounded w-3/4 mb-3" />
-          <div className="h-3 bg-surface-container rounded w-1/2 mb-4" />
-          <div className="h-10 bg-surface-container rounded" />
+          <div className="h-5 bg-surface-container rounded w-3/4 mb-2" />
+          <div className="h-3 bg-surface-container rounded w-1/2 mb-3" />
+          <div className="h-4 bg-surface-container rounded w-full" />
         </div>
       ))}
     </div>
   );
+}
+
+function projectStatusClass(tone: ReturnType<typeof projectStatusTone>): string {
+  switch (tone) {
+    case "ready":
+      return "text-on-surface-variant";
+    case "attention":
+      return "text-secondary";
+    default:
+      return "text-on-surface-variant";
+  }
 }
 
 export default function HomePage() {
@@ -200,6 +212,16 @@ export default function HomePage() {
     () => sortedProjects.slice().sort(sortByRecency).slice(0, CONTINUE_LIMIT),
     [sortedProjects]
   );
+
+  const continueProjectIds = useMemo(
+    () => new Set(continueProjects.map((p) => p.id)),
+    [continueProjects]
+  );
+
+  const allProjectsExcludingContinue = useMemo(() => {
+    if (search.trim() || continueProjects.length === 0) return filteredProjects;
+    return filteredProjects.filter((p) => !continueProjectIds.has(p.id));
+  }, [filteredProjects, continueProjectIds, continueProjects.length, search]);
 
   const actionItems = useMemo(() => {
     const items: Array<{ label: string; projectId: string; kind: string }> = [];
@@ -390,10 +412,12 @@ export default function HomePage() {
 
   function renderProjectCard(project: Project, variant: "continue" | "all") {
     const isRenaming = renamingId === project.id;
+    const statusLine = projectStatusLine(project);
+    const statusTone = projectStatusTone(project);
     const cardClass =
       variant === "continue"
-        ? "min-w-[260px] w-[260px] shrink-0 text-left border border-outline-variant bg-surface-container-lowest p-5 hover:border-primary transition-colors"
-        : "text-left border border-outline-variant bg-surface-container-lowest p-5 hover:border-primary transition-colors";
+        ? "min-w-[240px] w-[240px] shrink-0 text-left border border-outline-variant bg-surface-container-lowest p-4 hover:border-primary/60 transition-colors"
+        : "text-left border border-outline-variant bg-surface-container-lowest px-4 py-3 hover:border-primary/60 transition-colors";
 
     if (isRenaming) {
       return (
@@ -463,7 +487,7 @@ export default function HomePage() {
           type="button"
           onClick={() => openProject(project.id)}
           disabled={busyId === project.id}
-          className={`${cardClass} w-full disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
+          className={`${cardClass} w-full disabled:opacity-50 focus-ring`}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
@@ -471,50 +495,27 @@ export default function HomePage() {
             }
           }}
         >
-          <div className="flex justify-between items-start gap-3 mb-2">
-            <h4 className="text-headline-md text-on-surface text-left">{project.name}</h4>
-            {variant === "all" && (
-              <span className="font-mono text-data-label text-outline uppercase shrink-0 hidden sm:inline">
-                {renderRecency(project)}
-              </span>
-            )}
+          <div className="flex justify-between items-start gap-3 mb-1">
+            <h4
+              className={`${variant === "continue" ? "text-headline-md" : "text-body-sm font-medium"} text-on-surface text-left`}
+            >
+              {project.name}
+            </h4>
+            <span className="font-mono text-[10px] text-outline uppercase shrink-0 text-right leading-tight">
+              {renderRecency(project)}
+            </span>
           </div>
           <p className="text-caption text-on-surface-variant text-left mb-2">
             {project.geographyLabel}
           </p>
-          {project.scenarioCount != null && project.scenarioCount > 1 && project.scenarioSummary && (
-            <p className="text-body-sm text-on-surface-variant text-left mb-2">
-              {project.scenarioCount} scenarios: {project.scenarioSummary}
-            </p>
-          )}
-          {variant === "continue" && (
-            <p className="font-mono text-[10px] text-outline uppercase text-left mb-3">
-              {renderRecency(project)}
-            </p>
-          )}
-          {project.approvedScenarioName && (
-            <p className="text-body-sm text-secondary bg-secondary-fixed/20 border border-secondary-fixed/40 px-3 py-2 rounded text-left mb-2">
-              Approved: {project.approvedScenarioName}
-            </p>
-          )}
-          {project.activeScenarioNote && (
-            <p className="text-body-sm text-primary bg-primary-fixed/20 border border-primary-fixed/40 px-3 py-2 rounded text-left">
-              {project.activeScenarioNote}
-            </p>
-          )}
-          {project.shortlistCount != null && project.shortlistCount > 0 && (
-            <p className="text-body-sm text-[#815504] bg-[#815504]/10 border border-[#815504]/30 px-3 py-2 rounded text-left mt-2">
-              Shortlist: {project.shortlistCount} pinned site
-              {project.shortlistCount === 1 ? "" : "s"}
-            </p>
-          )}
-          {!project.approvedScenarioName && !project.activeScenarioNote && project.resumeNote && (
-            <p className="text-body-sm text-primary bg-primary-fixed/20 border border-primary-fixed/40 px-3 py-2 rounded text-left">
-              {project.resumeNote}
-            </p>
-          )}
+          <p
+            className={`text-body-sm text-left leading-snug ${projectStatusClass(statusTone)}`}
+            title={statusLine}
+          >
+            {statusLine}
+          </p>
         </button>
-        <div className="absolute top-3 right-3 opacity-100 sm:opacity-70 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity">
+        <div className="absolute top-2 right-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity">
           {renderProjectActions(project)}
         </div>
       </article>
@@ -539,12 +540,12 @@ export default function HomePage() {
       <main id="main-content" className="flex-1 max-w-7xl w-full mx-auto px-section-padding py-10">
         <div className="flex flex-col lg:flex-row lg:items-start gap-10">
           <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
+            <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
               <div className="flex-1 min-w-0">
                 <PlannerGreeting className="text-display text-on-surface mb-2" />
-                <p className="text-body-lg text-on-surface-variant max-w-2xl">
-                  Continue your planning work or start a new analysis. Objectives, scenarios,
-                  evidence, and human decisions persist across sessions.
+                <p className="text-body-sm text-on-surface-variant max-w-2xl">
+                  Pick up where you left off or start a new study. Search and{" "}
+                  <span className="text-on-surface">+ New planning project</span> stay in the header.
                 </p>
               </div>
               <div className="relative w-full sm:w-64 shrink-0">
@@ -557,7 +558,7 @@ export default function HomePage() {
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search projects…"
                   aria-label="Search projects"
-                  className="w-full pl-10 pr-3 py-2 border border-outline-variant bg-surface-container-lowest text-body-sm focus:outline-none focus:border-primary"
+                  className="w-full pl-10 pr-3 py-2 border border-outline-variant bg-surface-container-lowest text-body-sm focus-ring focus:border-primary"
                 />
               </div>
             </div>
@@ -614,16 +615,18 @@ export default function HomePage() {
                         </button>
                       )}
                     </div>
-                    <div className="flex gap-4 overflow-x-auto pb-4 -mx-section-padding px-section-padding scroll-px-section-padding">
+                    <div className="flex gap-3 overflow-x-auto pb-2 -mx-section-padding px-section-padding scroll-px-section-padding">
                       {continueProjects.map((p) => renderProjectCard(p, "continue"))}
                     </div>
                   </section>
                 )}
 
                 <section ref={allSectionRef} id="all-projects">
-                  <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                     <h3 className="font-mono text-data-label uppercase text-on-surface-variant">
-                      All projects
+                      {continueProjects.length > 0 && !search.trim()
+                        ? "All other projects"
+                        : "All projects"}
                     </h3>
                     {search.trim() && (
                       <p className="text-caption text-on-surface-variant">
@@ -734,9 +737,13 @@ export default function HomePage() {
                         Clear search
                       </button>
                     </div>
+                  ) : allProjectsExcludingContinue.length === 0 ? (
+                    <p className="text-body-sm text-on-surface-variant py-4">
+                      Every project is in Continue — scroll up or search to filter.
+                    </p>
                   ) : (
-                    <div className="grid md:grid-cols-2 gap-4">
-                      {filteredProjects.map((p) => renderProjectCard(p, "all"))}
+                    <div className="divide-y divide-outline-variant border border-outline-variant bg-surface-container-lowest">
+                      {allProjectsExcludingContinue.map((p) => renderProjectCard(p, "all"))}
                     </div>
                   )}
                 </section>
@@ -748,7 +755,7 @@ export default function HomePage() {
             <UrbanPlanningCopilot
               variant="home"
               onToolComplete={() => void loadProjects()}
-              className="border border-outline-variant bg-surface-container-lowest min-h-[420px] max-h-[70vh]"
+              className="border border-outline-variant bg-surface-container-lowest min-h-[360px] max-h-[65vh]"
             />
 
             {actionItems.length > 0 && (

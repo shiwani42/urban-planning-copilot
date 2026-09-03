@@ -59,7 +59,7 @@ export function AppHeader({
         <Link
           id="new-project-link"
           href="/new"
-          className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm font-medium hover:bg-on-primary-fixed-variant transition-colors shrink-0"
+          className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm font-medium hover:bg-on-primary-fixed-variant transition-colors shrink-0 focus-ring"
         >
           + New planning project
         </Link>
