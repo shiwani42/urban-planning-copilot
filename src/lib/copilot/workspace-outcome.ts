@@ -1,5 +1,6 @@
 import type { AnalysisJob, AnalysisResult, WorkspaceSnapshot } from "@/lib/domain/types";
 import type { CopilotActivityEntry } from "@/lib/copilot/copilot-activity";
+import { COPILOT_ACTION_FAILED, FINDINGS_EMPTY_OUTCOME } from "@/lib/planner-copy";
 
 export type WorkspaceOutcomeContext = {
   runningJob?: AnalysisJob | null;
@@ -21,7 +22,7 @@ export function describeWorkspaceOutcome(ctx: WorkspaceOutcomeContext): string {
     return latestCopilot.summary || "Copilot is running a planning tool for this scenario…";
   }
   if (latestCopilot?.status === "error") {
-    return latestCopilot.summary || "The last copilot action failed — see Agent activity for details.";
+    return latestCopilot.summary || COPILOT_ACTION_FAILED;
   }
   if (latestCopilot?.status === "success" && latestCopilot.summary) {
     return latestCopilot.summary;
@@ -54,7 +55,7 @@ export function describeWorkspaceOutcome(ctx: WorkspaceOutcomeContext): string {
     return `Results are stale (${result.candidates.length} candidates from the last run) — recalculate to apply your latest changes.`;
   }
 
-  return "Review the analysis plan, then run analysis from the copilot panel or footer.";
+  return FINDINGS_EMPTY_OUTCOME;
 }
 
 export function outcomeFromWorkspace(

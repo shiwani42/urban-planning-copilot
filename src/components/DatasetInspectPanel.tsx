@@ -84,7 +84,9 @@ export function DatasetInspectPanel({
           </dl>
           {dataset.incompleteCoverage && (
             <p className="mt-2 text-caption text-secondary">
-              Incomplete geographic coverage — spatial filters may exclude areas incorrectly.
+              {dataset.kind === "flood"
+                ? "SFPUC July 2022 100-year storm clip — not FEMA NFHL. Scores use this visible layer; parcels outside the clip are coverage gaps, not proof of safety."
+                : "Incomplete geographic coverage — spatial filters may exclude areas incorrectly."}
             </p>
           )}
         </section>

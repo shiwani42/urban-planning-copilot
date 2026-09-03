@@ -101,10 +101,43 @@ export const NEW_PROJECT_DRAFT_STORAGE_RETRY =
 export const NEW_PROJECT_CREATE_VERIFY_FAILED =
   "This workspace could not be confirmed on the server. Retry when saving is available again.";
 
-// —— Copilot ——
+// —— Copilot / Findings ——
 
 export const COPILOT_PANEL_FOOTER =
-  "Ask about your study — pin sites, run analysis, or compare scenarios.";
+  "Command this study — pin sites, run analysis, or compare scenarios.";
+export const COPILOT_HOME_PLACEHOLDER =
+  "Command without a project — e.g. list datasets";
+export const COPILOT_FEED_HEADING = "Feed";
+export const FINDINGS_PLAN_HEADING = "Plan";
+export const FINDINGS_PLAN_INTRO =
+  "Your planning question is now an analysis plan. Review the steps, then run analysis.";
+export const FINDINGS_EMPTY_OUTCOME =
+  "Review the analysis plan, then run analysis from Findings or the footer.";
+export const ANALYSIS_RUNNING_FEED =
+  "Analysis is running — watch Findings for progress.";
+export const COPILOT_ACTION_FAILED =
+  "The last command failed — see Findings for details.";
+export const DRAWING_MAP_HINT =
+  "Click corners to draw. Backspace undoes a vertex. Escape cancels. The map will not pan while you draw.";
+export const EXCLUDE_AREA_HELP =
+  "Click map corners, then Finish. Edit or delete a polygon from the list. Parcel clicks are ignored while drawing; Escape cancels, Backspace undoes.";
+export const LAYERS_SCORE_NOTE =
+  "Flood and transit scores use the visible SFPUC storm-flood and Muni stop layers — not FEMA.";
+export const ZONING_OVERLAY_LABEL = "Zoning (from parcels)";
+export const ZONING_RESIDENTIAL_SWATCH = "Residential zoning";
+export const ZONING_OTHER_SWATCH = "Other zoning";
+export const COPILOT_STUDY_SUBTITLE =
+  "Commands update this study — plan, feed, and findings.";
+export const COPILOT_EMPTY_COMMAND =
+  "Command this study — for example “run analysis”, “pin the top site”, or “create a flood-weighted branch”.";
+export const COPILOT_UNKNOWN_COMMAND =
+  "Use a suggestion or a tool below — commands update this study.";
+export const COPILOT_NO_PROJECT_COMMAND =
+  "Without an open project, list datasets or start a new study from the header. Open a workspace for analysis.";
+export const PIN_NEEDS_ANALYSIS =
+  "Run analysis first so candidates can be ranked, then pin or shortlist the top site.";
+export const EXPLORE_QUESTION_PLACEHOLDER =
+  "Transit gaps, school access, flood exposure, or housing siting…";
 
 export const RANKING_STALE_FALLBACK =
   "Ranking may not match the current objective — recalculate before deciding.";
@@ -158,6 +191,25 @@ export function allPlannerCopyStrings(): string[] {
     NEW_PROJECT_DRAFT_STORAGE_RETRY,
     NEW_PROJECT_CREATE_VERIFY_FAILED,
     COPILOT_PANEL_FOOTER,
+    COPILOT_HOME_PLACEHOLDER,
+    COPILOT_FEED_HEADING,
+    FINDINGS_PLAN_HEADING,
+    FINDINGS_PLAN_INTRO,
+    FINDINGS_EMPTY_OUTCOME,
+    ANALYSIS_RUNNING_FEED,
+    COPILOT_ACTION_FAILED,
+    DRAWING_MAP_HINT,
+    EXCLUDE_AREA_HELP,
+    LAYERS_SCORE_NOTE,
+    ZONING_OVERLAY_LABEL,
+    ZONING_RESIDENTIAL_SWATCH,
+    ZONING_OTHER_SWATCH,
+    COPILOT_STUDY_SUBTITLE,
+    COPILOT_EMPTY_COMMAND,
+    COPILOT_UNKNOWN_COMMAND,
+    COPILOT_NO_PROJECT_COMMAND,
+    PIN_NEEDS_ANALYSIS,
+    EXPLORE_QUESTION_PLACEHOLDER,
     RANKING_STALE_FALLBACK,
     SHORTLIST_SAVE_FAILED,
     CLIENT_STUDY_CONTINUE_NAME,

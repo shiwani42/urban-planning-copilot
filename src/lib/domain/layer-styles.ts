@@ -1,7 +1,7 @@
 /** Map layer colors — shared by legend and layer checkboxes. */
 export const LAYER_SWATCH: Record<string, { className: string; label: string }> = {
   flood: {
-    label: "Flood risk",
+    label: "SFPUC 100-year storm flood",
     className: "bg-[#8ccff3]/70 border border-[#005e7d]",
   },
   parcels: {
@@ -9,7 +9,7 @@ export const LAYER_SWATCH: Record<string, { className: string; label: string }> 
     className: "bg-primary/30 border border-primary",
   },
   transit: {
-    label: "Transit",
+    label: "Muni stops",
     className: "bg-primary-container rounded-full",
   },
   schools: {

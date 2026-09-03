@@ -65,8 +65,8 @@ export function buildFloodCoverageDetail(input: {
   if (!incomplete && excludedCount < 10) return null;
 
   const incompleteReason = incomplete
-    ? `Flood hazard data is partial for this study area (${flood.featureCount} zone feature${flood.featureCount === 1 ? "" : "s"} in catalog). Parcel-level FEMA or local studies may show risks not captured in this layer.`
-    : "Flood hazard polygons cover the full study boundary for this dataset.";
+    ? `SFPUC July 2022 100-year storm flood is a partial clip (${flood.featureCount} zone feature${flood.featureCount === 1 ? "" : "s"} in catalog) — not FEMA NFHL. Parcels outside this visible layer are coverage gaps, not proof of safety.`
+    : "SFPUC storm-flood polygons cover the full study boundary for this dataset.";
 
   const exclusionReasons: string[] = [];
   if (excludedCount > 0) {
@@ -96,8 +96,8 @@ export function buildFloodCoverageDetail(input: {
       : [];
 
   const summary = incomplete
-    ? `Flood layer has incomplete coverage. ${excludedCount} parcel${excludedCount === 1 ? "" : "s"} excluded — verify site-specific flood risk before decisions.`
-    : `${excludedCount} parcel${excludedCount === 1 ? "" : "s"} excluded by flood constraint — review before decisions.`;
+    ? `SFPUC storm-flood clip has incomplete coverage. ${excludedCount} parcel${excludedCount === 1 ? "" : "s"} excluded — not FEMA; verify site-specific flood risk before decisions.`
+    : `${excludedCount} parcel${excludedCount === 1 ? "" : "s"} excluded by the visible SFPUC flood layer — review before decisions.`;
 
   return {
     showWarning: true,
@@ -121,7 +121,7 @@ export function candidateFloodIncompleteCaveat(
   if (!floodDataset?.incompleteCoverage) return null;
   const resilience = candidateMetricValue(candidate, "flood_resilience");
   if (resilience == null || resilience < 70) return null;
-  return "High flood resilience here means no mapped hazard overlap — flood layer coverage is incomplete for this study area. Verify site-specific flood risk before decisions.";
+  return "High flood resilience here means no overlap with the visible SFPUC 100-year storm clip — not FEMA. Coverage is incomplete; verify site-specific flood risk before decisions.";
 }
 
 function extendBbox(

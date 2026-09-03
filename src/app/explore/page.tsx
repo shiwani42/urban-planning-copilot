@@ -20,6 +20,7 @@ import { fetchJsonWithServerWake } from "@/lib/server-wake";
 import { formatLocaleDateTime } from "@/lib/format";
 import {
   NEW_PROJECT_CREATE_VERIFY_FAILED,
+  EXPLORE_QUESTION_PLACEHOLDER,
   PLANNER_GEOGRAPHY_LABEL,
 } from "@/lib/planner-copy";
 import type { Candidate, DatasetMeta } from "@/lib/domain/types";
@@ -351,7 +352,7 @@ export default function ExplorePage() {
               <textarea
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
-                placeholder="Ask about transit gaps, school access, flood exposure, or housing siting…"
+                placeholder={EXPLORE_QUESTION_PLACEHOLDER}
                 rows={3}
                 className="w-full border border-outline-variant rounded p-3 text-body-sm mb-3 bg-surface-container-lowest focus:border-primary-container focus:outline-none"
               />
