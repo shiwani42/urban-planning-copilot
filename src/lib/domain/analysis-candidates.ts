@@ -73,3 +73,21 @@ export function resultCandidateCount(result: AnalysisResult): number {
   }
   return Array.isArray(result.candidates) ? result.candidates.length : 0;
 }
+
+/** Keep only the scenario's latestResultId row — drops duplicate completed blobs. */
+export function dedupeAnalysisResultsPerScenario(store: {
+  scenarios: Array<{ id: string; latestResultId?: string | null }>;
+  analysisResults: AnalysisResult[];
+}): boolean {
+  let changed = false;
+  for (const scenario of store.scenarios) {
+    const keepId = scenario.latestResultId;
+    if (!keepId) continue;
+    const before = store.analysisResults.length;
+    store.analysisResults = store.analysisResults.filter(
+      (r) => r.scenarioId !== scenario.id || r.id === keepId
+    );
+    if (store.analysisResults.length !== before) changed = true;
+  }
+  return changed;
+}

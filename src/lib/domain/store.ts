@@ -8,6 +8,7 @@ import {
   prepareStoreForPersistence,
 } from "./store-persistence";
 import { reconcileInterruptedAnalysisJobsOnBoot } from "./analysis-jobs";
+import { dedupeAnalysisResultsPerScenario } from "./analysis-candidates";
 import { compactLegacyStoreJsonBeforeParse } from "./store-legacy-compact";
 import { normalizeStoreShape } from "./store-shape";
 import { generateSyntheticCity } from "./seed";
@@ -534,23 +535,6 @@ function postgresHealthOptions(
   };
 }
 
-async function writeFileCacheBestEffort(
-  dir: string,
-  pathToStore: string,
-  pathToBackup: string,
-  store: AppStore,
-  options?: PersistOptions
-): Promise<void> {
-  try {
-    await verifyWritableDataDir(dir);
-    await writeStorePayload(dir, pathToStore, pathToBackup, store, options);
-  } catch (err) {
-    console.error(
-      "[store] file cache write failed (postgres is primary):",
-      err instanceof Error ? err.message : String(err)
-    );
-  }
-}
 
 async function readStoreFromPostgresPrimary(): Promise<AppStore> {
   await ensureDataDirResolved();
@@ -564,15 +548,14 @@ async function readStoreFromPostgresPrimary(): Promise<AppStore> {
       const { store, legacyCompacted } = await parseStoreFile(raw, "postgres:planning_store");
       const interrupted = reconcileInterruptedAnalysisJobsOnBoot(store);
       prepareAnalysisResultsInStore(store);
+      const deduped = dedupeAnalysisResultsPerScenario(store);
       const upgraded = await upgradeCatalog(store);
       setLastBootRecovery("normal");
       markStorageHealthy(dir, undefined, {
         ...postgresHealthOptions({ lastBoot: "normal" }),
       });
-      if (legacyCompacted || interrupted || upgraded) {
+      if (legacyCompacted || interrupted || deduped || upgraded) {
         await persist(store);
-      } else {
-        await writeFileCacheBestEffort(dir, pathToStore, pathToBackup, store);
       }
       return store;
     }
@@ -845,7 +828,6 @@ export async function persist(store: AppStore, options?: PersistOptions): Promis
         markStorageHealthy(dir, undefined, {
           ...postgresHealthOptions({ lastBoot: lastBootRecovery }),
         });
-        await writeFileCacheBestEffort(dir, pathToStore, pathToBackup, store, options);
       } else {
         await verifyWritableDataDir(dir);
         await writeStorePayload(dir, pathToStore, pathToBackup, store, options);

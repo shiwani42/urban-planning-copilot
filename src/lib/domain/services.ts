@@ -14,6 +14,7 @@ import {
 import {
   applyScoreStatsToResult,
   compactCandidateForStore,
+  dedupeAnalysisResultsPerScenario,
   resultCandidateCount,
   resultScoreSpread,
 } from "./analysis-candidates";
@@ -1490,8 +1491,8 @@ export async function listCandidatesPage(
   offset = 0
 ) {
   await repairActiveScenarioIfNeeded(projectId);
-  const runStatus = await getAnalysisRunStatus(projectId, scenarioId);
   const store = await getStore();
+  const runStatus = await getAnalysisRunStatusFromStore(store, projectId, scenarioId);
   const scenario = store.scenarios.find(
     (s) => s.id === scenarioId && s.projectId === projectId
   );
@@ -1673,11 +1674,12 @@ async function executeAnalysisComputation(
       }
 
       s.analysisResults.push(result);
+      scenarioLive.latestResultId = result.id;
+      dedupeAnalysisResultsPerScenario(s);
       job.status = "completed";
       job.progress = 100;
       job.completedAt = now();
       job.currentStep = "Complete";
-      scenarioLive.latestResultId = result.id;
       scenarioLive.updatedAt = now();
       markReportsStaleForScenario(
         s,
@@ -1795,6 +1797,14 @@ async function executeAnalysisComputation(
 
 export async function getAnalysisRunStatus(projectId: string, scenarioId: string) {
   const store = await getStore();
+  return getAnalysisRunStatusFromStore(store, projectId, scenarioId);
+}
+
+function getAnalysisRunStatusFromStore(
+  store: AppStore,
+  projectId: string,
+  scenarioId: string
+) {
   const scenario = store.scenarios.find((s) => s.id === scenarioId && s.projectId === projectId);
   if (!scenario) {
     return { status: "not_found" as const };
@@ -1826,6 +1836,7 @@ export async function getAnalysisRunStatus(projectId: string, scenarioId: string
       status: "completed" as const,
       summary: result.summary,
       candidateCount: resultCandidateCount(result),
+      resultJobId: result.jobId,
       top: top
         ? { id: top.id, label: top.label, score: top.score }
         : null,
@@ -1907,6 +1918,7 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
         });
       }
       const configHash = configHashFor(sc);
+      markResultsStale(s, scenarioId, "Analysis recalculation in progress");
       const job: AnalysisJob = {
         id: jobId,
         scenarioId,
