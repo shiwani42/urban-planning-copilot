@@ -509,16 +509,14 @@ export async function executePlanningTool(
       }
       const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
       await services.requireProject(projectId);
-      const ws = await services.addToShortlist(projectId, scenarioId, candidateId, {
+      const pinned = await services.addToShortlist(projectId, scenarioId, candidateId, {
         reason: input.reason as string | undefined,
         note: input.note as string | undefined,
       });
-      const scenario = ws?.scenarios.find((s) => s.id === scenarioId);
-      const count = scenario?.shortlist?.length ?? 0;
       return {
-        candidateId,
-        shortlistCount: count,
-        note: `Pinned to shortlist (${count} site${count === 1 ? "" : "s"})`,
+        candidateId: pinned.candidateId,
+        shortlistCount: pinned.shortlistCount,
+        note: `Pinned to shortlist (${pinned.shortlistCount} site${pinned.shortlistCount === 1 ? "" : "s"})`,
       };
     }
     case "remove_from_shortlist": {
@@ -529,13 +527,11 @@ export async function executePlanningTool(
       }
       const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
       await services.requireProject(projectId);
-      const ws = await services.removeFromShortlist(projectId, scenarioId, candidateId);
-      const scenario = ws?.scenarios.find((s) => s.id === scenarioId);
-      const count = scenario?.shortlist?.length ?? 0;
+      const removed = await services.removeFromShortlist(projectId, scenarioId, candidateId);
       return {
-        candidateId,
-        shortlistCount: count,
-        note: `Removed from shortlist (${count} site${count === 1 ? "" : "s"} remaining)`,
+        candidateId: removed.candidateId,
+        shortlistCount: removed.shortlistCount,
+        note: `Removed from shortlist (${removed.shortlistCount} site${removed.shortlistCount === 1 ? "" : "s"} remaining)`,
       };
     }
     case "exclude_features": {
@@ -591,8 +587,8 @@ export async function executePlanningTool(
       }
       const ws = await services.setMapView(projectId, { center: [lng, lat], zoom });
       return {
-        center: ws?.project.mapState.viewport.center,
-        zoom: ws?.project.mapState.viewport.zoom,
+        center: ws.center,
+        zoom: ws.zoom,
         note: "Map viewport updated",
       };
     }

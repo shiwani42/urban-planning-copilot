@@ -74,6 +74,49 @@ export function resultCandidateCount(result: AnalysisResult): number {
   return Array.isArray(result.candidates) ? result.candidates.length : 0;
 }
 
+export type CompactCandidateRow = {
+  id: string;
+  label: string;
+  rank: number;
+  score: number;
+  status: string;
+};
+
+/** Paginated list payload — centroids/ids only, never geometries. */
+export function paginateCandidatesCompact(
+  result: AnalysisResult,
+  limit = 10,
+  offset = 0
+): {
+  totalCount: number;
+  offset: number;
+  limit: number;
+  scoreSpread: number;
+  stale: boolean;
+  summary: string;
+  candidates: CompactCandidateRow[];
+} {
+  const all = Array.isArray(result.candidates) ? result.candidates : [];
+  const safeLimit = Math.max(1, Math.min(100, Number.isFinite(limit) ? limit : 10));
+  const safeOffset = Math.max(0, Number.isFinite(offset) ? offset : 0);
+  const page = all.slice(safeOffset, safeOffset + safeLimit);
+  return {
+    totalCount: resultCandidateCount(result),
+    offset: safeOffset,
+    limit: safeLimit,
+    scoreSpread: resultScoreSpread(result),
+    stale: result.stale ?? false,
+    summary: result.summary,
+    candidates: page.map((c) => ({
+      id: c.id,
+      label: c.label,
+      rank: c.rank,
+      score: c.score,
+      status: c.status ?? "eligible",
+    })),
+  };
+}
+
 /** Keep only the scenario's latestResultId row — drops duplicate completed blobs. */
 export function dedupeAnalysisResultsPerScenario(store: {
   scenarios: Array<{ id: string; latestResultId?: string | null }>;

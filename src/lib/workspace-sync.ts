@@ -29,6 +29,16 @@ export type WorkspaceMutatedDetail = {
   resumeNote?: string;
   criteriaStale?: boolean;
   mapViewport?: { center: [number, number]; zoom: number };
+  /** Skip GET /api/projects — used when the tool already updated local UI. */
+  skipRefresh?: boolean;
+  /** Optimistic shortlist pin/unpin from a page tool. */
+  shortlistMutation?: {
+    action: "pin" | "unpin";
+    candidateId: string;
+    reason?: string;
+    note?: string;
+  };
+  persistFailed?: boolean;
   /** Open a workspace tab after a read-only planner tool (e.g. compare). */
   openTab?: WorkspaceTab;
   compareScenarioIds?: string[];
@@ -144,6 +154,7 @@ export function mutationDetailFromToolResult(
     projectId: resolvedProjectId,
     resumeNote: note,
     criteriaStale,
+    skipRefresh: name === "set_map_view",
     mapViewport:
       name === "set_map_view" &&
       Array.isArray(payload.center) &&

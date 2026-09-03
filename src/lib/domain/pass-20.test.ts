@@ -182,7 +182,9 @@ describe("pass-20 hardening", () => {
     const result = after!.analysisResults.find((r) => r.id === after!.scenarios[0]!.latestResultId);
     const top = result?.candidates[0];
     assert.ok(top);
-    await services.addToShortlist(ws.project.id, scenarioId, top!.id, "Pinned for review");
+    await services.addToShortlist(ws.project.id, scenarioId, top!.id, {
+      reason: "Pinned for review",
+    });
 
     const listed = await services.listProjects();
     const item = listed.find((p) => p.id === ws.project.id);

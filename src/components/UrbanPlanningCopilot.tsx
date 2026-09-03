@@ -399,7 +399,7 @@ export function UrbanPlanningCopilot({
           </p>
         )}
         <label className="sr-only" htmlFor="urban-planning-copilot-input">
-          Ask Urban Planning Copilot
+          Study command
         </label>
         <div className="flex gap-2">
           <input
@@ -409,7 +409,7 @@ export function UrbanPlanningCopilot({
             value={query}
             disabled={busy}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Ask or command — e.g. pin top site, compare scenarios"
+            placeholder="Command this study — pin top site, compare scenarios"
             className="flex-1 min-w-0 border border-outline-variant bg-surface px-3 py-2 text-body-sm rounded focus-ring focus:border-primary-container"
           />
           <button
@@ -455,7 +455,7 @@ export function UrbanPlanningCopilot({
             </h2>
             <p className="text-caption text-on-surface-variant mt-0.5">
               {hasProject
-                ? "Ask or pick a command — activity shows progress and results."
+                ? "Commands update this study — activity is the feed."
                 : "Start a project from the header or explore open data."}
             </p>
           </div>

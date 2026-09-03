@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { nanoid } from "nanoid";
+import { GEOGRAPHY_LABEL } from "./study-bounds";
 import type {
   AnalysisPlan,
   Assumption,
@@ -291,7 +292,7 @@ export function defaultAssumptions(intent: PlanningIntent): Assumption[] {
 
 export function parseObjective(
   rawText: string,
-  geographyLabel = "Study area",
+  geographyLabel = GEOGRAPHY_LABEL,
   options?: { availableDatasetKinds?: string[] }
 ): {
   objective: PlanningObjective;

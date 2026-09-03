@@ -4,6 +4,9 @@ import {
   resolveHousingTarget,
   topSiteCapacityFromResult,
   totalCapacityFromResult,
+  analyzedHousingTarget,
+  rankingStaleVersusObjective,
+  rankingStaleMessage,
 } from "./housing-target";
 import type { AnalysisResult, Candidate } from "./types";
 
@@ -51,7 +54,8 @@ describe("housing-target", () => {
     assert.equal(
       resolveHousingTarget({
         intent: "housing_capacity",
-        objectiveRawText: "Deliver 2,000 homes near transit",
+        objectiveTarget: 50,
+        objectiveRawText: "Deliver 2,000 homes near transit in Mission/SoMa",
       }),
       2000
     );
@@ -71,5 +75,31 @@ describe("housing-target", () => {
 
     assert.equal(totalCapacityFromResult(result), 23);
     assert.equal(topSiteCapacityFromResult(result), 13);
+  });
+
+  it("flags ranking stale when analyzed target differs from current brief", () => {
+    const result = {
+      id: "r1",
+      scenarioId: "s1",
+      status: "completed",
+      candidates: [mockCandidate(1, 13)],
+      aggregateMetrics: [
+        {
+          key: "housing_target_gap",
+          label: "Shortfall vs housing target",
+          value: 1950,
+          kind: "calculated",
+          inputs: { target_homes: 50, eligible_capacity: 13, gap: -37 },
+        },
+      ],
+      summary: "",
+      limitations: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } satisfies AnalysisResult;
+
+    assert.equal(analyzedHousingTarget(result), 50);
+    assert.equal(rankingStaleVersusObjective(result, 2000), true);
+    assert.equal(rankingStaleVersusObjective(result, 50), false);
+    assert.match(rankingStaleMessage(2000, 50), /50-home brief/);
   });
 });

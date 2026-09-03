@@ -38,10 +38,11 @@ describe("candidate shortlist (pass 13)", () => {
 
   it("pins and lists candidates on the scenario shortlist", async () => {
     const { projectId, scenarioId, candidate } = await projectWithResults();
-    const ws = await services.addToShortlist(projectId, scenarioId, candidate.id, {
+    await services.addToShortlist(projectId, scenarioId, candidate.id, {
       reason: "Strong transit access",
       note: "Near BART",
     });
+    const ws = await services.getWorkspace(projectId);
     const scenario = ws!.scenarios.find((s) => s.id === scenarioId)!;
     assert.equal(scenario.shortlist?.length, 1);
     assert.equal(scenario.shortlist![0].label, candidate.label);

@@ -54,8 +54,11 @@ describe("yield-gap", () => {
     assert.equal(gap.topCandidateCapacity, 13);
     assert.equal(gap.topNCapacity, 31);
     assert.equal(gap.shortlistCapacity, 13);
-    assert.match(gap.detail, /No single parcel meets/);
-    assert.match(gap.detail, /Shortlist 1 site/);
+    assert.match(gap.headline, /Shortfall of 569 homes/);
+    assert.match(gap.headline, /31 eligible vs 600 target/);
+    assert.equal(gap.shortfall, 569);
+    assert.equal(gap.eligibleCapacity, 31);
+    assert.match(gap.detail, /Closing the gap/);
   });
 
   it("returns null when target is missing or no candidates", () => {

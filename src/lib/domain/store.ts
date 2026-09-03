@@ -28,6 +28,7 @@ import {
   getPersistBackend,
   isPostgresConfigured,
   loadStorePayloadFromPostgres,
+  patchPostgresDocuments,
   peekPostgresProjectCount,
   PostgresPersistError,
   upsertStoreToPostgres,
@@ -73,7 +74,16 @@ function isPersistentDataDir(dir: string): boolean {
 export type PersistOptions = {
   /** Allow replacing a non-empty on-disk catalog with zero projects (tests / explicit wipe). */
   allowEmptyCatalog?: boolean;
+  /**
+   * `documents` patches projects/scenarios/activity without rewriting
+   * analysisResults or GIS catalog features (postgres jsonb merge).
+   * `full` (default) writes the compact catalog including analysis rows.
+   */
+  scope?: "full" | "documents";
 };
+
+/** Persist planner documents without rewriting analysis payloads or GIS features. */
+export const DOCUMENT_PERSIST: PersistOptions = { scope: "documents" };
 
 let lastBootRecovery: BootRecoveryKind = "normal";
 
@@ -821,7 +831,11 @@ export async function persist(store: AppStore, options?: PersistOptions): Promis
     try {
       if (isPostgresConfigured()) {
         try {
-          await upsertStoreToPostgres(store, options);
+          if (options?.scope === "documents") {
+            await patchPostgresDocuments(store, options);
+          } else {
+            await upsertStoreToPostgres(store, options);
+          }
         } catch (err) {
           mapPostgresPersistError(err);
         }

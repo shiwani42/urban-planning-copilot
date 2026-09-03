@@ -2,9 +2,9 @@ import {
   getActivePersistBackend,
   getConfiguredDataDir,
   getLastBootRecovery,
+  getStore,
   getStorePath,
   peekStoreProjectCount,
-  reloadStoreFromDisk,
   refreshStorageHealthProbe,
   storeFileExists,
 } from "./store";
@@ -50,7 +50,7 @@ export async function loadSharedStoreCatalog(): Promise<SharedStoreCatalog> {
       `ENOENT: no such file or directory, access '${storePath}'`;
   }
 
-  const store = await reloadStoreFromDisk();
+  const store = await getStore();
   const loadedProjectCount = store.projects.length;
   const listableProjectCount = store.projects.filter((p) =>
     getWorkspaceFromStore(store, p.id)

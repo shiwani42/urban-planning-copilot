@@ -14,6 +14,7 @@ import {
   continueCardActivity,
   scenarioChipLabel,
 } from "@/lib/home-dashboard";
+import { pickContinueProjects } from "@/lib/home-continue";
 import type { RecentActivityRow, RecentAnalysisRow } from "@/lib/domain/types";
 import {
   getRecentProjectHints,
@@ -58,11 +59,7 @@ type Project = {
 };
 
 const SHOW_WEBMCP_UI = process.env.NEXT_PUBLIC_SHOW_WEBMCP_UI === "true";
-const CONTINUE_LIMIT = 3;
-
-function sortByRecency(a: Project, b: Project): number {
-  return projectRecencyIso(b).localeCompare(projectRecencyIso(a));
-}
+const CONTINUE_LIMIT = 1;
 
 function matchesSearch(project: Project, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -256,7 +253,7 @@ export default function HomePage() {
   );
 
   const continueProjects = useMemo(
-    () => sortedProjects.slice().sort(sortByRecency).slice(0, CONTINUE_LIMIT),
+    () => pickContinueProjects(sortedProjects, CONTINUE_LIMIT),
     [sortedProjects]
   );
 

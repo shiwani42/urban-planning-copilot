@@ -12,6 +12,8 @@ import {
   PROJECT_NOT_FOUND_HELP,
   PROJECT_NOT_ON_SERVER_DETAIL,
   PROJECT_UNAVAILABLE_DETAIL,
+  RANKING_STALE_FALLBACK,
+  SHORTLIST_SAVE_FAILED,
 } from "@/lib/planner-copy";
 import { StorageBanner } from "@/components/StorageBanner";
 import { ServerWakeBanner } from "@/components/ServerWakeBanner";
@@ -106,6 +108,7 @@ import {
   shortlistPinReason,
   type ResolvedShortlistEntry,
 } from "@/lib/domain/shortlist";
+import { applyShortlistMutation } from "@/lib/domain/shortlist-optimistic";
 import {
   buildFloodCoverageDetail,
   candidateFloodIncompleteCaveat,
@@ -120,6 +123,9 @@ import {
 import { computeYieldGap, type YieldGapSummary } from "@/lib/domain/yield-gap";
 import {
   resolveHousingTarget,
+  rankingStaleMessage,
+  rankingStaleVersusObjective,
+  analyzedHousingTarget,
   topSiteCapacityFromResult,
   totalCapacityFromResult,
 } from "@/lib/domain/housing-target";
@@ -239,7 +245,7 @@ export default function WorkspaceClient({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { workspace, loading, error, busy, act, refresh, clearError, loadPhase, elapsedMs, isRetrying, refreshing, projectNotFound, lastFetchAt } =
+  const { workspace, loading, error, busy, act, refresh, clearError, loadPhase, elapsedMs, isRetrying, refreshing, projectNotFound, lastFetchAt, setWorkspace } =
     useWorkspace(projectId);
   const [tab, setTabState] = useState<Tab>(() => {
     if (typeof window !== "undefined") {
@@ -832,19 +838,54 @@ export default function WorkspaceClient({
   const pinToShortlist = useCallback(
     async (c: Candidate, reason?: string) => {
       if (!scenario) return;
-      await act("add_to_shortlist", {
-        scenarioId: scenario.id,
-        candidateId: c.id,
-        reason: reason ?? "Pinned from Results",
-      });
-      await refresh();
+      setWorkspace((prev) =>
+        prev
+          ? applyShortlistMutation(prev, {
+              action: "pin",
+              candidateId: c.id,
+              reason: reason ?? "Pinned from Results",
+            })
+          : prev
+      );
+      try {
+        await act(
+          "add_to_shortlist",
+          {
+            scenarioId: scenario.id,
+            candidateId: c.id,
+            reason: reason ?? "Pinned from Results",
+          },
+          { skipRefresh: true }
+        );
+      } catch {
+        setWorkspace((prev) =>
+          prev ? applyShortlistMutation(prev, { action: "unpin", candidateId: c.id }) : prev
+        );
+        showToast(SHORTLIST_SAVE_FAILED);
+        return;
+      }
       showToast(
         `Pinned ${c.label} to shortlist`,
         () => {
-          void act("remove_from_shortlist", {
-            scenarioId: scenario.id,
-            candidateId: c.id,
-          }).then(() => refresh());
+          setWorkspace((prev) =>
+            prev ? applyShortlistMutation(prev, { action: "unpin", candidateId: c.id }) : prev
+          );
+          void act(
+            "remove_from_shortlist",
+            { scenarioId: scenario.id, candidateId: c.id },
+            { skipRefresh: true }
+          ).catch(() => {
+            setWorkspace((prev) =>
+              prev
+                ? applyShortlistMutation(prev, {
+                    action: "pin",
+                    candidateId: c.id,
+                    reason: reason ?? "Pinned from Results",
+                  })
+                : prev
+            );
+            showToast(SHORTLIST_SAVE_FAILED);
+          });
         },
         {
           label: "Review decision",
@@ -852,7 +893,7 @@ export default function WorkspaceClient({
         }
       );
     },
-    [act, refresh, scenario, setTab]
+    [act, scenario, setTab, setWorkspace]
   );
 
   const unpinFromShortlist = useCallback(
@@ -861,22 +902,41 @@ export default function WorkspaceClient({
       const entry = shortlist.find((e) => e.candidateId === candidateId);
       const pinReason = entry?.reason ?? "Pinned from Results";
       const pinNote = entry?.note;
-      await act("remove_from_shortlist", {
-        scenarioId: scenario.id,
-        candidateId,
-      });
-      await refresh();
+      setWorkspace((prev) =>
+        prev ? applyShortlistMutation(prev, { action: "unpin", candidateId }) : prev
+      );
+      try {
+        await act(
+          "remove_from_shortlist",
+          {
+            scenarioId: scenario.id,
+            candidateId,
+          },
+          { skipRefresh: true }
+        );
+      } catch {
+        setWorkspace((prev) =>
+          prev
+            ? applyShortlistMutation(prev, {
+                action: "pin",
+                candidateId,
+                reason: pinReason,
+                note: pinNote,
+              })
+            : prev
+        );
+        showToast(SHORTLIST_SAVE_FAILED);
+        return;
+      }
       const displayLabel = label ?? entry?.candidate?.label ?? "site";
       showToast(`Removed ${displayLabel} from shortlist`, () => {
-        void act("add_to_shortlist", {
-          scenarioId: scenario.id,
-          candidateId,
-          reason: pinReason,
-          note: pinNote,
-        }).then(() => refresh());
+        void pinToShortlist(
+          { id: candidateId, label: displayLabel } as Candidate,
+          pinReason
+        );
       });
     },
-    [act, refresh, scenario, shortlist]
+    [act, scenario, setWorkspace, shortlist]
   );
 
   const saveShortlistNote = useCallback(
@@ -931,7 +991,6 @@ export default function WorkspaceClient({
     scenario?.enabledDatasetIds.filter((id) =>
       workspace?.datasets.some((d) => d.id === id && d.enabled)
     ).length ?? workspace?.datasets.filter((d) => d.enabled).length ?? 0;
-  const targetGap = analysisAggregateMetrics(result).find((m) => m.key === "housing_target_gap");
   const accessHeadline =
     scenario && result
       ? headlineMetric(scenario.objective.intent, analysisAggregateMetrics(result), {
@@ -1433,6 +1492,12 @@ export default function WorkspaceClient({
     workspace.project.name,
     housingTarget
   );
+  const rankingStale =
+    rankingStaleVersusObjective(result, housingTarget) && !result?.stale;
+  const rankingStaleLabel =
+    rankingStale && housingTarget != null
+      ? rankingStaleMessage(housingTarget, analyzedHousingTarget(result) ?? housingTarget)
+      : RANKING_STALE_FALLBACK;
   const inspectorOutcome = outcomeFromWorkspace(
     workspace,
     scenario.id,
@@ -1709,14 +1774,15 @@ export default function WorkspaceClient({
         {result && housingTarget && totalCapacity != null && isHousingIntent(scenario.objective.intent) && (
           <div
             className={`shrink-0 px-3 py-1 rounded border text-caption font-medium whitespace-nowrap ${
-              totalCapacity >= housingTarget
-                ? "border-secondary bg-secondary-fixed/20 text-secondary"
-                : "border-error bg-error-container/30 text-error"
+              (yieldGap?.shortfall ?? 0) > 0 || totalCapacity < housingTarget
+                ? "border-error bg-error-container/30 text-error"
+                : "border-secondary bg-secondary-fixed/20 text-secondary"
             }`}
           >
-            {totalCapacity >= housingTarget ? "Meets" : "Shortfall"}:{" "}
-            {totalCapacity.toLocaleString()} / {housingTarget.toLocaleString()} homes
-            {targetGap ? ` (${targetGap.method})` : ""}
+            {yieldGap?.headline ??
+              (totalCapacity >= housingTarget
+                ? `Eligible capacity ${totalCapacity.toLocaleString()} vs ${housingTarget.toLocaleString()} target`
+                : `Shortfall of ${(housingTarget - totalCapacity).toLocaleString()} homes (${totalCapacity.toLocaleString()} eligible / ${housingTarget.toLocaleString()} target)`)}
           </div>
         )}
         {result && accessHeadline && !isHousingIntent(scenario.objective.intent) && (
@@ -1759,6 +1825,14 @@ export default function WorkspaceClient({
             {headerResumeNote}
           </span>
         )}
+        {rankingStale && (
+          <span
+            className="shrink-0 px-3 py-1 rounded border border-secondary bg-secondary-fixed/20 text-secondary text-caption font-medium whitespace-nowrap"
+            title={rankingStaleLabel}
+          >
+            Ranking stale — recalculate
+          </span>
+        )}
         {titleObjectiveMismatch && (
           <span
             className="shrink-0 px-2 py-0.5 rounded border border-secondary text-secondary text-caption whitespace-nowrap"
@@ -1769,6 +1843,11 @@ export default function WorkspaceClient({
         )}
       </div>
 
+      {rankingStale && (
+        <div className="bg-secondary-fixed/15 border-b border-secondary/30 px-section-padding py-2 text-caption text-secondary shrink-0">
+          {rankingStaleLabel}
+        </div>
+      )}
       {titleObjectiveMismatch && (
         <div className="bg-secondary-fixed/15 border-b border-secondary/30 px-section-padding py-2 text-caption text-secondary shrink-0">
           {titleObjectiveMismatch}
@@ -1839,10 +1918,10 @@ export default function WorkspaceClient({
 
       {tab === "workspace" ? (
         <main className="flex-1 flex overflow-hidden relative min-h-0">
-          <aside className="w-sidebar-width min-w-sidebar-width max-w-sidebar-width bg-surface border-r border-outline-variant flex flex-col z-30 shrink-0 min-h-0">
+          <aside className="w-[min(360px,28vw)] min-w-[220px] max-w-sidebar-width bg-surface border-r border-outline-variant flex flex-col z-30 shrink-0 min-h-0">
             <div className="p-4 border-b border-outline-variant bg-surface-container-low flex justify-between items-center">
               <div>
-                <h2 className="text-headline-md text-primary">Context</h2>
+                <h2 className="text-headline-md text-primary">Plan</h2>
                 <p className="text-caption text-on-surface-variant mt-0.5">
                   {workspace.project.geographyLabel}
                 </p>
@@ -1884,7 +1963,7 @@ export default function WorkspaceClient({
                       Exclude this area
                     </button>
                     <p className="text-caption text-on-surface-variant mt-1">
-                      Click map corners, then Finish — drawn polygons use the existing exclusion flow.
+                      Click map corners, then Finish. Edit or delete a polygon from the list below without fighting the map — drawing mode ignores parcel clicks.
                     </p>
                   </div>
                   {scenario.constraints
@@ -2359,7 +2438,7 @@ export default function WorkspaceClient({
             )}
 
             <div
-              className="absolute right-[3.25rem] top-3 flex flex-col gap-2 z-[1000] max-h-[calc(100%-5rem)] overflow-y-auto overflow-x-visible"
+              className="absolute right-3 top-14 flex flex-col gap-2 z-[1000] max-h-[calc(100%-6.5rem)] overflow-y-auto overflow-x-visible"
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
             >
@@ -2422,6 +2501,9 @@ export default function WorkspaceClient({
                     visibleKinds={visibleLayerKinds}
                     hasExclusions={scenario.geographicSelections.some(
                       (g) => g.type === "exclusion"
+                    )}
+                    hasFloodCoverageGaps={Boolean(
+                      workspace.datasets.find((d) => d.kind === "flood")?.incompleteCoverage
                     )}
                   />
                 </div>
@@ -2534,7 +2616,7 @@ export default function WorkspaceClient({
 
           <aside
             id="agent-activity-panel"
-            className={`w-inspector-width min-w-inspector-width max-w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0 ${
+            className={`w-[min(320px,26vw)] min-w-[200px] max-w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0 ${
               runningJob || analysisBusy ? "copilot-running-glow" : ""
             }`}
           >
@@ -2550,7 +2632,7 @@ export default function WorkspaceClient({
                       }`}
                       aria-hidden
                     />
-                    Urban Planning Copilot
+                    Findings
                   </h2>
                   <p className="text-caption text-on-surface-variant mt-0.5 line-clamp-2">
                     {inspectorOutcome}
@@ -3650,7 +3732,7 @@ function ResultsDrawer(props: {
       className={
         isPage
           ? "flex-1 min-h-0 flex flex-col overflow-hidden bg-surface"
-          : `absolute bottom-7 left-sidebar-width right-inspector-width max-h-[min(48vh,520px)] z-[1010] ${
+          : `absolute bottom-7 left-[min(360px,28vw)] right-[min(320px,26vw)] max-h-[min(48vh,520px)] z-[1010] ${
               props.drawingActive ? "pointer-events-none" : "pointer-events-none"
             }`
       }
@@ -3699,8 +3781,11 @@ function ResultsDrawer(props: {
                     : "border-error text-error"
                 }`}
               >
-                {props.totalCapacity >= props.housingTarget ? "Meets" : "Shortfall"}{" "}
-                {props.totalCapacity.toLocaleString()} / {props.housingTarget.toLocaleString()} homes
+                {props.yieldGap
+                  ? props.yieldGap.headline
+                  : props.totalCapacity >= props.housingTarget
+                    ? `Eligible ${props.totalCapacity.toLocaleString()} vs ${props.housingTarget.toLocaleString()} target`
+                    : `Shortfall of ${(props.housingTarget - props.totalCapacity).toLocaleString()} homes`}
               </span>
             )}
             {props.accessHeadline && !housingAnalysis && (
@@ -3794,7 +3879,7 @@ function ResultsDrawer(props: {
                   </p>
                 )}
                 <div className={`overflow-x-auto overflow-y-auto ${isPage ? "max-h-none flex-1 min-h-[12rem]" : "max-h-[min(36vh,320px)]"}`}>
-                <table className="w-full text-left text-body-sm min-w-[640px]">
+                <table className="w-full text-left text-body-sm min-w-[520px]">
                   <thead className="sticky top-0 bg-surface z-10">
                     <tr className="font-mono text-data-label text-on-surface-variant border-b border-outline-variant">
                       <th className="py-2 pr-3 w-20 text-left" scope="col">
@@ -3810,7 +3895,6 @@ function ResultsDrawer(props: {
                   <tbody>
                     {visibleCandidates.map((c, rowIndex) => {
                       const pinned = isCandidateShortlisted(scenario, c);
-                      const floodCaveat = candidateFloodIncompleteCaveat(floodDataset, c);
                       return (
                       <tr
                         key={c.id}
@@ -3884,14 +3968,6 @@ function ResultsDrawer(props: {
                         {props.resultsColumns.map((col) => (
                           <td key={col.key} className="py-2 pr-2 font-mono">
                             {col.format(c)}
-                            {col.key === "label" && floodCaveat && (
-                              <span
-                                className="block text-[10px] text-secondary font-sans normal-case mt-0.5"
-                                title={floodCaveat}
-                              >
-                                Flood layer partial — high score ≠ verified safety
-                              </span>
-                            )}
                           </td>
                         ))}
                       </tr>
@@ -4733,6 +4809,16 @@ function CompareView(props: {
         </div>
       )}
 
+      {showResults && compareMapEntries.length >= 2 && (
+        <div className="mb-6">
+          <CompareScenarioMaps
+            workspace={workspace}
+            layerData={props.layerData}
+            entries={compareMapEntries}
+          />
+        </div>
+      )}
+
       {showResults && props.tableRows && (
         <>
           <CompareMetricsTable
@@ -4743,14 +4829,6 @@ function CompareView(props: {
             sortable
             matrixStyle
           />
-
-          {compareMapEntries.length >= 2 && (
-            <CompareScenarioMaps
-              workspace={workspace}
-              layerData={props.layerData}
-              entries={compareMapEntries}
-            />
-          )}
 
           <section className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-outline-variant pt-8">
             <div className="space-y-3">
