@@ -331,6 +331,22 @@ export default function WorkspaceClient({
   const [resultsFilter, setResultsFilter] = useState<ResultsFilterState>(DEFAULT_RESULTS_FILTER);
   const weightsPanelRef = useRef<HTMLElement | null>(null);
   const compareTabEnteredRef = useRef(false);
+  const lastComparedKeyRef = useRef<string | null>(null);
+
+  const comparableCompareIds = useCallback(
+    (ids: string[]) => {
+      if (!workspace) return [];
+      return ids.filter((id) => {
+        const item = workspace.scenarios.find((s) => s.id === id);
+        return item && scenarioHasComparableAnalysis(item, workspace.analysisResults);
+      });
+    },
+    [workspace]
+  );
+
+  const compareSelectionKey = useCallback((ids: string[]) => {
+    return [...ids].sort().join(",");
+  }, []);
 
   const applyCompareFromPayload = useCallback(
     (ids: string[], data: CompareScenariosToolPayload) => {
@@ -355,6 +371,7 @@ export default function WorkspaceClient({
                 .join(" · ")
             : "Run analysis on each selected branch before comparing."
         );
+        lastComparedKeyRef.current = compareSelectionKey(ids);
       } else {
         setComparison(data.comparison ?? null);
         setCompareTableRows(data.tableRows ?? null);
@@ -363,11 +380,35 @@ export default function WorkspaceClient({
         setCompareMetricsIdentical(Boolean(data.metricsIdentical));
         setCompareInsights(data.insights ?? null);
         setCompareHint(null);
+        lastComparedKeyRef.current = compareSelectionKey(ids);
       }
       setCompareIds(ids);
       setCompareError(null);
     },
-    []
+    [compareSelectionKey]
+  );
+
+  const runCompare = useCallback(
+    async (ids: string[], options?: { force?: boolean }) => {
+      const comparableIds = comparableCompareIds(ids);
+      if (comparableIds.length < 2) return;
+      const key = compareSelectionKey(comparableIds);
+      if (!options?.force && lastComparedKeyRef.current === key) return;
+      setCompareBusy(true);
+      setCompareError(null);
+      try {
+        const data = (await act("compare_scenarios", {
+          scenarioIds: comparableIds,
+        })) as CompareScenariosToolPayload;
+        applyCompareFromPayload(comparableIds, data);
+      } catch (e) {
+        lastComparedKeyRef.current = null;
+        setCompareError(e instanceof Error ? e.message : "Compare failed");
+      } finally {
+        setCompareBusy(false);
+      }
+    },
+    [act, applyCompareFromPayload, comparableCompareIds, compareSelectionKey]
   );
 
   const setTab = useCallback(
@@ -680,6 +721,35 @@ export default function WorkspaceClient({
       })
     );
   }, [workspace, tab, workspace?.analysisResults.length]);
+
+  useEffect(() => {
+    if (tab !== "compare" || !workspace) return;
+    const comparableIds = comparableCompareIds(compareIds);
+    if (comparableIds.length < 2) {
+      lastComparedKeyRef.current = null;
+      return;
+    }
+    const key = compareSelectionKey(comparableIds);
+    if (lastComparedKeyRef.current && lastComparedKeyRef.current !== key) {
+      setComparison(null);
+      setCompareTableRows(null);
+      setCompareInsights(null);
+      setCompareInputsDiff(null);
+      setCompareHousingTargets(null);
+      setCompareMetricsIdentical(false);
+      lastComparedKeyRef.current = null;
+    }
+    if (compareBusy || lastComparedKeyRef.current === key) return;
+    void runCompare(comparableIds);
+  }, [
+    tab,
+    workspace,
+    compareIds,
+    compareBusy,
+    comparableCompareIds,
+    compareSelectionKey,
+    runCompare,
+  ]);
 
   useEffect(() => {
     if (!toast) return;
@@ -3308,18 +3378,8 @@ export default function WorkspaceClient({
             showToast(`Now viewing “${scenarioName}” — run analysis when ready.`);
           }}
           onCompare={async () => {
-            const ids = [...compareIds];
-            if (ids.length < 2) return;
-            setCompareBusy(true);
-            setCompareError(null);
-            try {
-              const data = (await act("compare_scenarios", { scenarioIds: ids })) as CompareScenariosToolPayload;
-              applyCompareFromPayload(ids, data);
-            } catch (e) {
-              setCompareError(e instanceof Error ? e.message : "Compare failed");
-            } finally {
-              setCompareBusy(false);
-            }
+            lastComparedKeyRef.current = null;
+            await runCompare(compareIds, { force: true });
           }}
           onPrefer={async (id) => {
             await act("record_decision", {
@@ -4872,7 +4932,7 @@ function CompareView(props: {
           role="status"
         >
           <p className="text-body-sm text-on-surface-variant">
-            Press <strong>Compare selected</strong> to load metrics for the chosen scenarios.
+            Loading comparison for the selected scenarios…
           </p>
         </div>
       )}
