@@ -915,7 +915,7 @@ export async function createProject(input: {
   }
   if (!ws) {
     throw new Error(
-      `Project was saved (id ${projectId || "unknown"}) but could not be loaded from workspace storage. Check /api/health and retry.`
+      `Project was saved but could not be opened. Return to your project list and try again.`
     );
   }
   return duplicateNameWarning ? { ...ws, duplicateNameWarning: true } : ws;

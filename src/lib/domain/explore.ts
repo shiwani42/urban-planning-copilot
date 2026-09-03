@@ -13,6 +13,7 @@ import {
   defaultWeightsForIntent,
 } from "./objective";
 import { runSpatialAnalysis } from "./spatial";
+import { exploreSuggestedProjectName } from "../planner-copy";
 
 export type ExploreAnalysisType =
   | "transit_gap"
@@ -401,10 +402,9 @@ export interface ExploreConvertDraft {
 export function buildExploreConvertDraft(
   result: ExploreInvestigationResult
 ): ExploreConvertDraft {
-  const typeLabel = result.analysisType.replace(/_/g, " ");
   return {
     objective: result.question,
-    suggestedName: `Explore — ${typeLabel}`,
+    suggestedName: exploreSuggestedProjectName(result.analysisType),
     investigatedAt: result.investigatedAt,
     analysisType: result.analysisType,
     summary: result.summary,

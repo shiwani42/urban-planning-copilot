@@ -90,7 +90,7 @@ export function ExploreMap({
       <div className="absolute inset-0 z-0 bg-surface-container-low" aria-hidden />
       <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1001] pointer-events-none">
         <div className="bg-surface/95 border border-outline-variant px-3 py-1 rounded text-[10px] text-on-surface-variant font-medium whitespace-nowrap">
-          San Francisco open data — Mission & SoMa demo area
+          Mission/SoMa, San Francisco
         </div>
       </div>
       <MapContainer

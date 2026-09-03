@@ -5,11 +5,17 @@ import {
   shouldShowEphemeralStorageBanner,
   shouldShowStorageUnavailableBanner,
   storageReliabilityIssue,
+  EPHEMERAL_STORAGE_BANNER_MESSAGE,
   type ClientStorageStatus,
 } from "./storage-status";
+import { containsForbiddenPlannerCopy } from "./planner-copy";
 import { describeWorkspaceOutcome } from "./copilot/workspace-outcome";
 
 describe("storage-status banner gating", () => {
+  it("ephemeral banner copy is planner-facing", () => {
+    assert.equal(containsForbiddenPlannerCopy(EPHEMERAL_STORAGE_BANNER_MESSAGE), false);
+  });
+
   it("hides banner when postgres storage is healthy with write probe ok", () => {
     const storage: ClientStorageStatus = {
       status: "healthy",
