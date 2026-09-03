@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   applyFloodWeightedWeights,
+  mergeWeightDraftFromServer,
   rebalanceWeights,
   weightsEqual,
 } from "./weights";
@@ -37,6 +38,36 @@ describe("applyFloodWeightedWeights", () => {
     assert.notEqual(Math.round(next[1].weight * 100), 35);
     const sum = next.reduce((s, w) => s + w.weight, 0);
     assert.ok(Math.abs(sum - 1) < 0.001);
+  });
+});
+
+describe("mergeWeightDraftFromServer", () => {
+  const serverWeights = [
+    { id: "w1", key: "transit", label: "Transit", weight: 0.45 },
+    { id: "w2", key: "housing", label: "Housing", weight: 0.35 },
+    { id: "w3", key: "flood", label: "Flood", weight: 0.2 },
+  ];
+  const sync = { scenarioId: "s1", serverWeights };
+
+  it("resets draft when switching scenario branches", () => {
+    const edited = rebalanceWeights(serverWeights, 2, 50);
+    const next = mergeWeightDraftFromServer(edited, "s2", serverWeights, sync);
+    assert.equal(weightsEqual(next.draft, serverWeights), true);
+    assert.equal(next.sync.scenarioId, "s2");
+  });
+
+  it("preserves unsaved edits across workspace refresh", () => {
+    const edited = rebalanceWeights(serverWeights, 2, 50);
+    const next = mergeWeightDraftFromServer(edited, "s1", serverWeights, sync);
+    assert.equal(next.draft, edited);
+    assert.deepEqual(next.sync, sync);
+  });
+
+  it("syncs draft after server weights change when not dirty", () => {
+    const updatedServer = rebalanceWeights(serverWeights, 2, 40);
+    const next = mergeWeightDraftFromServer(serverWeights, "s1", updatedServer, sync);
+    assert.equal(weightsEqual(next.draft, updatedServer), true);
+    assert.equal(weightsEqual(next.sync.serverWeights, updatedServer), true);
   });
 });
 
