@@ -18,6 +18,9 @@ export type CompareMapEntry = {
   stale?: boolean;
 };
 
+const MAX_SYNCED_MAPS = 3;
+export const COMPARE_SYNCED_MAP_LIMIT = MAX_SYNCED_MAPS;
+
 export function CompareScenarioMaps({
   workspace,
   layerData,
@@ -40,9 +43,13 @@ export function CompareScenarioMaps({
     setSyncViewport({ center, zoom });
   }, []);
 
-  const displayEntries = entries.slice(0, 2);
+  const displayEntries = entries.slice(0, MAX_SYNCED_MAPS);
   const gridClass =
-    displayEntries.length <= 1 ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2";
+    displayEntries.length <= 1
+      ? "grid-cols-1"
+      : displayEntries.length === 2
+        ? "grid-cols-1 md:grid-cols-2"
+        : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3";
 
   const scenarioWorkspaces = useMemo(
     () =>
@@ -75,7 +82,7 @@ export function CompareScenarioMaps({
         >
           <span className="material-symbols-outlined text-[16px] text-primary-container">sync</span>
           <span className="font-mono text-data-label text-on-surface-variant uppercase">
-            Synchronized view
+            Synchronized view · {displayEntries.length} map{displayEntries.length === 1 ? "" : "s"}
           </span>
         </div>
       </div>
@@ -83,7 +90,7 @@ export function CompareScenarioMaps({
         className={`grid ${gridClass} gap-px bg-outline-variant border border-outline-variant rounded overflow-hidden h-[min(400px,42vh)]`}
       >
         {scenarioWorkspaces.map(({ entry, workspace: scenarioWorkspace }) => (
-          <div key={entry.scenarioId} className="relative bg-surface min-h-[200px]">
+          <div key={entry.scenarioId} className="relative bg-surface min-h-[180px]">
             <div
               className="absolute top-2 left-2 z-[1002] glass-panel px-2 py-1 border border-outline-variant rounded font-mono text-data-label text-[10px] uppercase tracking-wide"
             >
@@ -102,10 +109,10 @@ export function CompareScenarioMaps({
           </div>
         ))}
       </div>
-      {entries.length > 2 && (
+      {entries.length > MAX_SYNCED_MAPS && (
         <p className="text-caption text-on-surface-variant" role="note">
-          Dual-map view shows the first two selected scenarios. Triple-map sync is deferred — see
-          docs/passes/PASS-36.md.
+          Triple-map view shows the first three selected scenarios. Additional selections appear in
+          the KPI matrix only.
         </p>
       )}
     </section>

@@ -32,6 +32,13 @@ import {
   formatLocaleTime,
   formatReportDateTime,
 } from "@/lib/format";
+import {
+  ACTIVITY_FILTER_LABELS,
+  activityActorAccent,
+  activityCategoryLabel,
+  matchesActivityFilter,
+  type ActivityFilter,
+} from "@/lib/activity-filters";
 import { trackRecentProject } from "@/lib/project-recency";
 import {
   normalizeTransitThresholdMeters,
@@ -2291,7 +2298,7 @@ export default function WorkspaceClient({
                       }`}
                       aria-hidden
                     />
-                    AI Copilot
+                    Urban Planning Copilot
                   </h2>
                   <p className="text-caption text-on-surface-variant mt-0.5 line-clamp-2">
                     {inspectorOutcome}
@@ -4628,6 +4635,7 @@ function DecisionView(props: {
                 <span className="font-mono text-data-label uppercase tracking-widest">
                   Copilot recommendation
                 </span>
+                <ProvenanceChip kind="copilot_recommendation" />
               </div>
               <p className="text-body-lg text-on-surface max-w-3xl leading-relaxed">{copilotLine}</p>
             </div>
@@ -4642,9 +4650,13 @@ function DecisionView(props: {
 
           <div className="grid grid-cols-12 gap-element-gap mb-8">
             <div className="col-span-12 lg:col-span-7 bg-surface-container-lowest border border-outline-variant rounded p-6">
-              <h3 className="font-mono text-data-label text-on-surface-variant uppercase tracking-widest mb-6 border-b border-outline-variant pb-2">
-                Evidence summary
-              </h3>
+              <div className="flex items-center gap-2 mb-6 border-b border-outline-variant pb-2">
+                <h3 className="font-mono text-data-label text-on-surface-variant uppercase tracking-widest">
+                  Evidence summary
+                </h3>
+                <ProvenanceChip kind="source_data" />
+                <ProvenanceChip kind="calculated" />
+              </div>
               <div className="space-y-4">
                 <EvidenceSummaryRow
                   icon="flag"
@@ -4726,7 +4738,10 @@ function DecisionView(props: {
           </section>
 
           <div className="border-t-2 border-primary-container pt-8 mb-10">
-            <h2 className="text-headline-md text-primary-container mb-6">Your decision</h2>
+            <h2 className="text-headline-md text-primary-container mb-6 flex items-center gap-2">
+              Your decision
+              <ProvenanceChip kind="planner_decision" />
+            </h2>
             <label className="block mb-6">
               <span className="font-mono text-data-label text-on-surface-variant uppercase tracking-wide">
                 Reason for decision (optional, logged in audit trail)
@@ -4886,18 +4901,18 @@ function ActivityView(props: {
   selected: WorkspaceSnapshot["activities"][0] | undefined;
   onSelect: (id: string) => void;
 }) {
-  const [actorFilter, setActorFilter] = useState<"all" | "human" | "agent" | "system">("all");
+  const [filter, setFilter] = useState<ActivityFilter>("all");
   const [scenarioFilter, setScenarioFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
 
   const filtered = props.workspace.activities.filter((a) => {
-    if (actorFilter !== "all" && a.actor !== actorFilter) return false;
+    if (!matchesActivityFilter(a, filter)) return false;
     if (scenarioFilter !== "all" && a.scenarioId !== scenarioFilter) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
       const scenarioName =
         props.workspace.scenarios.find((s) => s.id === a.scenarioId)?.name ?? "";
-      const blob = `${a.summary} ${a.action} ${scenarioName}`.toLowerCase();
+      const blob = `${a.summary} ${a.action} ${scenarioName} ${activityCategoryLabel(a.category)}`.toLowerCase();
       if (!blob.includes(q)) return false;
     }
     return true;
@@ -4909,30 +4924,84 @@ function ActivityView(props: {
 
   return (
     <main className="flex-1 min-h-0 overflow-hidden grid md:grid-cols-[1fr_360px]">
-      <div className="overflow-y-auto p-6 min-h-0">
-        <h2 className="text-display mb-4">Activity &amp; provenance</h2>
-        <div className="flex flex-wrap gap-3 mb-4">
-          <label className="text-caption">
-            Actor{" "}
-            <select
-              value={actorFilter}
-              onChange={(e) => setActorFilter(e.target.value as typeof actorFilter)}
-              className="ml-1 border border-outline-variant rounded px-2 py-1 text-body-sm"
+      <div className="overflow-y-auto p-6 min-h-0 flex flex-col">
+        <div className="flex flex-wrap justify-between items-end gap-4 mb-6 border-b border-outline-variant pb-4 shrink-0">
+          <div>
+            <h2 className="text-display mb-2">Activity</h2>
+            <p className="text-caption text-on-surface-variant">
+              Provenance log for Urban Planning Copilot — agent, human, and system events.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="flex items-center gap-2 border border-outline-variant px-4 py-2 rounded text-body-sm hover:bg-surface-container transition-colors text-on-surface"
+            onClick={() => {
+              const lines = filtered.map(
+                (a) =>
+                  `${formatLocaleDateTime(a.timestamp)}\t${a.actor}\t${a.category}\t${a.summary}`
+              );
+              const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "activity-export.txt";
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            <span className="material-symbols-outlined text-[18px]">download</span>
+            Export activity
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 mb-4 shrink-0">
+          <div className="relative flex items-center flex-1 min-w-[200px]">
+            <span
+              className="material-symbols-outlined absolute left-2 text-outline text-[18px]"
+              aria-hidden
             >
-              <option value="all">All</option>
-              <option value="human">You</option>
-              <option value="agent">Copilot</option>
-              <option value="system">System</option>
-            </select>
-          </label>
-          <label className="text-caption">
+              search
+            </span>
+            <input
+              type="search"
+              placeholder="Search provenance log…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 pr-3 py-1.5 w-full bg-surface-container border-b border-outline hover:border-primary focus:border-primary focus:outline-none transition-colors text-body-sm rounded-t"
+            />
+          </div>
+          <div
+            className="flex flex-wrap gap-2 font-mono text-data-label"
+            role="group"
+            aria-label="Activity filters"
+          >
+            {(Object.keys(ACTIVITY_FILTER_LABELS) as ActivityFilter[]).map((key) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={filter === key}
+                onClick={() => setFilter(key)}
+                className={`px-3 py-1 rounded border text-[11px] uppercase tracking-wide transition-colors ${
+                  filter === key
+                    ? "border-primary-container text-primary-container bg-primary-fixed/20"
+                    : "border-outline-variant text-on-surface-variant hover:bg-surface-container"
+                }`}
+              >
+                {ACTIVITY_FILTER_LABELS[key]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {props.workspace.scenarios.length > 1 && (
+          <label className="text-caption mb-4 shrink-0">
             Scenario{" "}
             <select
               value={scenarioFilter}
               onChange={(e) => setScenarioFilter(e.target.value)}
               className="ml-1 border border-outline-variant rounded px-2 py-1 text-body-sm"
             >
-              <option value="all">All</option>
+              <option value="all">All scenarios</option>
               {props.workspace.scenarios.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -4940,108 +5009,179 @@ function ActivityView(props: {
               ))}
             </select>
           </label>
-          <input
-            type="search"
-            placeholder="Search activity…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="border border-outline-variant rounded px-3 py-1 text-body-sm min-w-[180px]"
+        )}
+
+        <div className="flex-1 relative">
+          <div
+            className="absolute left-[88px] top-2 bottom-2 w-px activity-thread-line z-0"
+            aria-hidden
           />
-        </div>
-        <ul className="space-y-3">
-          {filtered.map((a) => (
-            <li key={a.id}>
-              <button
-                onClick={() => props.onSelect(a.id)}
-                className="w-full text-left border border-outline-variant p-3 hover:border-primary"
-              >
-                <div className="flex justify-between gap-2 mb-1">
-                  <span
-                    className={`font-mono text-[10px] uppercase ${
-                      a.actor === "human" ? "text-secondary" : "text-primary"
+          <ul className="space-y-6 relative z-10">
+            {filtered.map((a) => {
+              const accent = activityActorAccent(a.actor);
+              const selected = props.selected?.id === a.id;
+              return (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    onClick={() => props.onSelect(a.id)}
+                    className={`w-full text-left flex gap-6 group cursor-pointer ${
+                      selected ? "ring-1 ring-primary-container/40 rounded" : ""
                     }`}
                   >
-                    {formatActivitySummary(a)}
-                  </span>
-                  <span className="font-mono text-[10px] text-on-surface-variant whitespace-nowrap">
-                    {formatLocaleDateTime(a.timestamp)}
-                  </span>
-                </div>
-                <div className="text-body-sm text-on-surface-variant">{a.summary}</div>
-                {a.scenarioId && (
-                  <div className="text-caption text-on-surface-variant mt-1">
-                    Scenario:{" "}
-                    {props.workspace.scenarios.find((s) => s.id === a.scenarioId)?.name ?? a.scenarioId}
-                  </div>
-                )}
-              </button>
-            </li>
-          ))}
-          {filtered.length === 0 && (
-            <li className="text-body-sm text-on-surface-variant">No events match these filters.</li>
-          )}
-        </ul>
+                    <div className="w-16 pt-1 text-right font-mono text-data-label text-on-surface-variant shrink-0">
+                      {formatLocaleTime(a.timestamp)}
+                    </div>
+                    <div className="relative shrink-0 w-0">
+                      <div
+                        className={`w-6 h-6 rounded flex items-center justify-center absolute -left-3 top-0 border-4 border-surface-bright z-10 ${
+                          a.actor === "human"
+                            ? "bg-secondary text-on-secondary"
+                            : a.actor === "agent"
+                              ? "bg-primary-container text-on-primary"
+                              : "bg-surface-variant text-on-surface border-outline-variant"
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[14px]">{accent.icon}</span>
+                      </div>
+                    </div>
+                    <div
+                      className={`flex-1 bg-surface-container-lowest border border-outline-variant rounded p-4 group-hover:border-primary transition-colors shadow-sm relative ${
+                        selected ? "border-primary" : ""
+                      }`}
+                    >
+                      <div className={`absolute top-0 left-0 w-1 h-full rounded-l ${accent.bar}`} />
+                      <div className="flex justify-between items-start gap-2 mb-1 pl-1">
+                        <span
+                          className={`font-mono text-data-label uppercase ${accent.badge}`}
+                        >
+                          {a.actor === "human"
+                            ? "Human"
+                            : a.actor === "agent"
+                              ? "Agent"
+                              : "System"}{" "}
+                          · {activityCategoryLabel(a.category)}
+                        </span>
+                      </div>
+                      <p className="text-body-lg text-on-surface pl-1">{a.summary}</p>
+                      {a.scenarioId && (
+                        <p className="text-caption text-on-surface-variant mt-2 pl-1">
+                          {props.workspace.scenarios.find((s) => s.id === a.scenarioId)?.name ??
+                            a.scenarioId}
+                        </p>
+                      )}
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+            {filtered.length === 0 && (
+              <li className="text-body-sm text-on-surface-variant pl-24">
+                No events match these filters.
+              </li>
+            )}
+          </ul>
+        </div>
       </div>
-      <aside className="border-l border-outline-variant p-6 overflow-y-auto bg-surface-container-low min-h-0">
+      <aside className="border-l border-outline-variant p-6 overflow-y-auto bg-[#F0EEEB] min-h-0">
         <h3 className="text-headline-md mb-4">Event details</h3>
         {!props.selected ? (
-          <p className="text-body-sm text-on-surface-variant">Select an event.</p>
+          <p className="text-body-sm text-on-surface-variant">
+            Select an event from the timeline to inspect provenance.
+          </p>
         ) : (
-          <div className="space-y-4 text-body-sm">
-            <div>
-              <div className="font-mono text-[10px] uppercase text-outline mb-1">When</div>
-              <p>{formatLocaleDateTime(props.selected.timestamp)}</p>
-            </div>
-            <div>
-              <div className="font-mono text-[10px] uppercase text-outline mb-1">Actor</div>
-              <p>{formatActivitySummary(props.selected)}</p>
-            </div>
-            {scenarioName && (
-              <div>
-                <div className="font-mono text-[10px] uppercase text-outline mb-1">Scenario</div>
-                <p>{scenarioName}</p>
+          <div className="space-y-6 text-body-sm">
+            <section>
+              <div className="font-mono text-data-label uppercase text-outline mb-2 tracking-wider">
+                What happened
               </div>
+              <p className="text-body-lg font-medium">{props.selected.summary}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <span className="px-2 py-1 border border-outline rounded text-caption text-on-surface-variant">
+                  {formatLocaleDateTime(props.selected.timestamp)}
+                </span>
+                {props.selected.actor === "agent" ? (
+                  <span className="px-2 py-1 bg-primary-container text-on-primary rounded text-caption inline-flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[12px]">smart_toy</span>
+                    Copilot
+                  </span>
+                ) : props.selected.actor === "human" ? (
+                  <ProvenanceChip kind="planner_decision" />
+                ) : (
+                  <span className="px-2 py-1 border border-outline-variant rounded text-caption">
+                    System
+                  </span>
+                )}
+              </div>
+            </section>
+            <div className="w-full h-px bg-outline-variant" />
+            <section>
+              <div className="font-mono text-data-label uppercase text-outline mb-2 tracking-wider">
+                Action
+              </div>
+              <p className="font-mono text-caption">{props.selected.action}</p>
+              <p className="text-caption text-on-surface-variant mt-1">
+                {formatActivitySummary(props.selected)}
+              </p>
+            </section>
+            {scenarioName && (
+              <section>
+                <div className="font-mono text-data-label uppercase text-outline mb-2 tracking-wider">
+                  Scenario
+                </div>
+                <p>{scenarioName}</p>
+              </section>
             )}
-            <div>
-              <div className="font-mono text-[10px] uppercase text-outline mb-1">What happened</div>
-              <p>{props.selected.summary}</p>
-            </div>
-            <div>
-              <div className="font-mono text-[10px] uppercase text-outline mb-1">Action</div>
-              <p className="font-mono">{props.selected.action}</p>
-            </div>
-            <div>
-              <div className="font-mono text-[10px] uppercase text-outline mb-1">Inputs</div>
-              <pre className="text-caption whitespace-pre-wrap bg-surface p-2 border border-outline-variant">
-                {props.selected.inputs
-                  ? JSON.stringify(props.selected.inputs, null, 2)
-                  : "—"}
-              </pre>
-            </div>
-            <div>
-              <div className="font-mono text-[10px] uppercase text-outline mb-1">Outputs</div>
-              <pre className="text-caption whitespace-pre-wrap bg-surface p-2 border border-outline-variant">
-                {props.selected.outputs &&
-                Object.keys(props.selected.outputs).length > 0
-                  ? JSON.stringify(props.selected.outputs, null, 2)
-                  : "—"}
-              </pre>
-            </div>
+            <section>
+              <div className="font-mono text-data-label uppercase text-outline mb-2 tracking-wider">
+                Provenance tree
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <div className="text-caption text-outline mb-1">Inputs</div>
+                  <pre className="text-caption whitespace-pre-wrap bg-surface p-2 border border-outline-variant rounded">
+                    {props.selected.inputs
+                      ? JSON.stringify(props.selected.inputs, null, 2)
+                      : "—"}
+                  </pre>
+                </div>
+                <div className="flex justify-center text-outline" aria-hidden>
+                  <span className="material-symbols-outlined">arrow_downward</span>
+                </div>
+                <div>
+                  <div className="text-caption text-outline mb-1">Outputs / affected state</div>
+                  <pre className="text-caption whitespace-pre-wrap bg-primary-fixed/10 p-2 border border-primary-fixed-dim rounded">
+                    {props.selected.outputs &&
+                    Object.keys(props.selected.outputs).length > 0
+                      ? JSON.stringify(props.selected.outputs, null, 2)
+                      : "—"}
+                  </pre>
+                </div>
+              </div>
+            </section>
             {props.selected.relatedDatasetIds?.length ? (
-              <div>
-                <div className="font-mono text-[10px] uppercase text-outline mb-1">Datasets</div>
-                <ul className="text-caption space-y-1">
+              <section>
+                <div className="font-mono text-data-label uppercase text-outline mb-2 tracking-wider">
+                  Datasets
+                </div>
+                <ul className="text-caption space-y-2">
                   {props.selected.relatedDatasetIds.map((id) => {
                     const ds = props.workspace.datasets.find((d) => d.id === id);
                     return (
-                      <li key={id}>
-                        {ds?.name ?? id} · v{ds?.version ?? "?"} ·{" "}
-                        {ds?.dataVintage ?? "vintage unknown"}
+                      <li
+                        key={id}
+                        className="flex items-center gap-2 p-2 border border-outline-variant rounded bg-surface"
+                      >
+                        <span className="material-symbols-outlined text-outline text-[16px]">
+                          dataset
+                        </span>
+                        <span>{ds?.name ?? id}</span>
+                        <span className="ml-auto text-outline">v{ds?.version ?? "?"}</span>
                       </li>
                     );
                   })}
                 </ul>
-              </div>
+              </section>
             ) : null}
           </div>
         )}
@@ -5149,7 +5289,10 @@ function ReportView(props: {
     <main className="flex-1 overflow-hidden flex flex-col min-h-0 relative">
       <div className="px-8 py-6 border-b border-outline-variant bg-surface flex flex-wrap justify-between items-center gap-4 shrink-0">
         <div>
-          <h2 className="text-display">Reports</h2>
+          <h2 className="text-display flex items-center gap-3 flex-wrap">
+            Reports
+            <ProvenanceChip kind="calculated" />
+          </h2>
           <p className="text-caption text-on-surface-variant mt-1">
             Manage and generate analytical planning documents for {props.scenario.name}.
           </p>
@@ -5194,10 +5337,11 @@ function ReportView(props: {
             >
               <div className="absolute top-0 left-0 w-full h-1 bg-surface-variant group-hover:bg-primary-container transition-colors" />
               <div className="p-5 flex-1">
-                <div className="flex justify-between items-start mb-3">
+                <div className="flex justify-between items-start mb-3 gap-2">
                   <span className="bg-surface-container-high text-on-surface px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider border border-outline-variant">
                     {r.stale ? "Stale" : "Ready"}
                   </span>
+                  <ProvenanceChip kind="calculated" />
                 </div>
                 <h3 className="text-headline-md text-on-surface mb-2 leading-snug">{r.title}</h3>
                 <div className="grid grid-cols-2 gap-4 mt-4">
