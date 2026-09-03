@@ -1771,11 +1771,7 @@ export async function createScenario(
     }
 
     store.scenarios.push(scenario);
-    if (source) {
-      project.activeScenarioId = source.id;
-    } else {
-      project.activeScenarioId = scenario.id;
-    }
+    project.activeScenarioId = scenario.id;
     project.updatedAt = now();
     const branchResult = scenario.latestResultId
       ? store.analysisResults.find((r) => r.id === scenario.latestResultId)
@@ -1784,8 +1780,8 @@ export async function createScenario(
       ? isFloodWeightedBranchName(name)
         ? `Created flood-weighted branch "${name}" from "${source.name}" (${Math.round(
             (scenario.weights.find((w) => w.key.includes("flood"))?.weight ?? 0) * 100
-          )}% flood) — still viewing "${source.name}". Switch scenarios in the header to run analysis on the branch.`
-        : `Created branch "${name}" from "${source.name}" — still viewing "${source.name}". Switch scenarios in the header to configure or run analysis on the branch.`
+          )}% flood) — run analysis on this branch to compare flood weighting.`
+        : `Created branch "${name}" from "${source.name}" — configure weights and run analysis on this branch.`
       : resumeNoteForScenario(scenario, branchResult);
     logActivity(store, {
       projectId,
