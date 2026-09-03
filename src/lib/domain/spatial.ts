@@ -253,13 +253,19 @@ function scoreFromDistance(distance: number, goodMax: number): number {
 /** Spread values across 1–99 to avoid score ceilings and unbreakable ties. */
 function percentileScore(value: number, allValues: number[], higherIsBetter: boolean): number {
   const finite = allValues.filter((v) => Number.isFinite(v));
-  if (!finite.length || !Number.isFinite(value)) return 0;
+  if (!finite.length || !Number.isFinite(value)) return Number.NaN;
   const min = Math.min(...finite);
   const max = Math.max(...finite);
-  if (max === min) return 50;
+  if (max === min) return Number.NaN;
   const pct = (value - min) / (max - min);
   const normalized = higherIsBetter ? pct : 1 - pct;
   return Number((normalized * 98 + 1).toFixed(1));
+}
+
+function valuesHaveSpread(values: number[]): boolean {
+  const finite = values.filter((v) => Number.isFinite(v));
+  if (finite.length < 2) return false;
+  return Math.min(...finite) !== Math.max(...finite);
 }
 
 function floodResilienceScore(
@@ -350,9 +356,15 @@ export interface AnalysisEngineInput {
 
 function compositeScore(
   componentScores: Record<string, number>,
-  weights: CriterionWeight[]
+  weights: CriterionWeight[],
+  usableKeys?: Set<string>
 ): { score: number; breakdown: Record<string, number> } {
-  const active = weights.filter((w) => componentScores[w.key] != null);
+  const active = weights.filter((w) => {
+    const value = componentScores[w.key];
+    if (value == null || !Number.isFinite(value)) return false;
+    if (usableKeys && !usableKeys.has(w.key)) return false;
+    return true;
+  });
   const weightSum = active.reduce((s, w) => s + w.weight, 0);
   if (!active.length || weightSum <= 0) {
     return { score: 0, breakdown: {} };
@@ -600,6 +612,45 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
   const transitUnderserved = rawCandidates.map((r) => r.transitAccess.underserved);
   const capacityValues = rawCandidates.map((r) => r.capacityInfo?.capacity ?? 0);
   const floodExposureValues = rawCandidates.map((r) => r.floodExposure);
+  const floodResilienceValues = rawCandidates.map((r) => r.floodScore);
+
+  const hasPopulation = Boolean(input.layers.population?.features.length);
+  const hasSchools = Boolean(input.layers.schools?.features.length);
+  const hasFloodLayer = Boolean(input.layers.flood?.features.length);
+  const hasParksLayer = Boolean(input.layers.parks?.features.length);
+
+  const usableScoreKeys = new Set<string>();
+  if (valuesHaveSpread(transitDists)) {
+    usableScoreKeys.add("transit");
+    usableScoreKeys.add("accessibility");
+  }
+  if (housingIntent && valuesHaveSpread(capacityValues)) {
+    usableScoreKeys.add("capacity");
+  }
+  if (includeFloodScore && hasFloodLayer && valuesHaveSpread(floodResilienceValues)) {
+    usableScoreKeys.add("flood_resilience");
+  }
+  if (valuesHaveSpread(floodExposureValues)) {
+    usableScoreKeys.add("flood_exposure");
+  }
+  if (valuesHaveSpread(popValues)) {
+    usableScoreKeys.add("population_coverage");
+  }
+  if (useSchoolMetrics && hasPopulation && hasSchools && valuesHaveSpread(schoolUnderserved)) {
+    usableScoreKeys.add("accessibility_gain");
+    usableScoreKeys.add("underservice");
+  }
+  if (useParkMetrics && hasPopulation && hasParksLayer && valuesHaveSpread(parkUnderserved)) {
+    usableScoreKeys.add("park_access_gain");
+    usableScoreKeys.add("park_underservice");
+  }
+  if (
+    input.objective.intent === "transit_gap" &&
+    hasPopulation &&
+    valuesHaveSpread(transitUnderserved)
+  ) {
+    usableScoreKeys.add("gap_severity");
+  }
 
   const enriched = rawCandidates.map((raw) => {
     const f = raw.feature;
@@ -611,7 +662,7 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
     const popCoverageScore = percentileScore(raw.popCovered, popValues, true);
     const capacityScore = housingIntent
       ? percentileScore(raw.capacityInfo?.capacity ?? 0, capacityValues, true)
-      : 0;
+      : Number.NaN;
     const floodExposureScore = percentileScore(
       raw.floodExposure,
       floodExposureValues,
@@ -620,31 +671,41 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
 
     const componentScores: Record<string, number> = {
       transit: transitScore,
-      capacity: capacityScore,
-      flood_exposure: floodExposureScore,
-      population_coverage: popCoverageScore,
       accessibility: transitScore,
-      accessibility_gain: schoolGapScore,
-      underservice: schoolGapScore,
-      park_access_gain: parkGapScore,
-      park_underservice: parkGapScore,
-      gap_severity: transitGapScore,
     };
-    if (includeFloodScore) {
+    if (Number.isFinite(capacityScore)) componentScores.capacity = capacityScore;
+    if (Number.isFinite(floodExposureScore)) componentScores.flood_exposure = floodExposureScore;
+    if (Number.isFinite(popCoverageScore)) componentScores.population_coverage = popCoverageScore;
+    if (Number.isFinite(schoolGapScore)) {
+      componentScores.accessibility_gain = schoolGapScore;
+      componentScores.underservice = schoolGapScore;
+    }
+    if (Number.isFinite(parkGapScore)) {
+      componentScores.park_access_gain = parkGapScore;
+      componentScores.park_underservice = parkGapScore;
+    }
+    if (Number.isFinite(transitGapScore)) componentScores.gap_severity = transitGapScore;
+    if (includeFloodScore && hasFloodLayer) {
       componentScores.flood_resilience = raw.floodScore;
     }
 
     let profileScore: number | undefined;
-    if (input.exploreProfile === "transit_gap") {
+    if (input.exploreProfile === "transit_gap" && Number.isFinite(transitGapScore)) {
       profileScore = transitGapScore;
-    } else if (input.exploreProfile === "school_gap") {
+    } else if (input.exploreProfile === "school_gap" && Number.isFinite(schoolGapScore)) {
       profileScore = schoolGapScore;
-    } else if (input.exploreProfile === "flood_exposure") {
+    } else if (input.exploreProfile === "flood_exposure" && Number.isFinite(floodExposureScore)) {
       profileScore = floodExposureScore;
     }
 
-    const { score: composite, breakdown } = compositeScore(componentScores, weights);
-    const score = profileScore ?? composite;
+    const { score: composite, breakdown } = compositeScore(
+      componentScores,
+      weights,
+      usableScoreKeys
+    );
+    const score =
+      profileScore ??
+      (composite > 0 ? composite : Number.isFinite(transitScore) ? transitScore : 0);
 
     const metrics: MetricValue[] = [];
 
@@ -661,37 +722,39 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
       });
     }
 
-    if (useSchoolMetrics) {
-      metrics.push(
-        {
-          key: "school_distance_m",
-          label: "Distance to nearest school",
-          value: Number.isFinite(raw.schoolDist) ? Math.round(raw.schoolDist) : -1,
-          unit: "m",
-          kind: "calculated",
-          method: "centroid-to-centroid geodesic distance",
-          inputs: { service_radius_m: schoolRadius },
-        },
-        {
-          key: "school_underserved_pop",
-          label: "Population lacking school access",
-          value: raw.schoolAccess.underserved,
-          unit: "people",
-          kind: "calculated",
-          method: `population in parcel beyond ${schoolRadius}m of nearest school`,
-          inputs: {
-            service_radius_m: schoolRadius,
-            parcel_population: raw.schoolAccess.total,
+    if (useSchoolMetrics && hasSchools) {
+      metrics.push({
+        key: "school_distance_m",
+        label: "Distance to nearest school",
+        value: Number.isFinite(raw.schoolDist) ? Math.round(raw.schoolDist) : -1,
+        unit: "m",
+        kind: "calculated",
+        method: "centroid-to-centroid geodesic distance",
+        inputs: { service_radius_m: schoolRadius },
+      });
+      if (hasPopulation) {
+        metrics.push(
+          {
+            key: "school_underserved_pop",
+            label: "Population lacking school access",
+            value: raw.schoolAccess.underserved,
+            unit: "people",
+            kind: "calculated",
+            method: `population in parcel beyond ${schoolRadius}m of nearest school`,
+            inputs: {
+              service_radius_m: schoolRadius,
+              parcel_population: raw.schoolAccess.total,
+            },
           },
-        },
-        {
-          key: "school_gap_score",
-          label: "School access gap score",
-          value: schoolGapScore,
-          kind: "calculated",
-          method: "percentile rank of underserved population (not farthest-parcel distance)",
-        }
-      );
+          {
+            key: "school_gap_score",
+            label: "School access gap score",
+            value: Number.isFinite(schoolGapScore) ? schoolGapScore : 0,
+            kind: "calculated",
+            method: "percentile rank of underserved population among candidates",
+          }
+        );
+      }
     }
 
     if (useParkMetrics) {
@@ -1009,7 +1072,7 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
           kind: "calculated",
           method: "parcel count in access-gap investigation",
         },
-        ...(useSchoolMetrics
+        ...(useSchoolMetrics && hasSchools && hasPopulation
           ? [
               {
                 key: "total_school_underserved_pop",

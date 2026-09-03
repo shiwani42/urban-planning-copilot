@@ -141,8 +141,17 @@ export function housingGoalSummary(input: {
 
 export function headlineMetric(
   intent: PlanningIntent,
-  aggregateMetrics: MetricValue[]
+  aggregateMetrics: MetricValue[],
+  options?: { limitations?: string[] }
 ): { label: string; value: string } | null {
+  const limitations = options?.limitations ?? [];
+  const schoolDataMissing = limitations.some(
+    (note) => /schools? dataset/i.test(note) && /unavailable|missing|cannot/i.test(note)
+  );
+  const populationMissing = limitations.some(
+    (note) => /population dataset/i.test(note) && /unavailable|missing|limited/i.test(note)
+  );
+
   if (isHousingIntent(intent)) {
     const cap = aggregateMetrics.find((m) => m.key === "total_capacity");
     if (!cap) return null;
@@ -152,13 +161,14 @@ export function headlineMetric(
     };
   }
   if (intentUsesSchoolMetrics(intent)) {
+    if (schoolDataMissing || populationMissing) return null;
     const gap = aggregateMetrics.find((m) => m.key === "total_school_underserved_pop");
-    if (gap) {
-      return {
-        label: gap.label,
-        value: `${gap.value.toLocaleString()}${gap.unit ? ` ${gap.unit}` : ""}`,
-      };
-    }
+    if (!gap) return null;
+    if (gap.value === 0 && limitations.length > 0) return null;
+    return {
+      label: gap.label,
+      value: `${gap.value.toLocaleString()}${gap.unit ? ` ${gap.unit}` : ""}`,
+    };
   }
   if (intentUsesParkMetrics(intent)) {
     const gap = aggregateMetrics.find((m) => m.key === "total_park_underserved_pop");

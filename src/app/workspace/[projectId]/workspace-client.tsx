@@ -911,7 +911,9 @@ export default function WorkspaceClient({
   const targetGap = analysisAggregateMetrics(result).find((m) => m.key === "housing_target_gap");
   const accessHeadline =
     scenario && result
-      ? headlineMetric(scenario.objective.intent, analysisAggregateMetrics(result))
+      ? headlineMetric(scenario.objective.intent, analysisAggregateMetrics(result), {
+          limitations: result.limitations,
+        })
       : null;
   const hasParksDataset = Boolean(workspace?.datasets.some((d) => d.kind === "parks" && d.enabled));
   const resultsColumns = scenario
