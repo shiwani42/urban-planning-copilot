@@ -1,3 +1,5 @@
+import type { WorkspaceTab } from "@/lib/workspace-tabs";
+
 export type PlannerSuggestion = {
   id: string;
   label: string;
@@ -30,7 +32,8 @@ export type PlannerRouteContext = {
 
 export type PlannerQueryRoute =
   | { kind: "tool"; tool: string; args: Record<string, unknown>; summary: string }
-  | { kind: "message"; message: string };
+  | { kind: "message"; message: string }
+  | { kind: "workspace_tab"; tab: WorkspaceTab; summary: string; tool?: string; args?: Record<string, unknown> };
 
 const WORKSPACE_SUGGESTIONS_BASE: PlannerSuggestion[] = [
   {
@@ -62,6 +65,13 @@ const WORKSPACE_SUGGESTIONS_BASE: PlannerSuggestion[] = [
     id: "generate-report",
     label: "Generate report",
     tool: "generate_report",
+    requiresProject: true,
+  },
+  {
+    id: "open-decision",
+    label: "Open decision review",
+    tool: "__workspace_tab__",
+    args: { tab: "decision" },
     requiresProject: true,
   },
 ];
@@ -189,12 +199,6 @@ const GENERIC_PATTERNS: Pattern[] = [
     args: { limit: 10 },
   },
   {
-    re: /\b(generate|create|build)\b.*\breport\b/,
-    tool: "generate_report",
-    summary: "Generate a planning report",
-    requiresProject: true,
-  },
-  {
     re: /\b(workspace|project|scenario|status|summarize|summary)\b/,
     tool: "get_workspace",
     summary: "Read workspace status",
@@ -261,6 +265,34 @@ function wantsScenarioBranch(q: string): boolean {
 
 function wantsCompare(q: string): boolean {
   return /\b(compare|diff|contrast)\b/.test(q);
+}
+
+function wantsOpenDecision(q: string): boolean {
+  return (
+    /\b(open|show|go to|view|review)\b.*\bdecision\b/.test(q) ||
+    /\bdecision\b.*\b(review|tab|page|panel)\b/.test(q) ||
+    /\brecord\b.*\bdecision\b/.test(q)
+  );
+}
+
+function wantsOpenReport(q: string): boolean {
+  return (
+    /\b(open|show|go to|view)\b.*\breport\b/.test(q) ||
+    /\breport\b.*\b(tab|page|panel)\b/.test(q)
+  );
+}
+
+function wantsGenerateReport(q: string): boolean {
+  return /\b(generate|create|build)\b.*\breport\b/.test(q);
+}
+
+function wantsApproveScenario(q: string): boolean {
+  if (wantsOpenDecision(q) || wantsOpenReport(q)) return false;
+  return (
+    /\bapprove\b/.test(q) &&
+    !/\bapprove_proposal\b/.test(q) &&
+    !/\bproposal\b/.test(q)
+  );
 }
 
 function wantsExcludeArea(q: string): boolean {
@@ -340,6 +372,54 @@ function routeScenarioBranch(q: string, ctx: PlannerRouteContext): PlannerQueryR
     tool: "create_scenario_branch",
     args: { name },
     summary: `Create scenario branch “${name}”`,
+  };
+}
+
+function routeOpenDecision(q: string, ctx: PlannerRouteContext): PlannerQueryRoute | null {
+  if (!wantsOpenDecision(q)) return null;
+  const blocked = requiresOpenProject(ctx);
+  if (blocked) return blocked;
+  return {
+    kind: "workspace_tab",
+    tab: "decision",
+    summary: "Open Decision review",
+  };
+}
+
+function routeOpenReport(q: string, ctx: PlannerRouteContext): PlannerQueryRoute | null {
+  if (!wantsOpenReport(q)) return null;
+  const blocked = requiresOpenProject(ctx);
+  if (blocked) return blocked;
+  return {
+    kind: "workspace_tab",
+    tab: "report",
+    summary: "Open Reports",
+  };
+}
+
+function routeGenerateReport(q: string, ctx: PlannerRouteContext): PlannerQueryRoute | null {
+  if (!wantsGenerateReport(q)) return null;
+  const blocked = requiresOpenProject(ctx);
+  if (blocked) return blocked;
+  return {
+    kind: "workspace_tab",
+    tab: "report",
+    tool: "generate_report",
+    args: {},
+    summary: "Generate a planning report",
+  };
+}
+
+function routeApproveScenario(q: string, ctx: PlannerRouteContext): PlannerQueryRoute | null {
+  if (!wantsApproveScenario(q)) return null;
+  const blocked = requiresOpenProject(ctx);
+  if (blocked) return blocked;
+  return {
+    kind: "workspace_tab",
+    tab: "decision",
+    tool: "approve_scenario",
+    args: {},
+    summary: "Open Decision to approve this scenario",
   };
 }
 
@@ -459,8 +539,12 @@ export function routePlannerQuery(query: string, context: PlannerRouteContext): 
   const specialized =
     routePinToShortlist(q, context) ??
     routeListShortlist(q, context) ??
+    routeGenerateReport(q, context) ??
     routeScenarioBranch(q, context) ??
     routeCompare(q, context) ??
+    routeApproveScenario(q, context) ??
+    routeOpenDecision(q, context) ??
+    routeOpenReport(q, context) ??
     routeExcludeArea(q, context) ??
     routeGenericPatterns(q, context);
 

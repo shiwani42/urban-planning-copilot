@@ -1635,6 +1635,11 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
         job.currentStep = "Complete";
         scenarioLive.latestResultId = result.id;
         scenarioLive.updatedAt = now();
+        markReportsStaleForScenario(
+          s,
+          scenarioId,
+          "Analysis recalculated — regenerate report to include latest results."
+        );
         if (
           scenarioLive.decisionStatus === "approved" &&
           scenarioLive.approvedAgainstResultId &&

@@ -120,6 +120,32 @@ describe("planner query routing", () => {
     }
   });
 
+  it("opens decision tab for natural-language review", () => {
+    const route = routePlannerQuery("open decision", workspaceCtx);
+    assert.equal(route.kind, "workspace_tab");
+    if (route.kind === "workspace_tab") {
+      assert.equal(route.tab, "decision");
+    }
+  });
+
+  it("routes approve to decision tab with approve_scenario tool", () => {
+    const route = routePlannerQuery("approve scenario", workspaceCtx);
+    assert.equal(route.kind, "workspace_tab");
+    if (route.kind === "workspace_tab") {
+      assert.equal(route.tab, "decision");
+      assert.equal(route.tool, "approve_scenario");
+    }
+  });
+
+  it("routes generate report to report tab with generate_report tool", () => {
+    const route = routePlannerQuery("generate report", workspaceCtx);
+    assert.equal(route.kind, "workspace_tab");
+    if (route.kind === "workspace_tab") {
+      assert.equal(route.tab, "report");
+      assert.equal(route.tool, "generate_report");
+    }
+  });
+
   it("exclude area without map selection asks to draw first", () => {
     const route = routePlannerQuery("exclude this area from analysis", workspaceCtx);
     assert.equal(route.kind, "message");

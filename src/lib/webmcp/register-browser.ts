@@ -20,6 +20,7 @@ import {
 import {
   notifyWorkspaceMutated,
   workspaceToolEventDetail,
+  pendingPlannerNavigationDetail,
 } from "@/lib/workspace-sync";
 import { resolveWebMcpBrowserContext, setWebMcpBrowserContext } from "./browser-context";
 
@@ -141,6 +142,10 @@ async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
         candidateId: result.candidateId,
         title: result.title,
       });
+      const pendingNav = pendingPlannerNavigationDetail(result.tool, projectId);
+      if (pendingNav) {
+        notifyWorkspaceMutated(pendingNav);
+      }
     }
     return result;
   }
