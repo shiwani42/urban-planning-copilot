@@ -1,6 +1,6 @@
 # Urban Planning Copilot — Live trial audit (IMPROVEMENTS)
 
-**Live URL:** https://urban-planning-copilot.onrender.com/  
+**Live URL:** https://urban-planning-copilot.heisenbug.in/  
 **Audit date:** September 2026 (pre-PR #1 deploy)  
 **Purpose:** Document live vs. spec gaps for judges, Devpost writeup, and follow-up work.
 
