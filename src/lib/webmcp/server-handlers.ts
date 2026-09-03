@@ -29,6 +29,7 @@ import { ToolError } from "@/lib/domain/tool-errors";
 import { parseMapCenter } from "@/lib/domain/map-center";
 import { resolveObjectiveTextWithGeography } from "@/lib/domain/objective-geography";
 import { resolvePlanningToolAlias } from "./tool-aliases";
+import { PAGE_TOOL_BUDGET_MS, PAGE_TOOL_POLL_MS, sleep } from "@/lib/webmcp/page-tool-budget";
 
 function isKnownPlanningToolName(name: string): boolean {
   const resolved = resolvePlanningToolAlias(name);
@@ -44,8 +45,12 @@ function activeContext(ws: WorkspaceLike) {
   return { scenario, result };
 }
 
-const ANALYSIS_POLL_MS = 500;
+const ANALYSIS_POLL_MS = PAGE_TOOL_POLL_MS;
 const ANALYSIS_POLL_TIMEOUT_MS = 120_000;
+
+const ANALYSIS_IN_PROGRESS_PAYLOAD = {
+  pollTools: ["get_workspace", "list_candidates"] as const,
+};
 
 async function waitForAnalysisCompletion(projectId: string, scenarioId: string) {
   const started = Date.now();
@@ -58,13 +63,66 @@ async function waitForAnalysisCompletion(projectId: string, scenarioId: string) 
     if (status.status === "none" || status.status === "not_found") {
       break;
     }
-    await new Promise((resolve) => setTimeout(resolve, ANALYSIS_POLL_MS));
+    await sleep(ANALYSIS_POLL_MS);
   }
   throw new ToolError(
     "ANALYSIS_TIMEOUT",
     "Analysis did not finish in time — retry run_analysis",
     "scenarioId"
   );
+}
+
+async function waitForAnalysisWithinBudget(
+  projectId: string,
+  scenarioId: string,
+  runPromise: Promise<unknown>,
+  budgetMs: number = PAGE_TOOL_BUDGET_MS
+) {
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {
+    const status = await services.getAnalysisRunStatus(projectId, scenarioId);
+    if (status.status === "completed") {
+      if ((status.candidateCount ?? 0) < 1) {
+        throw new ToolError(
+          "ANALYSIS_EMPTY",
+          "Analysis completed but returned no candidates",
+          "scenarioId"
+        );
+      }
+      return status;
+    }
+    if (status.status === "failed") {
+      throw new ToolError("ANALYSIS_FAILED", status.error ?? "Analysis failed", "scenarioId");
+    }
+    await sleep(ANALYSIS_POLL_MS);
+  }
+
+  const latest = await services.getAnalysisRunStatus(projectId, scenarioId);
+  if (latest.status === "completed") {
+    if ((latest.candidateCount ?? 0) < 1) {
+      throw new ToolError(
+        "ANALYSIS_EMPTY",
+        "Analysis completed but returned no candidates",
+        "scenarioId"
+      );
+    }
+    return latest;
+  }
+
+  void runPromise.catch(() => undefined);
+  if (latest.status === "running") {
+    return {
+      status: "running" as const,
+      jobId: latest.jobId,
+      progress: latest.progress,
+      currentStep: latest.currentStep,
+      message:
+        "Analysis still running — poll get_workspace or list_candidates until candidates appear, then retry run_analysis if needed.",
+      pollTools: [...ANALYSIS_IN_PROGRESS_PAYLOAD.pollTools],
+    };
+  }
+
+  throw new ToolError("ANALYSIS_FAILED", "Analysis did not start", "scenarioId");
 }
 
 const FORBIDDEN = new Set([
@@ -321,38 +379,43 @@ export async function executePlanningTool(
 
       const inFlight = await services.getAnalysisRunStatus(projectId, scenarioId);
       if (inFlight.status === "running") {
-        return waitForAnalysisCompletion(projectId, scenarioId);
+        return waitForAnalysisWithinBudget(
+          projectId,
+          scenarioId,
+          Promise.resolve(),
+          PAGE_TOOL_BUDGET_MS
+        );
       }
 
+      const runPromise = services.runAnalysis(projectId, scenarioId).catch((err) => {
+        throw err;
+      });
+
       try {
-        await services.runAnalysis(projectId, scenarioId);
+        return await waitForAnalysisWithinBudget(
+          projectId,
+          scenarioId,
+          runPromise,
+          PAGE_TOOL_BUDGET_MS
+        );
       } catch (err) {
         const recovery = await services.getAnalysisRunStatus(projectId, scenarioId);
         if (recovery.status === "completed") {
           return { ...recovery, recovered: true };
         }
+        if (recovery.status === "running") {
+          return {
+            status: "running" as const,
+            jobId: recovery.jobId,
+            progress: recovery.progress,
+            currentStep: recovery.currentStep,
+            message:
+              "Analysis still running — poll get_workspace or list_candidates until candidates appear.",
+            pollTools: [...ANALYSIS_IN_PROGRESS_PAYLOAD.pollTools],
+          };
+        }
         throw err;
       }
-
-      const status = await services.getAnalysisRunStatus(projectId, scenarioId);
-      if (status.status === "completed") {
-        if ((status.candidateCount ?? 0) < 1) {
-          throw new ToolError(
-            "ANALYSIS_EMPTY",
-            "Analysis completed but returned no candidates",
-            "scenarioId"
-          );
-        }
-        return status;
-      }
-      if (status.status === "failed") {
-        throw new ToolError(
-          "ANALYSIS_FAILED",
-          status.error ?? "Analysis failed",
-          "scenarioId"
-        );
-      }
-      throw new ToolError("ANALYSIS_FAILED", "Analysis did not complete", "scenarioId");
     }
     case "create_scenario_branch": {
       const projectId = resolveProjectId(input, context);

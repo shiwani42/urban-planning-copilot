@@ -75,7 +75,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
       type: "object",
       properties: {
         projectId: PROJECT_ID,
-        candidateId: { type: "string" },
+        candidateId: {
+          type: "string",
+          description: "Ranked candidate id from list_candidates or inspect_candidate",
+        },
         scenarioId: SCENARIO_ID,
       },
       required: ["candidateId"],
@@ -106,7 +109,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
       properties: {
         projectId: PROJECT_ID,
         scenarioId: SCENARIO_ID,
-        candidateId: { type: "string" },
+        candidateId: {
+          type: "string",
+          description: "Ranked candidate id from list_candidates or inspect_candidate",
+        },
         reason: { type: "string", description: "Why this site was pinned" },
         note: { type: "string", description: "Optional one-line planner note" },
       },
@@ -123,7 +129,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
       properties: {
         projectId: PROJECT_ID,
         scenarioId: SCENARIO_ID,
-        candidateId: { type: "string" },
+        candidateId: {
+          type: "string",
+          description: "Ranked candidate id from list_candidates or inspect_candidate",
+        },
       },
       required: ["candidateId"],
       additionalProperties: false,
@@ -194,7 +203,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
       type: "object",
       properties: {
         projectId: PROJECT_ID,
-        objectiveText: { type: "string" },
+        objectiveText: {
+          type: "string",
+          description: "Natural-language planning objective replacing the active scenario objective",
+        },
         confirmConstraintChange: {
           type: "boolean",
           description:
@@ -283,7 +295,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
       properties: {
         projectId: PROJECT_ID,
         scenarioId: SCENARIO_ID,
-        candidateId: { type: "string" },
+        candidateId: {
+          type: "string",
+          description: "Ranked candidate id from list_candidates or inspect_candidate",
+        },
       },
       required: ["candidateId"],
       additionalProperties: false,
@@ -339,7 +354,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
       properties: {
         projectId: PROJECT_ID,
         scenarioId: SCENARIO_ID,
-        label: { type: "string" },
+        label: {
+          type: "string",
+          description: "Human-readable label for the exclusion polygon shown in constraints",
+        },
         coordinates: {
           type: "array",
           description: "Polygon ring as [lng,lat] pairs (min 3)",
@@ -359,7 +377,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
       properties: {
         projectId: PROJECT_ID,
         scenarioId: SCENARIO_ID,
-        selectionId: { type: "string" },
+        selectionId: {
+          type: "string",
+          description: "Geographic selection id returned by exclude_map_area",
+        },
       },
       required: ["selectionId"],
       additionalProperties: false,
@@ -374,8 +395,14 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
       properties: {
         projectId: PROJECT_ID,
         scenarioId: SCENARIO_ID,
-        selectionId: { type: "string" },
-        label: { type: "string" },
+        selectionId: {
+          type: "string",
+          description: "Geographic selection id to update",
+        },
+        label: {
+          type: "string",
+          description: "Updated label for the geographic selection",
+        },
         coordinates: {
           type: "array",
           description: "Polygon ring as [lng,lat] pairs (min 3)",
@@ -396,8 +423,14 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
       properties: {
         projectId: PROJECT_ID,
         scenarioId: SCENARIO_ID,
-        title: { type: "string" },
-        description: { type: "string" },
+        title: {
+          type: "string",
+          description: "Short proposal title shown in the workspace review banner",
+        },
+        description: {
+          type: "string",
+          description: "Planner-facing summary of what the proposal would change",
+        },
         action: {
           type: "string",
           description: "Domain action: update_weights, update_constraints, set_transit_threshold, approve_scenario",
@@ -419,8 +452,14 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
       properties: {
         projectId: PROJECT_ID,
         scenarioId: SCENARIO_ID,
-        candidateId: { type: "string" },
-        reason: { type: "string" },
+        candidateId: {
+          type: "string",
+          description: "Ranked candidate id from list_candidates or inspect_candidate",
+        },
+        reason: {
+          type: "string",
+          description: "Optional planner rationale recorded with the rejection",
+        },
         confirmed: {
           type: "boolean",
           description: "Set true after the planner confirms in the workspace UI",
@@ -441,7 +480,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
       properties: {
         projectId: PROJECT_ID,
         scenarioId: SCENARIO_ID,
-        reason: { type: "string" },
+        reason: {
+          type: "string",
+          description: "Optional planner rationale for preferring this scenario",
+        },
         confirmed: {
           type: "boolean",
           description: "Set true after the planner confirms in the workspace UI",
@@ -480,7 +522,10 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
       type: "object",
       properties: {
         projectId: PROJECT_ID,
-        proposalId: { type: "string" },
+        proposalId: {
+          type: "string",
+          description: "Staged proposal id from stage_proposal awaiting planner approval",
+        },
         confirmed: {
           type: "boolean",
           description: "Set true after the planner clicks Approve proposal in the UI",
@@ -505,10 +550,9 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
           items: { type: "string" },
           description: "Scenario ids to include; defaults to active scenario",
         },
-        title: { type: "string" },
-        confirmed: {
-          type: "boolean",
-          description: "Set true after the planner confirms report generation in the UI",
+        title: {
+          type: "string",
+          description: "Optional report title; defaults to a scenario-based name",
         },
       },
       additionalProperties: false,

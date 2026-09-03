@@ -14,9 +14,10 @@ import { parseToolArguments } from "@/lib/domain/webmcp-validation";
 import { resolvePlanningToolAlias } from "@/lib/webmcp/tool-aliases";
 import {
   assertBrowserToolProductState,
-  webMcpToolError,
+  coerceBrowserToolFailure,
   webMcpToolOk,
 } from "@/lib/webmcp/tool-result";
+import { runWithPageToolBudget } from "@/lib/webmcp/page-tool-budget";
 import { isPendingPlannerResult } from "@/lib/domain/human-gated-tools";
 import {
   registerPendingPlannerAction,
@@ -215,11 +216,12 @@ export async function registerPlanningWebMcpTools(): Promise<WebMcpRegistration>
     annotations: meta.annotations,
     execute: async (input) => {
       try {
-        const result = await invokeMcpTool(meta.name, parseToolArguments(input));
+        const result = await runWithPageToolBudget(() =>
+          invokeMcpTool(meta.name, parseToolArguments(input))
+        );
         return webMcpToolOk(result);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return webMcpToolError(message);
+        return coerceBrowserToolFailure(err);
       }
     },
   }));
@@ -232,9 +234,13 @@ export async function registerPlanningWebMcpTools(): Promise<WebMcpRegistration>
       annotations: { readOnlyHint: true },
       execute: async (input) => {
         try {
-          return webMcpToolOk(await invokeMcpTool("list_projects", parseToolArguments(input)));
+          return webMcpToolOk(
+            await runWithPageToolBudget(() =>
+              invokeMcpTool("list_projects", parseToolArguments(input))
+            )
+          );
         } catch (err) {
-          return webMcpToolError(err instanceof Error ? err.message : String(err));
+          return coerceBrowserToolFailure(err);
         }
       },
     },
@@ -255,9 +261,13 @@ export async function registerPlanningWebMcpTools(): Promise<WebMcpRegistration>
       annotations: { readOnlyHint: true },
       execute: async (input) => {
         try {
-          return webMcpToolOk(await invokeMcpTool("load_project", parseToolArguments(input)));
+          return webMcpToolOk(
+            await runWithPageToolBudget(() =>
+              invokeMcpTool("load_project", parseToolArguments(input))
+            )
+          );
         } catch (err) {
-          return webMcpToolError(err instanceof Error ? err.message : String(err));
+          return coerceBrowserToolFailure(err);
         }
       },
     },
@@ -272,10 +282,12 @@ export async function registerPlanningWebMcpTools(): Promise<WebMcpRegistration>
       execute: async (input) => {
         try {
           return webMcpToolOk(
-            await invokeMcpTool("exclude_from_selection", parseToolArguments(input))
+            await runWithPageToolBudget(() =>
+              invokeMcpTool("exclude_from_selection", parseToolArguments(input))
+            )
           );
         } catch (err) {
-          return webMcpToolError(err instanceof Error ? err.message : String(err));
+          return coerceBrowserToolFailure(err);
         }
       },
     },

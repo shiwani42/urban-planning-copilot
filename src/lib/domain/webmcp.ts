@@ -49,6 +49,28 @@ export async function invokeTool(
 
   try {
     const result = await executePlanningTool(name, mergedArgs, context);
+    if (
+      name === "run_analysis" &&
+      result &&
+      typeof result === "object" &&
+      (result as { status?: string }).status === "running"
+    ) {
+      const running = result as {
+        message?: string;
+        jobId?: string;
+        pollTools?: string[];
+      };
+      return {
+        ok: false,
+        error: {
+          code: "ANALYSIS_IN_PROGRESS",
+          message:
+            running.message ??
+            "Analysis still running — poll get_workspace or list_candidates until candidates appear.",
+          field: "scenarioId",
+        },
+      };
+    }
     const projectId =
       typeof mergedArgs.projectId === "string"
         ? mergedArgs.projectId

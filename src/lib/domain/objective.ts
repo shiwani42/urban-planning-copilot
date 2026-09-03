@@ -103,19 +103,17 @@ export function assessObjectiveQuality(text: string): {
 
 export function detectIntent(text: string): PlanningIntent {
   const excludesHousing = NOT_HOUSING_RE.test(text);
+  const housingSignals =
+    !excludesHousing &&
+    (HOUSING_RE.test(text) || /housing|homes|residential growth/i.test(text));
   if (SHELTER_RE.test(text)) return "emergency_shelter";
+  if (housingSignals) return "housing_capacity";
   if (PARK_RE.test(text) && SCHOOL_RE.test(text)) return "service_access";
   if (PARK_RE.test(text) && !SCHOOL_RE.test(text)) return "park_accessibility";
   if (SCHOOL_RE.test(text)) return "school_accessibility";
   if (TRANSIT_GAP_RE.test(text)) return "transit_gap";
   if (CLIMATE_RE.test(text) && !HOUSING_RE.test(text) && !excludesHousing)
     return "climate_resilience";
-  if (
-    !excludesHousing &&
-    (HOUSING_RE.test(text) || /housing|homes|residential growth/i.test(text))
-  ) {
-    return "housing_capacity";
-  }
   if (/explore|where are|largest|discover/i.test(text)) return "explore";
   return "generic_siting";
 }
