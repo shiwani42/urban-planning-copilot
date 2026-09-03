@@ -26,7 +26,8 @@ export function resolveWorkspaceTabFromParams(params: {
   return resolveWorkspaceTab(params.tab ?? params.initialTab ?? params.pathTab);
 }
 
+/** Path-based tab URLs; `?tab=` and legacy `?initialTab=` still resolve via `resolveWorkspaceTabFromParams`. */
 export function workspaceTabHref(projectId: string, tab: WorkspaceTab): string {
   if (tab === "workspace") return `/workspace/${projectId}`;
-  return `/workspace/${projectId}?tab=${tab}`;
+  return `/workspace/${projectId}/${tab}`;
 }
