@@ -1,32 +1,39 @@
 "use client";
 
 import type { DatasetMeta } from "@/lib/domain/types";
-import { ProvenanceChip } from "@/components/workspace-hooks";
+import { DatasetProvenanceChips } from "@/components/DatasetProvenanceChips";
 import { formatLocaleDateTime } from "@/lib/format";
+import { datasetFreshnessFlags, parcelReferenceFeatureCount } from "@/lib/dataset-freshness";
 
 export function DatasetInspectPanel({
   dataset,
   enabledForScenario,
+  datasets,
   onClose,
   onShowOnMap,
 }: {
   dataset: DatasetMeta;
   enabledForScenario: boolean;
+  datasets?: DatasetMeta[];
   onClose: () => void;
   onShowOnMap: () => void;
 }) {
+  const referenceFeatureCount = datasets ? parcelReferenceFeatureCount(datasets) : undefined;
+  const freshness = datasetFreshnessFlags(dataset, { referenceFeatureCount });
   const completeness =
     dataset.incompleteCoverage || dataset.featureCount <= 1
       ? "Incomplete"
-      : dataset.featureCount < 50
+      : freshness.sparseCoverage
         ? "Partial"
         : "Good";
   const fitness =
-    dataset.synthetic || dataset.stale || !dataset.enabled
+    dataset.synthetic || dataset.stale || freshness.vintageStale || freshness.sparseCoverage
       ? "Use with caution"
-      : enabledForScenario
-        ? "Active in this scenario"
-        : "Available but not enabled";
+      : !dataset.enabled
+        ? "Disabled in catalog"
+        : enabledForScenario
+          ? "Active in this scenario"
+          : "Available but not enabled";
 
   return (
     <div className="fixed inset-y-0 right-0 w-full max-w-md z-[2000] bg-surface border-l border-outline-variant shadow-xl flex flex-col">
@@ -50,19 +57,12 @@ export function DatasetInspectPanel({
             Fitness for analysis
           </h3>
           <p>{fitness}</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <ProvenanceChip kind="source_data" />
-            {dataset.synthetic && (
-              <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 border border-secondary text-secondary">
-                Synthetic
-              </span>
-            )}
-            {dataset.stale && (
-              <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 border border-error text-error">
-                Outdated
-              </span>
-            )}
+          <div className="mt-2">
+            <DatasetProvenanceChips dataset={dataset} datasets={datasets} />
           </div>
+          {freshness.cautionSummary && (
+            <p className="mt-2 text-caption text-secondary">{freshness.cautionSummary}</p>
+          )}
         </section>
         <section>
           <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">

@@ -4,17 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { AppHeader } from "@/components/AppHeader";
-import { assessObjectiveQuality } from "@/lib/domain/objective";
+import { ServerWakeBanner } from "@/components/ServerWakeBanner";
 import {
-  EXPLORE_CONVERT_KEY,
-  EXPLORE_SESSION_KEY,
+  assessExploreQuestion,
   buildExploreConvertDraft,
   exploreObjectiveTextForProject,
+  EXPLORE_CONVERT_KEY,
+  EXPLORE_SESSION_KEY,
   type ExploreAnalysisType,
   type ExploreCandidateRow,
   type ExploreInvestigationResult,
 } from "@/lib/domain/explore";
 import { filterAnalysisCaveats } from "@/lib/domain/caveats";
+import { fetchJsonWithServerWake } from "@/lib/server-wake";
 import { formatLocaleDateTime } from "@/lib/format";
 import type { Candidate, DatasetMeta } from "@/lib/domain/types";
 
@@ -141,7 +143,7 @@ export default function ExplorePage() {
   const findingsRef = useRef<HTMLElement>(null);
   const hydrated = useRef(false);
 
-  const objectiveQuality = useMemo(() => assessObjectiveQuality(question), [question]);
+  const exploreAssessment = useMemo(() => assessExploreQuestion(question), [question]);
 
   useEffect(() => {
     if (hydrated.current) return;
@@ -261,23 +263,25 @@ export default function ExplorePage() {
       setError("Enter a spatial question to investigate.");
       return;
     }
-    if (!objectiveQuality.interpretable) {
+    if (!exploreAssessment.interpretable || !exploreAssessment.supported) {
       setError(
-        objectiveQuality.warning ??
-          "This question is too vague to investigate. Add spatial planning context."
+        exploreAssessment.warning ??
+          "This question is too vague or unsupported. Try transit gaps, school access, flood exposure, or housing siting."
       );
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/explore", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Investigation failed");
+      const data = await fetchJsonWithServerWake<ExploreResult>(
+        "/api/explore",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: q }),
+        },
+        { label: "Explore investigation", retries: 2 }
+      );
       setResult(data);
       setSelectedId(data.candidates[0]?.id);
       setListLimit(EXPLORE_PAGE_SIZE);
@@ -290,11 +294,12 @@ export default function ExplorePage() {
     } finally {
       setBusy(false);
     }
-  }, [question, objectiveQuality]);
+  }, [question, exploreAssessment]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <AppHeader active="explore" />
+      <ServerWakeBanner />
       <main className="flex-1 flex flex-col min-h-0">
         <div className="relative flex-1 min-h-[480px] flex flex-col">
           <div className="absolute inset-0 z-0">
@@ -372,9 +377,9 @@ export default function ExplorePage() {
               {error && (
                 <p className="text-body-sm text-error mb-3" role="alert">{error}</p>
               )}
-              {!error && question.trim() && !objectiveQuality.interpretable && (
+              {!error && question.trim() && !exploreAssessment.supported && (
                 <p className="text-body-sm text-secondary mb-3" role="status">
-                  {objectiveQuality.warning}
+                  {exploreAssessment.warning}
                 </p>
               )}
               {convertError && (

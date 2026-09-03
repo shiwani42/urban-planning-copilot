@@ -9,6 +9,8 @@ import {
   useWorkspace,
 } from "@/components/workspace-hooks";
 import { StorageBanner } from "@/components/StorageBanner";
+import { ServerWakeBanner } from "@/components/ServerWakeBanner";
+import { DatasetProvenanceChips } from "@/components/DatasetProvenanceChips";
 import { DatasetInspectPanel } from "@/components/DatasetInspectPanel";
 import {
   CopilotActivityFeed,
@@ -84,6 +86,7 @@ import {
   applyFloodWeightedWeights,
   isFloodWeightedBranchName,
   rebalanceWeights,
+  weightsEqual,
 } from "@/lib/domain/weights";
 import {
   buildCompareTableRows,
@@ -796,6 +799,18 @@ export default function WorkspaceClient({
 
   const weightSumRounded = Math.round(weightSum);
 
+  const weightsDirty = useMemo(() => {
+    if (!scenario || !weightDraft) return false;
+    return !weightsEqual(weightDraft, scenario.weights);
+  }, [weightDraft, scenario?.weights]);
+
+  const prioritiesAwaitAnalysis = useMemo(() => {
+    if (!hasAnyResult || !result) return false;
+    return Boolean(
+      result.stale && /weight|priorit/i.test(result.staleReason ?? "")
+    );
+  }, [hasAnyResult, result]);
+
   const housingTarget = useMemo(() => {
     if (!scenario || !workspace) return undefined;
     return resolveHousingTarget({
@@ -933,8 +948,7 @@ export default function WorkspaceClient({
   }
 
   async function applyWeights() {
-    if (!scenario || !weightDraft || weightSumRounded !== 100) return;
-    setCriteriaStaleHint(true);
+    if (!scenario || !weightDraft || weightSumRounded !== 100 || !weightsDirty) return;
     await act("update_weights", { scenarioId: scenario.id, weights: weightDraft });
   }
 
@@ -961,7 +975,6 @@ export default function WorkspaceClient({
   function adjustWeightDraft(changedIndex: number, newPercent: number) {
     const base = weightDraft ?? scenario?.weights ?? [];
     setWeightDraft(rebalanceWeights(base, changedIndex, newPercent));
-    setCriteriaStaleHint(true);
   }
 
   async function commitTransitThreshold(constraintId: string, rawText: string) {
@@ -1196,7 +1209,8 @@ export default function WorkspaceClient({
         : " It may have been removed or workspace storage may be degraded.";
     return (
       <div className="h-screen flex flex-col bg-background">
-        <StorageBanner />
+        <ServerWakeBanner />
+      <StorageBanner />
         <header className="bg-surface-container-high border-b border-outline-variant px-section-padding h-14 flex items-center">
           <Link href="/" className="font-display text-[18px] font-semibold text-primary">
             Urban Planning Copilot
@@ -1252,7 +1266,8 @@ export default function WorkspaceClient({
   if (workspace && !scenario && !recoveringScenario) {
     return (
       <div className="h-screen flex flex-col bg-background">
-        <StorageBanner />
+        <ServerWakeBanner />
+      <StorageBanner />
         <header className="bg-surface-container-high border-b border-outline-variant px-section-padding h-14 flex items-center">
           <Link href="/" className="font-display text-[18px] font-semibold text-primary">
             Urban Planning Copilot
@@ -1325,6 +1340,7 @@ export default function WorkspaceClient({
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background relative">
+      <ServerWakeBanner />
       <StorageBanner />
       <header className="bg-surface-container-high border-b border-outline-variant shrink-0 z-50">
         <div className="flex items-center justify-between gap-4 px-section-padding h-14 min-w-0">
@@ -1951,13 +1967,23 @@ export default function WorkspaceClient({
                   </h3>
                   <button
                     onClick={applyWeights}
-                    className="text-caption text-primary hover:underline"
-                    disabled={busy || weightSumRounded !== 100}
-                    title={weightSumRounded !== 100 ? "Priorities must sum to 100% before applying" : undefined}
+                    className="text-caption text-primary hover:underline disabled:opacity-50 disabled:no-underline"
+                    disabled={busy || weightSumRounded !== 100 || !weightsDirty}
+                    title={
+                      weightSumRounded !== 100
+                        ? "Priorities must sum to 100% before applying"
+                        : !weightsDirty
+                          ? "No unsaved priority changes"
+                          : undefined
+                    }
                   >
                     Apply priorities
                   </button>
                 </div>
+                <p className="text-caption text-on-surface-variant mb-3" role="note">
+                  Rankings on this branch only change after you run analysis — adjusting sliders
+                  updates the draft until you apply.
+                </p>
                 {highlightWeightsPanel && (
                   <p className="text-body-sm text-primary mb-3" role="status">
                     {isFloodWeightedBranchName(scenario.name)
@@ -1967,7 +1993,19 @@ export default function WorkspaceClient({
                 )}
                 {!hasAnyResult && (
                   <p className="text-caption text-on-surface-variant mb-3" role="status">
-                    No analysis on this branch yet — weights are saved but rankings will not change until you run analysis.
+                    No analysis on this branch yet — apply priorities when ready, then run analysis
+                    to generate rankings.
+                  </p>
+                )}
+                {weightsDirty && (
+                  <p className="text-caption text-secondary mb-3" role="status">
+                    Unsaved priority changes — apply priorities, then run analysis to update
+                    rankings.
+                  </p>
+                )}
+                {prioritiesAwaitAnalysis && !weightsDirty && (
+                  <p className="text-caption text-secondary mb-3" role="status">
+                    Priorities saved — run analysis to update rankings.
                   </p>
                 )}
                 {weightSumRounded !== 100 && (
@@ -3000,6 +3038,7 @@ export default function WorkspaceClient({
         return (
         <DatasetInspectPanel
           dataset={inspectDataset}
+          datasets={workspace.datasets}
           enabledForScenario={scenario.enabledDatasetIds.includes(inspectDatasetId)}
           onClose={() => setInspectDatasetId(null)}
           onShowOnMap={async () => {
@@ -3929,7 +3968,7 @@ function EvidenceView({
             <div className="mb-2">
               <DatasetRefChip label={d.id} datasets={workspace.datasets} />
               <span className="ml-2">
-                <ProvenanceChip kind="source_data" />
+                <DatasetProvenanceChips dataset={d} datasets={workspace.datasets} />
               </span>
             </div>
             <dl className="grid grid-cols-2 gap-2 text-body-sm">

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceSnapshot } from "@/lib/domain/types";
-import { fetchJsonWithRetry } from "@/lib/fetch-json";
+import { fetchJsonWithServerWake } from "@/lib/server-wake";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
 
 const LOAD_TIMEOUT_MS = 25_000;
@@ -90,7 +90,7 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
     setRefreshing(true);
     setProjectNotFound(false);
     try {
-      const { data } = await fetchJsonWithRetry<WorkspaceSnapshot>(
+      const data = await fetchJsonWithServerWake<WorkspaceSnapshot>(
         `/api/projects/${projectId}`,
         { cache: "no-store" },
         { label: "Load project", retries: 3 }
@@ -178,7 +178,7 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
     async (action: string, body: Record<string, unknown> = {}) => {
       setBusy(true);
       try {
-        const { data } = await fetchJsonWithRetry<Record<string, unknown>>(
+        const data = await fetchJsonWithServerWake<Record<string, unknown>>(
           `/api/projects/${projectId}`,
           {
             method: "PATCH",

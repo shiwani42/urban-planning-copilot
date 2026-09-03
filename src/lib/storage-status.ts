@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { fetchJsonWithServerWake } from "@/lib/server-wake";
 
 export type PersistBackend = "postgres" | "file";
 
@@ -143,16 +144,11 @@ export function useStorageStatus(): ClientStorageStatus & { refresh: () => void 
 
   const refresh = useCallback(() => {
     setStorage((prev) => ({ ...prev, status: prev.status === "loading" ? "loading" : prev.status }));
-    fetch("/api/health", { cache: "no-store" })
-      .then(async (r) => {
-        const data = (await r.json()) as HealthPayload;
-        if (!r.ok) {
-          throw new Error(
-            typeof (data as { error?: string }).error === "string"
-              ? (data as { error: string }).error
-              : `Health check failed (${r.status})`
-          );
-        }
+    fetchJsonWithServerWake<HealthPayload>("/api/health", { cache: "no-store" }, {
+      label: "Health check",
+      retries: 3,
+    })
+      .then((data) => {
         setStorage(normalizeHealthPayload(data));
       })
       .catch((err) => {

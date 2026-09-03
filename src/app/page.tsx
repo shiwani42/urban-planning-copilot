@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppHeader } from "@/components/AppHeader";
 import { StorageBanner } from "@/components/StorageBanner";
+import { ServerWakeBanner } from "@/components/ServerWakeBanner";
 import { PlannerGreeting } from "@/components/PlannerGreeting";
 import { ActionRequiredKindChip } from "@/components/workspace-hooks";
 import { formatRelativeTime, formatLocaleTime, projectRecencyIso } from "@/lib/format";
@@ -19,7 +20,7 @@ import {
   type RecentProjectHint,
 } from "@/lib/project-recency";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
-import { fetchJsonWithRetry } from "@/lib/fetch-json";
+import { fetchJsonWithServerWake } from "@/lib/server-wake";
 import { projectStatusLine, projectStatusTone } from "@/lib/project-status";
 import {
   useStorageStatus,
@@ -136,7 +137,7 @@ export default function HomePage() {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await fetchJsonWithRetry<{
+      const data = await fetchJsonWithServerWake<{
         projects?: Project[];
         recentAnalyses?: RecentAnalysisRow[];
         recentActivity?: RecentActivityRow[];
@@ -147,7 +148,7 @@ export default function HomePage() {
           message?: string;
         };
         error?: string;
-      }>("/api/projects", { cache: "no-store" }, { label: "Load projects" });
+      }>("/api/projects", { cache: "no-store" }, { label: "Load projects", retries: 3 });
       const storage = data.storage;
       if (
         storage?.status === "degraded" ||
@@ -751,6 +752,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-background flex flex-col" onClick={() => setMenuId(null)}>
       <AppHeader active="projects" />
+      <ServerWakeBanner />
       <StorageBanner />
       {storageStatus.lastBoot === "empty-after-missing-file" &&
         !shouldShowStorageUnavailableBanner(storageStatus) && (
@@ -939,7 +941,7 @@ export default function HomePage() {
                             Create a workspace and describe your planning question in natural
                             language.
                             {storageHealthy
-                              ? " Projects are saved on the server and persist across sessions."
+                              ? " Projects are saved on the server while storage is healthy."
                               : " On this server, projects may not survive restarts until DATABASE_URL is configured — check the storage banner above."}
                           </p>
                           <Link

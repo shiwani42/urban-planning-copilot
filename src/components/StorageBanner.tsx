@@ -13,7 +13,7 @@ export function StorageBanner() {
 
   const message =
     storageReliabilityIssue(storage) ??
-    "Projects may not persist across restarts until storage is restored.";
+    "Projects may not survive server restarts until storage is restored.";
 
   const heading =
     storage.persistBackend === "file"
