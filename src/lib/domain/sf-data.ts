@@ -19,6 +19,7 @@ const SOURCE_URLS = {
   flood:
     "https://data.sfgov.org/Public-Safety/100-Year-Storm-Flood-Risk-Zone-July-2022-/jzu3-4yxp",
   parks: "https://data.sfgov.org/Culture-and-Recreation/Recreation-and-Parks-Properties/gtr9-ntp6",
+  schools: "https://data.sfgov.org/Economy-and-Community/Schools/7e7j-59qk",
 };
 
 type Manifest = {
@@ -203,22 +204,64 @@ export async function loadSanFranciscoParks(): Promise<{
   };
 }
 
-/** Attach or replace synthetic parks with the checked-in SF clip. Memory only — do not persist the GIS catalog. */
-export async function attachSanFranciscoParks(store: {
+export async function loadSanFranciscoSchools(): Promise<{
+  dataset: DatasetMeta;
+  features: GeoJSON.FeatureCollection;
+} | null> {
+  const schoolsPath = path.join(SF_DIR, "schools.geojson.gz");
+  try {
+    await fs.access(schoolsPath);
+  } catch {
+    return null;
+  }
+  const schools = await readGzJson<GeoJSON.FeatureCollection>("schools.geojson.gz");
+  if (!schools.features.length) return null;
+  const manifest = await loadManifest();
+  const vintage = manifest?.layers?.schools?.vintage;
+  const generatedAt = manifest?.generatedAt ?? new Date().toISOString();
+  return {
+    dataset: {
+      id: "ds-schools",
+      name: "Schools (San Francisco)",
+      kind: "schools",
+      source: provenanceSource("schools"),
+      version: vintageToVersion(vintage),
+      updatedAt: generatedAt,
+      dataVintage: dataVintageLabel(vintage, "SF schools snapshot"),
+      synthetic: false,
+      coverage: GEOGRAPHY_LABEL,
+      limitations: [
+        "Mission/SoMa clip of active school sites — not the full city",
+        "Point locations, not campus footprints",
+      ],
+      featureCount: schools.features.length,
+      enabled: true,
+      attributes: ["id", "name", "type", "neighborhood", "district", "grades"],
+    },
+    features: schools,
+  };
+}
+
+type SnapshotStore = {
   datasets: DatasetMeta[];
   featuresByDataset: Record<string, GeoJSON.FeatureCollection>;
-}): Promise<boolean> {
-  const parks = await loadSanFranciscoParks();
-  if (!parks) return false;
+};
+
+async function attachCitySnapshotLayer(
+  store: SnapshotStore,
+  kind: "parks" | "schools",
+  loaded: { dataset: DatasetMeta; features: GeoJSON.FeatureCollection } | null
+): Promise<boolean> {
+  if (!loaded) return false;
   const hasCityParcels = store.datasets.some((d) => d.kind === "parcels" && !d.synthetic);
   if (!hasCityParcels) return false;
-  const existing = store.datasets.find((d) => d.kind === "parks");
-  if (existing && !existing.synthetic && existing.id === parks.dataset.id) {
-    store.featuresByDataset[existing.id] = parks.features;
-    existing.featureCount = parks.features.features.length;
-    existing.name = parks.dataset.name;
-    existing.source = parks.dataset.source;
-    existing.limitations = parks.dataset.limitations;
+  const existing = store.datasets.find((d) => d.kind === kind);
+  if (existing && !existing.synthetic && existing.id === loaded.dataset.id) {
+    store.featuresByDataset[existing.id] = loaded.features;
+    existing.featureCount = loaded.features.features.length;
+    existing.name = loaded.dataset.name;
+    existing.source = loaded.dataset.source;
+    existing.limitations = loaded.dataset.limitations;
     existing.synthetic = false;
     return false;
   }
@@ -226,18 +269,33 @@ export async function attachSanFranciscoParks(store: {
     store.datasets = store.datasets.filter((d) => d.id !== existing.id);
     delete store.featuresByDataset[existing.id];
   }
-  store.datasets.push(parks.dataset);
-  store.featuresByDataset[parks.dataset.id] = parks.features;
+  store.datasets.push(loaded.dataset);
+  store.featuresByDataset[loaded.dataset.id] = loaded.features;
   return true;
 }
 
-/** Synthetic layers not yet replaced by city open data in Pass 09. */
+/** Attach or replace synthetic parks with the checked-in SF clip. Memory only — do not persist the GIS catalog. */
+export async function attachSanFranciscoParks(store: SnapshotStore): Promise<boolean> {
+  return attachCitySnapshotLayer(store, "parks", await loadSanFranciscoParks());
+}
+
+/** Attach or replace illustrative schools with the checked-in SF clip. Memory only. */
+export async function attachSanFranciscoSchools(store: SnapshotStore): Promise<boolean> {
+  return attachCitySnapshotLayer(store, "schools", await loadSanFranciscoSchools());
+}
+
+export async function attachSanFranciscoSnapshotLayers(store: SnapshotStore): Promise<void> {
+  await attachSanFranciscoParks(store);
+  await attachSanFranciscoSchools(store);
+}
+
+/** Synthetic layers not yet replaced by city open data (population, infrastructure). */
 export function syntheticSupplementDatasets(now: string): {
   datasets: DatasetMeta[];
   featuresByDataset: Record<string, GeoJSON.FeatureCollection>;
 } {
   const city = generateSyntheticCity(99);
-  const kinds = ["population", "schools", "infrastructure"] as const;
+  const kinds = ["population", "infrastructure"] as const;
   const datasets = city.datasets.filter((d) => kinds.includes(d.kind as typeof kinds[number]));
   const featuresByDataset: Record<string, GeoJSON.FeatureCollection> = {};
   for (const d of datasets) {

@@ -7,6 +7,7 @@
  * - Muni stops: https://data.sfgov.org/Transportation/Muni-Stops/i28k-bkz6
  * - 100-year storm flood: https://data.sfgov.org/Public-Safety/100-Year-Storm-Flood-Risk-Zone-July-2022-/jzu3-4yxp
  * - Recreation and Parks properties: https://data.sfgov.org/d/gtr9-ntp6
+ * - Schools: https://data.sfgov.org/d/7e7j-59qk
  */
 import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { createGzip } from "zlib";
@@ -51,6 +52,12 @@ const SOURCES = {
   parks: {
     id: "gtr9-ntp6",
     url: "https://data.sfgov.org/resource/gtr9-ntp6.geojson",
+    license: "PDDL",
+    vintageField: "data_as_of",
+  },
+  schools: {
+    id: "7e7j-59qk",
+    url: "https://data.sfgov.org/resource/7e7j-59qk.geojson",
     license: "PDDL",
     vintageField: "data_as_of",
   },
@@ -369,6 +376,68 @@ function mapParkFeature(raw, index) {
   };
 }
 
+function mapSchoolFeature(raw, index) {
+  const props = raw.properties ?? {};
+  if (!/active/i.test(String(props.status ?? ""))) return null;
+  const geom = raw.geometry;
+  let lng;
+  let lat;
+  if (geom?.type === "Point" && Array.isArray(geom.coordinates)) {
+    lng = Number(geom.coordinates[0]);
+    lat = Number(geom.coordinates[1]);
+  } else {
+    lng = Number(props.longitude);
+    lat = Number(props.latitude);
+  }
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+
+  const pad = 0.008;
+  if (
+    lng < DEMO_AOI.west - pad ||
+    lng > DEMO_AOI.east + pad ||
+    lat < DEMO_AOI.south - pad ||
+    lat > DEMO_AOI.north + pad
+  ) {
+    return null;
+  }
+
+  const id = String(props.cds_code ?? props.school ?? `school-${index}`);
+  const grades =
+    props.low_grade || props.high_grade
+      ? `${props.low_grade ?? "?"}–${props.high_grade ?? "?"}`
+      : "";
+  return {
+    type: "Feature",
+    id,
+    geometry: { type: "Point", coordinates: [lng, lat] },
+    properties: {
+      id,
+      name: String(props.school ?? `School ${id}`),
+      type: String(props.entity_type ?? props.educational_program_type ?? "school"),
+      neighborhood: String(props.analysis_neighborhood ?? ""),
+      district: String(props.district ?? ""),
+      grades,
+      public: Boolean(props.public_yesno),
+      synthetic: false,
+    },
+  };
+}
+
+async function ingestSchools() {
+  console.log("Schools…");
+  const where = `analysis_neighborhood in(${neighborhoodList()})`;
+  const raw = await fetchAllGeoJson(SOURCES.schools.url, where);
+  const features = raw.features.map((f, i) => mapSchoolFeature(f, i)).filter(Boolean);
+  console.log(`  ${features.length} active schools (Mission/SoMa)`);
+  const vintage = pickVintage(raw.features, SOURCES.schools.vintageField);
+  const file = await writeGzJson("schools.geojson.gz", {
+    type: "FeatureCollection",
+    features,
+  });
+  const relPath = path.join("snapshots", "sf", "schools.geojson.gz");
+  return { kind: "schools", featureCount: features.length, vintage, path: relPath, bytes: file.bytes };
+}
+
 async function ingestParks() {
   console.log("Parks…");
   const where = `analysis_neighborhood in(${neighborhoodList()})`;
@@ -397,7 +466,8 @@ async function main() {
   };
 
   const parksOnly = process.argv.includes("--parks-only");
-  if (parksOnly) {
+  const schoolsOnly = process.argv.includes("--schools-only");
+  if (parksOnly || schoolsOnly) {
     try {
       const existing = JSON.parse(readFileSync(path.join(OUT_DIR, "manifest.json"), "utf8"));
       Object.assign(results, existing, { generatedAt: results.generatedAt, aoi: DEMO_AOI });
@@ -406,12 +476,14 @@ async function main() {
     } catch {
       /* new manifest */
     }
-    results.layers.parks = await ingestParks();
+    if (parksOnly) results.layers.parks = await ingestParks();
+    if (schoolsOnly) results.layers.schools = await ingestSchools();
   } else {
     results.layers.parcels = await ingestParcels();
     results.layers.transit = await ingestTransit();
     results.layers.flood = await ingestFlood();
     results.layers.parks = await ingestParks();
+    results.layers.schools = await ingestSchools();
   }
 
   writeFileSync(path.join(OUT_DIR, "manifest.json"), JSON.stringify(results, null, 2));
