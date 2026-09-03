@@ -148,11 +148,11 @@ describe("store persistence", () => {
 
     assert.equal(branchFlood, 35);
     assert.ok(branchFlood > baselineFlood);
-    assert.match(branched.project.resumeNote ?? "", /still viewing/i);
-    assert.equal(branched.project.activeScenarioId, baselineId);
+    assert.match(branched.project.resumeNote ?? "", /run analysis on this branch/i);
+    assert.equal(branched.project.activeScenarioId, branch.id);
   });
 
-  it("branch create keeps analyzed scenario active", async () => {
+  it("branch create switches to new scenario for analysis", async () => {
     const ws = await services.createProject({
       name: "Stay on analyzed branch",
       objectiveText: HOUSING_OBJECTIVE,
@@ -161,8 +161,8 @@ describe("store persistence", () => {
     await services.runAnalysis(ws.project.id, baselineId);
 
     const branched = await services.createScenario(ws.project.id, "Flood-weighted branch", baselineId);
-    assert.equal(branched.project.activeScenarioId, baselineId);
     const branch = branched.scenarios.find((s) => s.name === "Flood-weighted branch")!;
+    assert.equal(branched.project.activeScenarioId, branch.id);
     assert.ok(branch);
     assert.equal(branch.latestResultId, undefined);
   });
@@ -187,7 +187,7 @@ describe("store persistence", () => {
     const branch = branched.scenarios.find((s) => s.name === "Branch without analysis")!;
     assert.equal(branch.decisionStatus, "none");
     assert.equal(branch.latestResultId, undefined);
-    assert.match(branched.project.resumeNote ?? "", /still viewing/i);
+    assert.match(branched.project.resumeNote ?? "", /run analysis on this branch/i);
     assert.doesNotMatch(branched.project.resumeNote ?? "", /Decision recorded/);
   });
 

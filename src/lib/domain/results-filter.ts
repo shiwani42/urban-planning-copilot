@@ -12,6 +12,7 @@ export type ResultsFilterState = {
   capacityMin: string;
   capacityMax: string;
   shortlistedOnly: boolean;
+  belowTargetOnly: boolean;
 };
 
 export const DEFAULT_RESULTS_FILTER: ResultsFilterState = {
@@ -22,6 +23,7 @@ export const DEFAULT_RESULTS_FILTER: ResultsFilterState = {
   capacityMin: "",
   capacityMax: "",
   shortlistedOnly: false,
+  belowTargetOnly: false,
 };
 
 /** Neighborhood prefix from candidate labels like "Mission — Blk/Lot 3595/006". */
@@ -102,13 +104,30 @@ export function candidateMatchesText(c: Candidate, text: string): boolean {
   return haystack.includes(q);
 }
 
+export function candidateBelowHousingTarget(
+  candidate: Candidate,
+  housingTarget: number
+): boolean {
+  const capacity = candidateCapacityHomes(candidate);
+  if (capacity == null) return false;
+  return capacity < housingTarget;
+}
+
 export function filterCandidates(
   candidates: Candidate[],
   filter: ResultsFilterState,
-  shortlistedIds: Set<string>
+  shortlistedIds: Set<string>,
+  options?: { housingTarget?: number }
 ): Candidate[] {
   return candidates.filter((c) => {
     if (filter.shortlistedOnly && !shortlistedIds.has(c.id)) return false;
+    if (
+      filter.belowTargetOnly &&
+      options?.housingTarget &&
+      !candidateBelowHousingTarget(c, options.housingTarget)
+    ) {
+      return false;
+    }
     if (filter.neighborhood && neighborhoodFromLabel(c.label) !== filter.neighborhood) {
       return false;
     }

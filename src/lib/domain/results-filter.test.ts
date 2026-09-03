@@ -73,6 +73,7 @@ describe("results-filter", () => {
         capacityMin: "",
         capacityMax: "",
         shortlistedOnly: false,
+        belowTargetOnly: false,
       },
       new Set()
     );
@@ -89,10 +90,48 @@ describe("results-filter", () => {
         capacityMin: "",
         capacityMax: "",
         shortlistedOnly: true,
+        belowTargetOnly: false,
       },
       new Set(["a"])
     );
     assert.equal(shortlisted.length, 1);
     assert.equal(shortlisted[0]?.id, "a");
+  });
+
+  it("filters candidates below housing target", () => {
+    const candidates = [
+      mockCandidate({
+        id: "a",
+        label: "Mission — Blk/Lot 1",
+        score: 80,
+        rank: 1,
+        metrics: [{ key: "capacity", label: "Capacity", value: 500, unit: "homes" }],
+      }),
+      mockCandidate({
+        id: "b",
+        label: "SoMa — Blk/Lot 2",
+        score: 70,
+        rank: 2,
+        metrics: [{ key: "capacity", label: "Capacity", value: 1200, unit: "homes" }],
+      }),
+    ];
+
+    const belowTarget = filterCandidates(
+      candidates,
+      {
+        text: "",
+        neighborhood: "",
+        scoreBand: "all",
+        floodRisk: "all",
+        capacityMin: "",
+        capacityMax: "",
+        shortlistedOnly: false,
+        belowTargetOnly: true,
+      },
+      new Set(),
+      { housingTarget: 1000 }
+    );
+    assert.equal(belowTarget.length, 1);
+    assert.equal(belowTarget[0]?.id, "a");
   });
 });

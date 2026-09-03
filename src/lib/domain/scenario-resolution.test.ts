@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   activeScenarioNeedsRepair,
+  defaultCompareScenarioIds,
   pickDefaultScenarioId,
   resolveScenarioId,
 } from "./scenario-resolution";
-import type { AppStore, Project, Scenario } from "./types";
+import type { AnalysisResult, AppStore, Candidate, Project, Scenario } from "./types";
 
 function makeStore(
   project: Partial<Project> & { id: string },
@@ -65,5 +66,92 @@ describe("scenario-resolution", () => {
     );
     assert.equal(resolveScenarioId(store, "p1", "deleted-scenario"), "s-active");
     assert.equal(activeScenarioNeedsRepair(store, "p1"), undefined);
+  });
+
+  it("defaultCompareScenarioIds prefers active scenario and parent, not all branches", () => {
+    const candidates: Candidate[] = [
+      {
+        id: "c1",
+        label: "Site",
+        featureIds: ["f1"],
+        geometry: { type: "Point", coordinates: [0, 0] },
+        centroid: [0, 0],
+        score: 80,
+        rank: 1,
+        metrics: [],
+        provenance: {
+          scoreBreakdown: {},
+          calculations: [],
+          datasets: [],
+          assumptions: [],
+          constraints: [],
+          humanDecisions: [],
+          limitations: [],
+        },
+        status: "eligible",
+      },
+    ];
+    const results: AnalysisResult[] = [
+      {
+        id: "r1",
+        scenarioId: "parent",
+        status: "completed",
+        stale: false,
+        candidates,
+        createdAt: "",
+        completedAt: "",
+        stepLogs: [],
+        aggregateMetrics: [],
+      },
+      {
+        id: "r2",
+        scenarioId: "child",
+        status: "completed",
+        stale: false,
+        candidates,
+        createdAt: "",
+        completedAt: "",
+        stepLogs: [],
+        aggregateMetrics: [],
+      },
+      {
+        id: "r3",
+        scenarioId: "other",
+        status: "completed",
+        stale: false,
+        candidates,
+        createdAt: "",
+        completedAt: "",
+        stepLogs: [],
+        aggregateMetrics: [],
+      },
+    ];
+    const scenarios: Scenario[] = [
+      {
+        id: "parent",
+        projectId: "p1",
+        name: "Baseline",
+        parentScenarioId: undefined,
+        latestResultId: "r1",
+      } as Scenario,
+      {
+        id: "child",
+        projectId: "p1",
+        name: "Flood branch",
+        parentScenarioId: "parent",
+        latestResultId: "r2",
+      } as Scenario,
+      {
+        id: "other",
+        projectId: "p1",
+        name: "Transit branch",
+        parentScenarioId: "parent",
+        latestResultId: "r3",
+      } as Scenario,
+    ];
+
+    const ids = defaultCompareScenarioIds(scenarios, results, "child");
+    assert.deepEqual(ids, ["child", "parent"]);
+    assert.equal(ids.includes("other"), false);
   });
 });

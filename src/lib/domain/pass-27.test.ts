@@ -89,6 +89,7 @@ describe("pass-27 hardening", () => {
         capacityMin: "",
         capacityMax: "",
         shortlistedOnly: false,
+        belowTargetOnly: false,
       },
       new Set()
     );
@@ -105,6 +106,7 @@ describe("pass-27 hardening", () => {
         capacityMin: "50",
         capacityMax: "200",
         shortlistedOnly: false,
+        belowTargetOnly: false,
       },
       new Set()
     );

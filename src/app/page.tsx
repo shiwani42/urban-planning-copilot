@@ -124,6 +124,7 @@ export default function HomePage() {
   const [recoverableIds, setRecoverableIds] = useState<string[]>([]);
   const [recoveryChecked, setRecoveryChecked] = useState(false);
   const [deletedLastProject, setDeletedLastProject] = useState(false);
+  const [listStorageIssue, setListStorageIssue] = useState<string | null>(null);
   const storageStatus = useStorageStatus();
 
   const loadProjects = useCallback(async () => {
@@ -134,9 +135,28 @@ export default function HomePage() {
         projects?: Project[];
         recentAnalyses?: RecentAnalysisRow[];
         recentActivity?: RecentActivityRow[];
-        storage?: { status?: string };
+        storage?: {
+          status?: string;
+          storeExists?: boolean;
+          storeReadError?: string;
+          message?: string;
+        };
         error?: string;
       }>("/api/projects", { cache: "no-store" }, { label: "Load projects" });
+      const storage = data.storage;
+      if (
+        storage?.status === "degraded" ||
+        storage?.storeExists === false ||
+        storage?.storeReadError
+      ) {
+        setListStorageIssue(
+          storage.storeReadError ??
+            storage.message ??
+            "Workspace storage is unavailable — projects could not be loaded."
+        );
+      } else {
+        setListStorageIssue(null);
+      }
       setProjects(data.projects ?? []);
       setRecentAnalyses(data.recentAnalyses ?? []);
       setRecentActivity(data.recentActivity ?? []);
@@ -837,7 +857,24 @@ export default function HomePage() {
                   </div>
                   {sortedProjects.length === 0 ? (
                     <div className="border border-outline-variant bg-surface-container-lowest p-10 text-center">
-                      {deletedLastProject ? (
+                      {listStorageIssue ? (
+                        <>
+                          <p className="text-headline-md text-on-surface mb-2">
+                            Could not load projects
+                          </p>
+                          <p className="text-body-sm text-on-surface-variant mb-6 max-w-lg mx-auto">
+                            {listStorageIssue} This is a storage issue — not an empty project list.
+                            Check workspace storage configuration or try again.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void loadProjects()}
+                            className="inline-block bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium"
+                          >
+                            Retry
+                          </button>
+                        </>
+                      ) : deletedLastProject ? (
                         <>
                           <p className="text-headline-md text-on-surface mb-2">
                             You deleted the last project

@@ -74,6 +74,45 @@ export function resolveScenarioId(
   return pickDefaultScenarioId(scenarios);
 }
 
+/** Default compare selection when opening the Compare tab — active + related branches, not every scenario. */
+export function defaultCompareScenarioIds(
+  scenarios: Scenario[],
+  results: AnalysisResult[],
+  activeScenarioId?: string
+): string[] {
+  const withResults = scenarios.filter((scenario) =>
+    scenarioHasComparableAnalysis(scenario, results)
+  );
+  if (withResults.length <= 2) {
+    return withResults.map((scenario) => scenario.id);
+  }
+
+  const active = activeScenarioId
+    ? scenarios.find((scenario) => scenario.id === activeScenarioId)
+    : undefined;
+  const ids = new Set<string>();
+
+  if (active && scenarioHasComparableAnalysis(active, results)) {
+    ids.add(active.id);
+    const parent = active.parentScenarioId
+      ? scenarios.find((scenario) => scenario.id === active.parentScenarioId)
+      : undefined;
+    const children = scenarios.filter((scenario) => scenario.parentScenarioId === active.id);
+    for (const related of [parent, ...children]) {
+      if (related && scenarioHasComparableAnalysis(related, results)) {
+        ids.add(related.id);
+        if (ids.size >= 2) break;
+      }
+    }
+  }
+
+  if (ids.size < 2) {
+    return withResults.slice(0, 2).map((scenario) => scenario.id);
+  }
+
+  return [...ids].slice(0, 3);
+}
+
 export function activeScenarioNeedsRepair(
   store: AppStore,
   projectId: string

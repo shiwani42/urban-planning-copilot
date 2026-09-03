@@ -114,8 +114,10 @@ import {
 } from "@/lib/domain/housing-target";
 import {
   firstUnanalyzedScenarioName,
+  defaultCompareScenarioIds,
   scenarioHasComparableAnalysis,
 } from "@/lib/domain/scenario-resolution";
+import { validateDecisionReason } from "@/lib/domain/decision";
 import type { MapDrawMode } from "@/components/PlanningMap";
 import { CompareScenarioMaps } from "@/components/CompareScenarioMaps";
 import { resolveWorkspaceTab, type WorkspaceTab } from "@/lib/workspace-tabs";
@@ -289,7 +291,9 @@ export default function WorkspaceClient({
   const [duplicateNameDraft, setDuplicateNameDraft] = useState("");
   const [duplicateBusy, setDuplicateBusy] = useState(false);
   const [highlightWeightsPanel, setHighlightWeightsPanel] = useState(false);
+  const [resultsFilter, setResultsFilter] = useState<ResultsFilterState>(DEFAULT_RESULTS_FILTER);
   const weightsPanelRef = useRef<HTMLElement | null>(null);
+  const compareTabEnteredRef = useRef(false);
 
   const setTab = useCallback(
     (next: Tab) => {
@@ -481,31 +485,21 @@ export default function WorkspaceClient({
   }, [scenario?.id, scenario?.updatedAt]);
 
   useEffect(() => {
-    if (tab !== "compare" || !workspace) return;
-    const withResults = workspace.scenarios.filter((s) =>
-      scenarioHasComparableAnalysis(s, workspace.analysisResults)
-    );
-    if (withResults.length >= 2) {
-      setCompareIds(withResults.map((s) => s.id));
+    if (tab !== "compare") {
+      compareTabEnteredRef.current = false;
       return;
     }
-    if (!scenario) return;
-    const parent = scenario.parentScenarioId
-      ? workspace.scenarios.find((s) => s.id === scenario.parentScenarioId)
-      : undefined;
-    const ids = new Set<string>();
-    if (scenarioHasComparableAnalysis(scenario, workspace.analysisResults)) {
-      ids.add(scenario.id);
-    }
-    if (parent && scenarioHasComparableAnalysis(parent, workspace.analysisResults)) {
-      ids.add(parent.id);
-    }
-    if (ids.size >= 2) {
-      setCompareIds([...ids]);
-    } else if (compareIds.length === 0 && withResults.length > 0) {
-      setCompareIds(withResults.map((s) => s.id));
-    }
-  }, [tab, workspace, scenario?.id, scenario?.parentScenarioId, compareIds.length]);
+    if (!workspace) return;
+    if (compareTabEnteredRef.current) return;
+    compareTabEnteredRef.current = true;
+    setCompareIds(
+      defaultCompareScenarioIds(
+        workspace.scenarios,
+        workspace.analysisResults,
+        scenario?.id
+      )
+    );
+  }, [tab, workspace, scenario?.id]);
 
   useEffect(() => {
     if (!workspace || tab !== "compare") return;
@@ -741,6 +735,22 @@ export default function WorkspaceClient({
       topSiteCapacity,
     });
   }, [housingTarget, result, totalCapacity, topSiteCapacity]);
+
+  const shortlistedIdsForFilter = useMemo(
+    () => new Set(shortlist.map((e) => e.candidateId).filter(Boolean) as string[]),
+    [shortlist]
+  );
+  const filteredMapCandidates = useMemo(
+    () =>
+      filterCandidates(candidates, resultsFilter, shortlistedIdsForFilter, {
+        housingTarget,
+      }),
+    [candidates, resultsFilter, shortlistedIdsForFilter, housingTarget]
+  );
+
+  useEffect(() => {
+    setResultsFilter(DEFAULT_RESULTS_FILTER);
+  }, [scenario?.id]);
 
   const analyzedScenarios = useMemo(() => {
     if (!workspace) return [];
@@ -1012,9 +1022,9 @@ export default function WorkspaceClient({
       setCriteriaStaleHint(true);
       setDuplicateDialogOpen(false);
       const floodNote = isFloodWeightedBranchName(name)
-        ? " Flood weights were increased — switch scenarios in the header to run analysis."
-        : " Switch scenarios in the header to adjust priorities or run analysis.";
-      showToast(`Created "${name}" — still viewing "${scenario.name}".${floodNote}`);
+        ? " Flood weights were increased — run analysis on this branch to compare."
+        : " Adjust weights and run analysis on this branch.";
+      showToast(`Created "${name}" — now viewing the new branch.${floodNote}`);
     } catch (e) {
       showToast(
         e instanceof Error ? e.message : "Could not duplicate scenario — try again."
@@ -2022,7 +2032,7 @@ export default function WorkspaceClient({
             <PlanningMap
               workspace={workspace}
               layerData={layerData}
-              candidates={candidates}
+              candidates={filteredMapCandidates}
               shortlistedFeatureIds={shortlistedFeatureIds}
               onSelectCandidate={(c) => {
                 if (drawingActive) return;
@@ -2716,8 +2726,10 @@ export default function WorkspaceClient({
           onSensitivityBranch={async (name) => {
             await act("create_scenario_branch", { name });
             await refresh();
-            showToast(`Created branch “${name}” — adjust weights and re-run analysis.`);
+            showToast(`Created branch “${name}” — run analysis on this branch when ready.`);
           }}
+          resultsFilter={resultsFilter}
+          onResultsFilterChange={setResultsFilter}
         />
       ) : null}
 
@@ -2855,7 +2867,26 @@ export default function WorkspaceClient({
           }}
           error={decisionError}
           confirmType={confirmDecision}
-          onRequestConfirm={setConfirmDecision}
+          onRequestConfirm={(type) => {
+            if (type === "approve_scenario" || type === "reject_scenario") {
+              const reasonError = validateDecisionReason(decisionReason);
+              if (reasonError) {
+                setDecisionError(reasonError);
+                return;
+              }
+            }
+            if (type === "request_changes") {
+              const trimmed = decisionReason.trim();
+              if (trimmed && trimmed.length < 10) {
+                setDecisionError(
+                  "Please describe what changes are needed (at least 10 characters)."
+                );
+                return;
+              }
+            }
+            setDecisionError(null);
+            setConfirmDecision(type);
+          }}
           onCancelConfirm={() => setConfirmDecision(null)}
           onGoToWorkspace={() => {
             setTab("workspace");
@@ -3120,8 +3151,9 @@ function ResultsFilterBar(props: {
   neighborhoods: string[];
   totalCount: number;
   filteredCount: number;
+  housingTarget?: number;
 }) {
-  const { filter, onChange, neighborhoods, totalCount, filteredCount } = props;
+  const { filter, onChange, neighborhoods, totalCount, filteredCount, housingTarget } = props;
   const fieldClass =
     "w-full border border-outline-variant rounded px-2.5 py-1.5 text-body-sm bg-surface focus-ring";
   return (
@@ -3225,6 +3257,16 @@ function ResultsFilterBar(props: {
         />
         Shortlisted only
       </label>
+      {housingTarget != null && housingTarget > 0 && (
+        <label className="flex items-center gap-2 text-body-sm">
+          <input
+            type="checkbox"
+            checked={filter.belowTargetOnly}
+            onChange={(e) => onChange({ ...filter, belowTargetOnly: e.target.checked })}
+          />
+          Below {housingTarget.toLocaleString()}-home target only
+        </label>
+      )}
     </div>
   );
 }
@@ -3264,9 +3306,10 @@ function ResultsDrawer(props: {
   onUpdateShortlistNote: (candidateId: string, note: string) => void | Promise<void>;
   onReject: (c: Candidate, reason: string) => Promise<void>;
   onSensitivityBranch?: (branchName: string) => void | Promise<void>;
+  resultsFilter: ResultsFilterState;
+  onResultsFilterChange: (next: ResultsFilterState) => void;
 }) {
   const { result, selected, panel, intent, scenario, shortlist } = props;
-  const [resultsFilter, setResultsFilter] = useState<ResultsFilterState>(DEFAULT_RESULTS_FILTER);
   const [floodExpanded, setFloodExpanded] = useState(false);
   const [evidenceTab, setEvidenceTab] = useState<"why" | "evidence" | "sensitivity">("why");
   const allCandidates = result?.candidates ?? [];
@@ -3275,8 +3318,11 @@ function ResultsDrawer(props: {
     [shortlist]
   );
   const filteredCandidates = useMemo(
-    () => filterCandidates(allCandidates, resultsFilter, shortlistedIds),
-    [allCandidates, resultsFilter, shortlistedIds]
+    () =>
+      filterCandidates(allCandidates, props.resultsFilter, shortlistedIds, {
+        housingTarget: props.housingTarget,
+      }),
+    [allCandidates, props.resultsFilter, shortlistedIds, props.housingTarget]
   );
   const visibleCandidates = filteredCandidates;
   const neighborhoods = useMemo(() => candidateNeighborhoods(allCandidates), [allCandidates]);
@@ -3420,11 +3466,12 @@ function ResultsDrawer(props: {
                   }}
                 />
                 <ResultsFilterBar
-                  filter={resultsFilter}
-                  onChange={setResultsFilter}
+                  filter={props.resultsFilter}
+                  onChange={props.onResultsFilterChange}
                   neighborhoods={neighborhoods}
                   totalCount={allCandidates.length}
                   filteredCount={filteredCandidates.length}
+                  housingTarget={props.housingTarget}
                 />
                 {filteredCandidates.length === 0 && (
                   <p className="text-body-sm text-on-surface-variant">
@@ -4744,7 +4791,7 @@ function DecisionView(props: {
             </h2>
             <label className="block mb-6">
               <span className="font-mono text-data-label text-on-surface-variant uppercase tracking-wide">
-                Reason for decision (optional, logged in audit trail)
+                Reason for decision (required for approve or reject)
               </span>
               <textarea
                 value={props.reason}
