@@ -16,7 +16,10 @@ import {
 } from "@/components/UrbanPlanningCopilot";
 import { listCopilotActivity } from "@/lib/copilot/copilot-activity";
 import { outcomeFromWorkspace } from "@/lib/copilot/workspace-outcome";
-import { onWorkspaceMutated } from "@/lib/workspace-sync";
+import {
+  onWorkspaceMutated,
+  type CompareScenariosToolPayload,
+} from "@/lib/workspace-sync";
 import { setWebMcpBrowserContext, clearWebMcpBrowserContext } from "@/lib/webmcp/browser-context";
 import {
   listPendingPlannerActions,
@@ -294,6 +297,45 @@ export default function WorkspaceClient({
   const [resultsFilter, setResultsFilter] = useState<ResultsFilterState>(DEFAULT_RESULTS_FILTER);
   const weightsPanelRef = useRef<HTMLElement | null>(null);
   const compareTabEnteredRef = useRef(false);
+  const scenarioDeepLinkRef = useRef<string | null>(null);
+
+  const applyCompareFromPayload = useCallback(
+    (ids: string[], data: CompareScenariosToolPayload) => {
+      if (data.status === "incomplete") {
+        setComparison(null);
+        setCompareInsights(null);
+        setCompareInputsDiff(null);
+        setCompareTableRows(null);
+        setCompareHousingTargets(null);
+        setCompareMetricsIdentical(false);
+        const recovery =
+          typeof data.message === "string"
+            ? data.message.replace(/^Run analysis first for:\s*/i, "")
+            : "";
+        setCompareHint(
+          recovery
+            ? recovery
+                .split(",")
+                .map((name) => name.trim())
+                .filter(Boolean)
+                .map((name) => `Run analysis on ${name}`)
+                .join(" · ")
+            : "Run analysis on each selected branch before comparing."
+        );
+      } else {
+        setComparison(data.comparison ?? null);
+        setCompareTableRows(data.tableRows ?? null);
+        setCompareInputsDiff(data.inputsDiff ?? null);
+        setCompareHousingTargets(data.housingTargets ?? null);
+        setCompareMetricsIdentical(Boolean(data.metricsIdentical));
+        setCompareInsights(data.insights ?? null);
+        setCompareHint(null);
+      }
+      setCompareIds(ids);
+      setCompareError(null);
+    },
+    []
+  );
 
   const setTab = useCallback(
     (next: Tab) => {
@@ -537,12 +579,37 @@ export default function WorkspaceClient({
   }, [projectId]);
 
   useEffect(() => {
+    const targetId = searchParams.get("scenarioId");
+    if (!targetId || !workspace) return;
+    if (scenarioDeepLinkRef.current === targetId) return;
+    if (!workspace.scenarios.some((s) => s.id === targetId)) return;
+    if (workspace.project.activeScenarioId === targetId) {
+      scenarioDeepLinkRef.current = targetId;
+      return;
+    }
+    scenarioDeepLinkRef.current = targetId;
+    void act("activate_scenario", { scenarioId: targetId }).catch(() => {
+      scenarioDeepLinkRef.current = null;
+    });
+  }, [searchParams, workspace, act]);
+
+  useEffect(() => {
     return onWorkspaceMutated((detail) => {
       if (detail.projectId && detail.projectId !== projectId) return;
       if (detail.criteriaStale) setCriteriaStaleHint(true);
       if (detail.resumeNote?.match(/stale|recalculate/i)) setCriteriaStaleHint(true);
+      if (detail.openTab === "compare" && detail.compareScenarioIds && detail.compareScenarioIds.length >= 2) {
+        compareTabEnteredRef.current = true;
+        const ids = detail.compareScenarioIds;
+        if (detail.comparePayload) {
+          applyCompareFromPayload(ids, detail.comparePayload);
+        } else {
+          setCompareIds(ids);
+        }
+        setTab("compare");
+      }
     });
-  }, [projectId]);
+  }, [projectId, setTab, applyCompareFromPayload]);
 
   useEffect(() => {
     if (result?.stale) setCriteriaStaleHint(false);
@@ -2780,52 +2847,8 @@ export default function WorkspaceClient({
             setCompareBusy(true);
             setCompareError(null);
             try {
-              const data = (await act("compare_scenarios", { scenarioIds: ids })) as {
-                status?: string;
-                message?: string;
-                comparison?: Array<Record<string, string | number>> | null;
-                tableRows?: CompareTableRow[] | null;
-                inputsDiff?: ScenarioInputsDiff | null;
-                housingTargets?: Array<{
-                  scenarioId: string;
-                  name: string;
-                  progress: HousingTargetProgress | null;
-                }> | null;
-                metricsIdentical?: boolean;
-                rankScoreNote?: string;
-                insights?: Array<{ heading: string; body: string }> | null;
-              };
-              if (data.status === "incomplete") {
-                setComparison(null);
-                setCompareInsights(null);
-                setCompareInputsDiff(null);
-                setCompareTableRows(null);
-                setCompareHousingTargets(null);
-                setCompareMetricsIdentical(false);
-                const recovery =
-                  typeof data.message === "string"
-                    ? data.message.replace(/^Run analysis first for:\s*/i, "")
-                    : "";
-                setCompareHint(
-                  recovery
-                    ? recovery
-                        .split(",")
-                        .map((name) => name.trim())
-                        .filter(Boolean)
-                        .map((name) => `Run analysis on ${name}`)
-                        .join(" · ")
-                    : "Run analysis on each selected branch before comparing."
-                );
-              } else {
-                setComparison(data.comparison ?? null);
-                setCompareTableRows(data.tableRows ?? null);
-                setCompareInputsDiff(data.inputsDiff ?? null);
-                setCompareHousingTargets(data.housingTargets ?? null);
-                setCompareMetricsIdentical(Boolean(data.metricsIdentical));
-                setCompareInsights(data.insights ?? null);
-                setCompareHint(null);
-              }
-              setCompareIds(ids);
+              const data = (await act("compare_scenarios", { scenarioIds: ids })) as CompareScenariosToolPayload;
+              applyCompareFromPayload(ids, data);
             } catch (e) {
               setCompareError(e instanceof Error ? e.message : "Compare failed");
             } finally {

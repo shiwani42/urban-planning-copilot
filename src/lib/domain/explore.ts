@@ -419,3 +419,13 @@ export function buildExploreConvertDraft(
     })),
   };
 }
+
+/** Objective text for a persisted planning project created from Explore findings. */
+export function exploreObjectiveTextForProject(
+  draft: ExploreConvertDraft | Pick<ExploreConvertDraft, "objective" | "analysisType" | "summary" | "totalCandidates">
+): string {
+  const findingsNote = draft.summary
+    ? `\n\n--- Scratch findings (${draft.analysisType.replace(/_/g, " ")}, ${draft.totalCandidates} areas) ---\n${draft.summary}`
+    : "";
+  return draft.objective + findingsNote;
+}

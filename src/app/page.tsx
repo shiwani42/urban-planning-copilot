@@ -41,6 +41,7 @@ type Project = {
   scenarioCount?: number;
   scenarioSummary?: string;
   activeScenarioName?: string;
+  activeScenarioId?: string;
 };
 
 const SHOW_WEBMCP_UI = process.env.NEXT_PUBLIC_SHOW_WEBMCP_UI === "true";
@@ -272,8 +273,11 @@ export default function HomePage() {
     return items.slice(0, 3);
   }, [projects]);
 
-  function openProject(id: string) {
-    router.push(`/workspace/${id}`);
+  function openProject(id: string, scenarioId?: string) {
+    const params = new URLSearchParams();
+    if (scenarioId) params.set("scenarioId", scenarioId);
+    const qs = params.toString();
+    router.push(`/workspace/${id}${qs ? `?${qs}` : ""}`);
   }
 
   async function deleteProject(project: Project) {
@@ -480,7 +484,7 @@ export default function HomePage() {
       project.geographyLabel ??
       project.activeScenarioStatus ??
       "Planning workspace";
-    const chip = scenarioChipLabel(project.activeScenarioName ?? project.approvedScenarioName);
+    const chip = scenarioChipLabel(project.activeScenarioName);
 
     if (renamingId === project.id) {
       return (
@@ -500,7 +504,7 @@ export default function HomePage() {
       >
         <button
           type="button"
-          onClick={() => openProject(project.id)}
+          onClick={() => openProject(project.id, project.activeScenarioId)}
           disabled={busyId === project.id}
           className="w-full text-left border border-outline-variant bg-surface-container-lowest hover:border-primary/50 transition-colors overflow-hidden flex flex-col disabled:opacity-50 focus-ring rounded"
         >
@@ -586,7 +590,7 @@ export default function HomePage() {
                       <td className="py-3 px-4 text-on-surface font-medium">
                         <button
                           type="button"
-                          onClick={() => openProject(row.projectId)}
+                          onClick={() => openProject(row.projectId, row.scenarioId)}
                           className="text-left hover:text-primary inline-flex items-center gap-2"
                         >
                           <span className="material-symbols-outlined text-[16px] text-outline">
@@ -704,13 +708,13 @@ export default function HomePage() {
       >
         <button
           type="button"
-          onClick={() => openProject(project.id)}
+          onClick={() => openProject(project.id, project.activeScenarioId)}
           disabled={busyId === project.id}
           className={`${cardClass} w-full disabled:opacity-50 focus-ring`}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              openProject(project.id);
+              openProject(project.id, project.activeScenarioId);
             }
           }}
         >

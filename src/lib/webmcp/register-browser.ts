@@ -17,10 +17,10 @@ import {
   clearPendingPlannerAction,
 } from "@/lib/planner-pending";
 import {
-  mutationDetailFromToolResult,
   notifyWorkspaceMutated,
+  workspaceToolEventDetail,
 } from "@/lib/workspace-sync";
-import { resolveWebMcpBrowserContext } from "./browser-context";
+import { resolveWebMcpBrowserContext, setWebMcpBrowserContext } from "./browser-context";
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {
   const res = await fetch(path, {
@@ -142,16 +142,22 @@ async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
     return result;
   }
 
-  const mutation = mutationDetailFromToolResult(
-    name,
-    args,
-    result,
+  const resolvedProjectId =
     data.projectId ??
-      (typeof args.projectId === "string" ? args.projectId : context.projectId)
-  );
-  if (mutation) {
-    notifyWorkspaceMutated(mutation);
+    (typeof args.projectId === "string" ? args.projectId : context.projectId);
+
+  const toolEvent = workspaceToolEventDetail(name, args, result, resolvedProjectId);
+  if (toolEvent) {
+    notifyWorkspaceMutated(toolEvent);
   }
+
+  if (name === "create_scenario_branch" && result && typeof result === "object") {
+    const activeScenarioId = (result as { activeScenarioId?: string }).activeScenarioId;
+    if (activeScenarioId) {
+      setWebMcpBrowserContext({ scenarioId: activeScenarioId });
+    }
+  }
+
   if (name === "start_planning_project") {
     navigateToWorkspace(result);
   }
