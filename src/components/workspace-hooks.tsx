@@ -2,40 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceSnapshot } from "@/lib/domain/types";
+import { WORKSPACE_LOAD_PHASES, workspaceLoadPhaseLabel } from "@/lib/planner-copy";
 import { fetchJsonWithServerWake } from "@/lib/server-wake";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
 
 const LOAD_TIMEOUT_MS = 25_000;
-const LOAD_PHASES = [
-  {
-    afterMs: 0,
-    label: "Connecting to project storage — reading persisted workspace from disk…",
-  },
-  {
-    afterMs: 2500,
-    label: "Loading scenarios, analysis results, datasets, and map layer cache…",
-  },
-  {
-    afterMs: 6000,
-    label: "Still loading project data — the server may be waking from sleep…",
-  },
-  {
-    afterMs: 12_000,
-    label: "Taking longer than usual — retrying project fetch…",
-  },
-] as const;
 
-export function workspaceLoadPhaseLabel(elapsedMs: number): string {
-  let label: string = LOAD_PHASES[0].label;
-  for (const phase of LOAD_PHASES) {
-    if (elapsedMs >= phase.afterMs) label = phase.label;
-  }
-  return label;
-}
-
-function phaseLabel(elapsedMs: number): string {
-  return workspaceLoadPhaseLabel(elapsedMs);
-}
+export { workspaceLoadPhaseLabel } from "@/lib/planner-copy";
 
 function isNotFoundError(message: string): boolean {
   return /not found/i.test(message);
@@ -63,7 +36,7 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [loadPhase, setLoadPhase] = useState<string>(LOAD_PHASES[0].label);
+  const [loadPhase, setLoadPhase] = useState<string>(WORKSPACE_LOAD_PHASES[0].label);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -119,14 +92,14 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
     setIsRetrying(false);
     setProjectNotFound(false);
     setElapsedMs(0);
-    setLoadPhase(LOAD_PHASES[0].label);
+    setLoadPhase(WORKSPACE_LOAD_PHASES[0].label);
 
     const started = Date.now();
     const tick = window.setInterval(() => {
       if (loadAttemptRef.current !== attempt) return;
       const elapsed = Date.now() - started;
       setElapsedMs(elapsed);
-      setLoadPhase(phaseLabel(elapsed));
+      setLoadPhase(workspaceLoadPhaseLabel(elapsed));
       if (elapsed >= 6000) setIsRetrying(true);
     }, 500);
 

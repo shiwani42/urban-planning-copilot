@@ -1,5 +1,7 @@
 import { assessObjectiveQuality } from "@/lib/domain/objective";
 
+import { PLANNER_GEOGRAPHY_LABEL } from "./planner-copy";
+
 export type NewProjectExample = {
   id: string;
   title: string;
@@ -10,25 +12,25 @@ export type NewProjectExample = {
 export const NEW_PROJECT_EXAMPLES: NewProjectExample[] = [
   {
     id: "housing",
-    title: "Housing growth",
+    title: "Mission/SoMa infill — 2,000 homes",
     text: "Identify areas capable of accommodating 2,000 additional homes while maximizing transit access and avoiding flood-risk areas.",
     highlight: "housing",
   },
   {
     id: "transit",
-    title: "Transit",
+    title: "Transit access gaps — Mission District",
     text: "Which neighborhoods have the largest transit accessibility gaps and where could a new stop improve access?",
     highlight: "transit",
   },
   {
     id: "schools",
-    title: "Schools",
+    title: "School catchment gaps — SoMa",
     text: "Identify neighborhoods where a new school would most improve accessibility while avoiding areas already adequately served.",
     highlight: "schools",
   },
   {
     id: "climate",
-    title: "Climate resilience",
+    title: "Flood exposure — Mission & SoMa",
     text: "Which areas are most exposed to future flood risk and should be excluded from development scenarios?",
     highlight: "climate",
   },
@@ -48,7 +50,7 @@ export type NewProjectPreview = {
   parsing: boolean;
 };
 
-const DEFAULT_GEOGRAPHY = "San Francisco — Mission & SoMa demo area (open data snapshot)";
+const DEFAULT_GEOGRAPHY = PLANNER_GEOGRAPHY_LABEL;
 
 export function buildNewProjectPreview(objective: string): NewProjectPreview {
   const trimmed = objective.trim();

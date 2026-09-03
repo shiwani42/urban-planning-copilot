@@ -8,6 +8,11 @@ import {
   ProvenanceChip,
   useWorkspace,
 } from "@/components/workspace-hooks";
+import {
+  PROJECT_NOT_FOUND_HELP,
+  PROJECT_NOT_ON_SERVER_DETAIL,
+  PROJECT_UNAVAILABLE_DETAIL,
+} from "@/lib/planner-copy";
 import { StorageBanner } from "@/components/StorageBanner";
 import { ServerWakeBanner } from "@/components/ServerWakeBanner";
 import { DatasetProvenanceChips } from "@/components/DatasetProvenanceChips";
@@ -1300,10 +1305,10 @@ export default function WorkspaceClient({
       ? "This project is no longer on the server"
       : "This project is not available";
     const notFoundDetail = projectNotFound
-      ? "The workspace catalog changed while you were working — often after a deploy or storage recovery. Your in-browser view may be stale."
+      ? PROJECT_NOT_ON_SERVER_DETAIL
       : error
         ? ` ${error}`
-        : " It may have been removed or workspace storage may be degraded.";
+        : PROJECT_UNAVAILABLE_DETAIL;
     return (
       <div className="h-screen flex flex-col bg-background">
         <ServerWakeBanner />
@@ -1326,8 +1331,7 @@ export default function WorkspaceClient({
               </p>
             )}
             <p className="text-body-sm text-on-surface-variant mb-6">
-              If you were mid-analysis, check whether other projects are still listed on the home
-              page. A storage warning banner appears only when workspace storage is degraded.
+              {PROJECT_NOT_FOUND_HELP}
             </p>
             <div className="flex flex-wrap justify-center gap-3">
               <button
@@ -2561,7 +2565,7 @@ export default function WorkspaceClient({
                   <button
                     type="button"
                     disabled
-                    title="Pause is not available for in-flight analysis in this build"
+                    title="Pause is not available while analysis is running"
                     className="flex-1 border border-outline-variant px-2 py-1 rounded text-caption text-on-surface-variant opacity-50"
                   >
                     Pause

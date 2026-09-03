@@ -10,6 +10,12 @@ import {
   buildNewProjectPreview,
   type NewProjectExample,
 } from "@/lib/new-project-preview";
+import {
+  NEW_PROJECT_CREATE_VERIFY_FAILED,
+  NEW_PROJECT_DRAFT_STORAGE_RETRY,
+  NEW_PROJECT_GEOGRAPHY_NOTE,
+  PLANNER_GEOGRAPHY_LABEL,
+} from "@/lib/planner-copy";
 
 const DRAFT_KEY = "upc-new-project-draft";
 const LOCAL_DRAFT_KEY = "upc-new-project-draft-local";
@@ -50,7 +56,7 @@ export default function NewProjectPage() {
         if (draft.error) {
           setSubmitStatus({
             kind: "error",
-            message: `Previous create failed: ${draft.error}. Draft restored — retry when storage is healthy.`,
+            message: `Previous create failed: ${draft.error}. Draft restored — retry when saving is available again.`,
           });
         }
         return;
@@ -166,7 +172,7 @@ export default function NewProjectPage() {
         body: JSON.stringify({
           name: name.trim(),
           objectiveText: objective.trim(),
-          geographyLabel: "San Francisco — Mission & SoMa demo area",
+          geographyLabel: PLANNER_GEOGRAPHY_LABEL,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -185,9 +191,7 @@ export default function NewProjectPage() {
       }
       const verify = await fetch(`/api/projects/${projectId}`, { cache: "no-store" });
       if (!verify.ok) {
-        throw new Error(
-          `Workspace was not saved on the server (project ${projectId} not found). Retry when storage is healthy.`
-        );
+        throw new Error(NEW_PROJECT_CREATE_VERIFY_FAILED);
       }
       sessionStorage.removeItem(DRAFT_KEY);
       localStorage.removeItem(LOCAL_DRAFT_KEY);
@@ -222,7 +226,7 @@ export default function NewProjectPage() {
       }
       setSubmitStatus({
         kind: "error",
-        message: `${message} Your draft is saved in this browser — retry when workspace storage recovers.`,
+        message: `${message} ${NEW_PROJECT_DRAFT_STORAGE_RETRY}`,
       });
       setObjectiveError(message);
       setBusy(false);
@@ -302,9 +306,7 @@ export default function NewProjectPage() {
             <p className="text-caption text-on-surface-variant mb-6 flex items-start gap-2">
               <span className="material-symbols-outlined text-[16px] shrink-0 mt-0.5">map</span>
               <span>
-                <strong className="text-on-surface">Demo area of interest:</strong> San Francisco —
-                Mission &amp; SoMa (open-data sandbox). Broader geographies are not yet selectable in
-                this build.
+                <strong className="text-on-surface">Study area:</strong> {NEW_PROJECT_GEOGRAPHY_NOTE}
               </span>
             </p>
 

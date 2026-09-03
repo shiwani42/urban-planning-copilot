@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { WORKSPACE_LAYOUT_LOADING_DETAIL } from "@/lib/planner-copy";
 import WorkspaceClient from "./workspace-client";
 
 function WorkspaceFallback() {
@@ -17,7 +18,7 @@ function WorkspaceFallback() {
         </span>
         <p className="font-medium text-on-surface">Preparing workspace…</p>
         <p className="text-caption text-center max-w-md">
-          Connecting to project storage and loading the planning map.
+          {WORKSPACE_LAYOUT_LOADING_DETAIL}
         </p>
       </div>
     </div>

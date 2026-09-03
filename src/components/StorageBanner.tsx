@@ -1,6 +1,13 @@
 "use client";
 
 import {
+  EPHEMERAL_SAVE_HEADING,
+  SAVE_ADMIN_HINT,
+  SAVE_UNAVAILABLE_FALLBACK,
+  SAVE_UNAVAILABLE_HEADING,
+  SAVE_WRITE_FAILED_HINT,
+} from "@/lib/planner-copy";
+import {
   EPHEMERAL_STORAGE_BANNER_MESSAGE,
   shouldShowEphemeralStorageBanner,
   shouldShowStorageUnavailableBanner,
@@ -21,24 +28,19 @@ export function StorageBanner() {
       storageReliabilityIssue(storage) ??
       storage.fetchError ??
       storage.message ??
-      "Projects may not survive server restarts until storage is restored.";
+      SAVE_UNAVAILABLE_FALLBACK;
 
     return (
       <div
         role="alert"
         className="bg-error-container/30 border-b border-error/40 px-section-padding py-2 text-body-sm text-on-surface shrink-0"
       >
-        <strong>Workspace storage unavailable.</strong> {message}
+        <strong>{SAVE_UNAVAILABLE_HEADING}</strong> {message}
         {storage.onPersistentMount === false && (
-          <span className="block text-caption mt-0.5">
-            Server data directory is not on the persistent disk mount — contact your administrator.
-          </span>
+          <span className="block text-caption mt-0.5">{SAVE_ADMIN_HINT}</span>
         )}
         {storage.writeProbeOk === false && storage.onPersistentMount && (
-          <span className="block text-caption mt-0.5">
-            The persistent disk is mounted but writes failed — new projects may not save until this
-            is resolved.
-          </span>
+          <span className="block text-caption mt-0.5">{SAVE_WRITE_FAILED_HINT}</span>
         )}
       </div>
     );
@@ -49,7 +51,7 @@ export function StorageBanner() {
       role="status"
       className="bg-secondary-container/40 border-b border-secondary/30 px-section-padding py-2 text-body-sm text-on-surface shrink-0"
     >
-      <strong>Workspace storage is ephemeral.</strong> {EPHEMERAL_STORAGE_BANNER_MESSAGE}
+      <strong>{EPHEMERAL_SAVE_HEADING}</strong> {EPHEMERAL_STORAGE_BANNER_MESSAGE}
     </div>
   );
 }

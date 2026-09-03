@@ -67,9 +67,9 @@ describe("pass 37 new project preview", () => {
     assert.ok(preview.analyses.some((a) => a.label === "Capacity estimation"));
   });
 
-  it("includes four stitch-aligned example questions", () => {
+  it("includes four planner-style example questions", () => {
     assert.equal(NEW_PROJECT_EXAMPLES.length, 4);
-    assert.ok(NEW_PROJECT_EXAMPLES.some((e) => e.title === "Climate resilience"));
+    assert.ok(NEW_PROJECT_EXAMPLES.some((e) => e.title.includes("Mission/SoMa")));
   });
 });
 

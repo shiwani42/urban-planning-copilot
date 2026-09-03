@@ -25,6 +25,7 @@ import {
   toolLabel,
 } from "@/lib/copilot/tool-groups";
 import { formatLocaleTime } from "@/lib/format";
+import { COPILOT_PANEL_FOOTER } from "@/lib/planner-copy";
 import { notifyWorkspaceMutated } from "@/lib/workspace-sync";
 import type { WorkspaceTab } from "@/lib/workspace-tabs";
 
@@ -647,10 +648,7 @@ export function UrbanPlanningCopilot({
             )}
           </button>
         </div>
-        <p className="text-[10px] text-on-surface-variant">
-          nekuda WebMCP Workbench remains available for debugging (Alt+K) — this panel is the
-          in-app planner.
-        </p>
+        <p className="text-[10px] text-on-surface-variant">{COPILOT_PANEL_FOOTER}</p>
       </form>
     </section>
   );

@@ -1,6 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  EPHEMERAL_SAVE_MESSAGE,
+  PROJECTS_LOAD_FAILED,
+  SAVE_UNAVAILABLE_FALLBACK,
+  toPlannerStorageMessage,
+} from "@/lib/planner-copy";
 import { fetchJsonWithServerWake } from "@/lib/server-wake";
 
 export type PersistBackend = "postgres" | "file";
@@ -48,24 +54,26 @@ export function projectsPersistReliably(storage: ClientStorageStatus | null): bo
 
 export function storageReliabilityIssue(storage: ClientStorageStatus | null): string | null {
   if (!storage || storage.status === "loading") return null;
-  if (storage.fetchError) return storage.fetchError;
+  if (storage.fetchError) {
+    return toPlannerStorageMessage(storage.fetchError, SAVE_UNAVAILABLE_FALLBACK);
+  }
   if (storage.status === "error") {
-    return storage.message ?? "Could not verify workspace storage health.";
+    return toPlannerStorageMessage(storage.message, SAVE_UNAVAILABLE_FALLBACK);
   }
   if (storage.writeProbeOk === false) {
-    return storage.message ?? "Workspace storage write probe failed.";
+    return toPlannerStorageMessage(storage.message, SAVE_UNAVAILABLE_FALLBACK);
   }
   if (storage.persistBackend === "postgres") {
     if (storage.postgresOk === false) {
-      return storage.message ?? "Postgres storage is unavailable.";
+      return toPlannerStorageMessage(storage.message, SAVE_UNAVAILABLE_FALLBACK);
     }
     return null;
   }
   if (storage.lastBoot === "empty-after-missing-file" || storage.storeExists === false) {
-    return "Workspace catalog is missing or was reset after a deploy — saved projects may not be available.";
+    return "Some saved projects may be missing. Reload your project list or recreate studies that no longer appear.";
   }
   if (storage.status === "degraded") {
-    return storage.message ?? "Workspace storage is degraded.";
+    return toPlannerStorageMessage(storage.message, SAVE_UNAVAILABLE_FALLBACK);
   }
   return null;
 }
@@ -114,7 +122,7 @@ function normalizeHealthPayload(data: HealthPayload): ClientStorageStatus {
       writeProbeOk: writeProbeOk ?? true,
       message:
         base.message ??
-        "Workspace catalog is missing or was reset — saved projects may not be available.",
+        "Some saved projects may be missing. Reload your project list or recreate studies that no longer appear.",
     };
   }
 
@@ -146,7 +154,7 @@ export function shouldShowStorageUnavailableBanner(
   return storageReliabilityIssue(storage) !== null;
 }
 
-/** Honest file-backend notice — hidden when Neon Postgres is the active durable store. */
+/** File-backend notice — hidden when durable cloud saving is active. */
 export function shouldShowEphemeralStorageBanner(
   storage: ClientStorageStatus | null
 ): boolean {
@@ -160,8 +168,7 @@ export function shouldShowEphemeralStorageBanner(
   return false;
 }
 
-export const EPHEMERAL_STORAGE_BANNER_MESSAGE =
-  "Workspace catalog uses ephemeral file storage — projects are lost when this server instance restarts. Set DATABASE_URL for durable Postgres storage.";
+export const EPHEMERAL_STORAGE_BANNER_MESSAGE = EPHEMERAL_SAVE_MESSAGE;
 
 export function useStorageStatus(): ClientStorageStatus & { refresh: () => void } {
   const [storage, setStorage] = useState<ClientStorageStatus>({ status: "loading" });
@@ -179,7 +186,7 @@ export function useStorageStatus(): ClientStorageStatus & { refresh: () => void 
         setStorage({
           status: "error",
           fetchError: err instanceof Error ? err.message : String(err),
-          message: "Could not verify workspace storage health.",
+          message: SAVE_UNAVAILABLE_FALLBACK,
         });
       });
   }, []);

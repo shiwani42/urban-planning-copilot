@@ -18,6 +18,10 @@ import {
 import { filterAnalysisCaveats } from "@/lib/domain/caveats";
 import { fetchJsonWithServerWake } from "@/lib/server-wake";
 import { formatLocaleDateTime } from "@/lib/format";
+import {
+  NEW_PROJECT_CREATE_VERIFY_FAILED,
+  PLANNER_GEOGRAPHY_LABEL,
+} from "@/lib/planner-copy";
 import type { Candidate, DatasetMeta } from "@/lib/domain/types";
 
 const EXPLORE_PAGE_SIZE = 15;
@@ -214,7 +218,7 @@ export default function ExplorePage() {
         body: JSON.stringify({
           name: draft.suggestedName,
           objectiveText,
-          geographyLabel: "San Francisco — Mission & SoMa demo area",
+          geographyLabel: PLANNER_GEOGRAPHY_LABEL,
           mode: "planning",
           fromExplore: true,
         }),
@@ -236,7 +240,7 @@ export default function ExplorePage() {
       const verify = await fetch(`/api/projects/${projectId}`, { cache: "no-store" });
       if (!verify.ok) {
         throw new Error(
-          `Workspace was not saved on the server (project ${projectId} not found). Retry when storage is healthy.`
+          NEW_PROJECT_CREATE_VERIFY_FAILED
         );
       }
       try {

@@ -23,6 +23,14 @@ import { onWorkspaceMutated } from "@/lib/workspace-sync";
 import { fetchJsonWithServerWake } from "@/lib/server-wake";
 import { projectStatusLine, projectStatusTone } from "@/lib/project-status";
 import {
+  EMPTY_PROJECTS_DEGRADED_HINT,
+  EMPTY_PROJECTS_HEALTHY_HINT,
+  PROJECTS_LIST_STORAGE_SUFFIX,
+  PROJECTS_LOAD_FAILED,
+  PROJECTS_MISSING_AFTER_UPDATE,
+  toPlannerStorageMessage,
+} from "@/lib/planner-copy";
+import {
   useStorageStatus,
   projectsPersistReliably,
   shouldShowStorageUnavailableBanner,
@@ -156,9 +164,10 @@ export default function HomePage() {
         storage?.storeReadError
       ) {
         setListStorageIssue(
-          storage.storeReadError ??
-            storage.message ??
-            "Workspace storage is unavailable — projects could not be loaded."
+          toPlannerStorageMessage(
+            storage.storeReadError ?? storage.message,
+            PROJECTS_LOAD_FAILED
+          ) + PROJECTS_LIST_STORAGE_SUFFIX
         );
       } else {
         setListStorageIssue(null);
@@ -761,9 +770,7 @@ export default function HomePage() {
           role="status"
           className="bg-error-container/40 border-b border-error px-section-padding py-3 text-body-sm text-error"
         >
-          Workspace catalog may have reset after a deploy — the server booted without finding
-          durable storage. Reload projects; if studies are missing, create a new workspace or
-          restore from backup.
+          {PROJECTS_MISSING_AFTER_UPDATE}
         </div>
       )}
 
@@ -875,8 +882,7 @@ export default function HomePage() {
                             Could not load projects
                           </p>
                           <p className="text-body-sm text-on-surface-variant mb-6 max-w-lg mx-auto">
-                            {listStorageIssue} This is a storage issue — not an empty project list.
-                            Check workspace storage configuration or try again.
+                            {listStorageIssue}
                           </p>
                           <button
                             type="button"
@@ -906,7 +912,7 @@ export default function HomePage() {
                       ) : showOrphanHints ? (
                         <>
                           <p className="text-headline-md text-on-surface mb-2">
-                            Browser history does not match the server catalog
+                            Browser history does not match your saved projects
                           </p>
                           <p className="text-body-sm text-on-surface-variant mb-4 max-w-lg mx-auto">
                             This browser recently opened{" "}
@@ -914,10 +920,9 @@ export default function HomePage() {
                               .slice(0, 3)
                               .map((h) => h.name)
                               .join(", ")}
-                            , but the server project list is empty while workspace storage is
-                            healthy. That usually means those workspaces were never saved, were
-                            created in another environment, or were reset. Your prior work may be
-                            unrecoverable from this session.
+                            , but your saved project list is empty. Those workspaces may never have
+                            been saved, may belong to another account, or may have been removed.
+                            Prior work from this session may not be recoverable.
                           </p>
                           <div className="flex flex-wrap justify-center gap-3">
                             <button
@@ -942,8 +947,8 @@ export default function HomePage() {
                             Create a workspace and describe your planning question in natural
                             language.
                             {storageHealthy
-                              ? " Projects are saved on the server while storage is healthy."
-                              : " On this server, projects may not survive restarts until DATABASE_URL is configured — check the storage banner above."}
+                              ? EMPTY_PROJECTS_HEALTHY_HINT
+                              : EMPTY_PROJECTS_DEGRADED_HINT}
                           </p>
                           <Link
                             href="/new"

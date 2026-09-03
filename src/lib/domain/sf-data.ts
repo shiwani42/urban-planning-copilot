@@ -96,7 +96,7 @@ export async function loadSanFranciscoCity(): Promise<{
       synthetic: false,
       coverage: GEOGRAPHY_LABEL,
       limitations: [
-        "Snapshot clipped to Mission & SoMa demo AOI — not full city coverage",
+        "Covers Mission/SoMa study area only — not the full city",
         "Simplified geometries for browser performance",
         "Capacity estimates use illustrative density assumptions",
       ],
@@ -124,7 +124,7 @@ export async function loadSanFranciscoCity(): Promise<{
       synthetic: false,
       coverage: GEOGRAPHY_LABEL,
       limitations: [
-        "Snapshot near demo AOI — not live 511.org feed",
+        "Point-in-time Muni stop inventory for the study area — not a live feed",
         "Stop inventory reflects Muni open data vintage",
       ],
       featureCount: transit.features.length,
@@ -140,7 +140,7 @@ export async function loadSanFranciscoCity(): Promise<{
       updatedAt: generatedAt,
       dataVintage: dataVintageLabel(floodVintage, "2022-07 SFPUC 100-year storm model"),
       synthetic: false,
-      coverage: "Clipped to demo AOI from citywide SFPUC layer",
+      coverage: "Mission/SoMa clip from citywide SFPUC layer",
       limitations: [
         "July 2022 SFPUC storm flood model — not FEMA NFHL",
         "Partial clip — verify site-specific risk before decisions",

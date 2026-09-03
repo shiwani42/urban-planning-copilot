@@ -1,4 +1,4 @@
-/** Demo study area bounds — San Francisco Mission & SoMa (Pass 09). */
+/** Study area bounds — San Francisco Mission & SoMa. */
 export const STUDY_BOUNDS = {
   west: -122.418,
   south: 37.758,
@@ -6,4 +6,4 @@ export const STUDY_BOUNDS = {
   north: 37.772,
 };
 
-export const GEOGRAPHY_LABEL = "San Francisco — Mission & SoMa demo area";
+export const GEOGRAPHY_LABEL = "Mission/SoMa, San Francisco";
