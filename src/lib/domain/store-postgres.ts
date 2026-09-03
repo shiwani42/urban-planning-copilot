@@ -1,6 +1,10 @@
 import { neon } from "@neondatabase/serverless";
 import type { AppStore } from "./types";
 import { prepareStoreForPersistence } from "./store-persistence";
+import {
+  compactLegacyPayloadInPlace,
+  compactLegacyStoreJsonBeforeParse,
+} from "./store-legacy-compact";
 import { projectCountFromRawJson } from "./store-shape";
 
 const STORE_ROW_ID = "default";
@@ -34,6 +38,7 @@ type InMemoryPostgresRow = {
 let sqlOverride: SqlTag | null = null;
 let useInMemoryBackend = false;
 let inMemoryRow: InMemoryPostgresRow | null = null;
+let inMemoryRawText: string | null = null;
 let tableEnsured = false;
 
 export function isPostgresConfigured(): boolean {
@@ -53,13 +58,23 @@ export function setSqlClientForTests(sql: SqlTag | null): void {
 export function enableInMemoryPostgresForTests(): void {
   useInMemoryBackend = true;
   inMemoryRow = null;
+  inMemoryRawText = null;
   tableEnsured = false;
+}
+
+/** Test hook — seed legacy bloated JSON text without write-side compaction. */
+export function seedInMemoryPostgresRawTextForTests(raw: string): void {
+  useInMemoryBackend = true;
+  inMemoryRow = null;
+  inMemoryRawText = raw;
+  tableEnsured = true;
 }
 
 export function resetPostgresBackendForTests(): void {
   sqlOverride = null;
   useInMemoryBackend = false;
   inMemoryRow = null;
+  inMemoryRawText = null;
   tableEnsured = false;
 }
 
@@ -77,7 +92,10 @@ function getSql(): SqlTag {
 }
 
 function payloadToRaw(payload: unknown): string {
-  if (typeof payload === "string") return payload;
+  if (typeof payload === "string") {
+    return compactLegacyStoreJsonBeforeParse(payload).raw;
+  }
+  compactLegacyPayloadInPlace(payload);
   return JSON.stringify(payload);
 }
 
@@ -101,21 +119,25 @@ export async function loadStorePayloadFromPostgres(): Promise<string | null> {
   await ensurePlanningStoreTable();
 
   if (usingInMemoryPostgres()) {
+    if (inMemoryRawText !== null) {
+      return compactLegacyStoreJsonBeforeParse(inMemoryRawText).raw;
+    }
     if (!inMemoryRow) return null;
     return payloadToRaw(inMemoryRow.payload);
   }
 
   const sql = getSql();
   const rows = await sql`
-    SELECT payload
+    SELECT payload::text AS payload_text
     FROM planning_store
     WHERE id = ${STORE_ROW_ID}
     LIMIT 1
   `;
   if (!rows.length) return null;
-  const payload = (rows[0] as { payload?: unknown }).payload;
-  if (payload === undefined || payload === null) return null;
-  return payloadToRaw(payload);
+  const payloadText = (rows[0] as { payload_text?: unknown }).payload_text;
+  if (payloadText === undefined || payloadText === null) return null;
+  const raw = typeof payloadText === "string" ? payloadText : String(payloadText);
+  return compactLegacyStoreJsonBeforeParse(raw).raw;
 }
 
 export async function peekPostgresProjectCount(): Promise<number | null> {
@@ -152,10 +174,13 @@ export async function upsertStoreToPostgres(
   await ensurePlanningStoreTable();
 
   if (usingInMemoryPostgres()) {
+    const parsed = JSON.parse(payloadJson) as unknown;
+    compactLegacyPayloadInPlace(parsed);
     inMemoryRow = {
-      payload: JSON.parse(payloadJson) as unknown,
+      payload: parsed,
       updated_at: new Date().toISOString(),
     };
+    inMemoryRawText = null;
     return;
   }
 

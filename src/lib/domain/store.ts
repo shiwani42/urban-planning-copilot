@@ -8,6 +8,7 @@ import {
   prepareStoreForPersistence,
 } from "./store-persistence";
 import { reconcileInterruptedAnalysisJobsOnBoot } from "./analysis-jobs";
+import { compactLegacyStoreJsonBeforeParse } from "./store-legacy-compact";
 import { normalizeStoreShape } from "./store-shape";
 import { generateSyntheticCity } from "./seed";
 import {
@@ -290,10 +291,13 @@ async function assertNotClobberingNonemptyCatalog(
   }
 }
 
-async function parseStoreFile(raw: string, source: string): Promise<AppStore> {
+type ParsedStoreFile = { store: AppStore; legacyCompacted: boolean };
+
+async function parseStoreFile(raw: string, source: string): Promise<ParsedStoreFile> {
+  const { raw: compactRaw, changed: legacyCompacted } = compactLegacyStoreJsonBeforeParse(raw);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(compactRaw);
   } catch (err) {
     throw new Error(
       `Failed to parse ${source}: ${err instanceof Error ? err.message : String(err)}`
@@ -315,7 +319,7 @@ async function parseStoreFile(raw: string, source: string): Promise<AppStore> {
       `Refusing to load ${source}: store upgrade would drop ${rawProjectCount} project(s)`
     );
   }
-  return normalized;
+  return { store: normalized, legacyCompacted };
 }
 
 /**
@@ -339,7 +343,7 @@ export async function migrateStoreFromLegacyPaths(): Promise<boolean> {
       try {
         const raw = await fs.readFile(legacyPath, "utf8");
         if (!raw.trim()) continue;
-        await parseStoreFile(raw, legacyPath);
+        await parseStoreFile(raw, legacyPath).then((p) => p.store);
         await fs.mkdir(targetDir, { recursive: true });
         const destName =
           fileName === "store.json.bak" ? "store.json.bak" : "store.json";
@@ -414,7 +418,7 @@ async function backupPrimaryIfValid(
   try {
     const raw = await fs.readFile(pathToStore, "utf8");
     if (!raw.trim()) return;
-    await parseStoreFile(raw, pathToStore);
+    await parseStoreFile(raw, pathToStore).then((p) => p.store);
     await fs.copyFile(pathToStore, pathToBackup);
   } catch {
     /* keep existing .bak when primary is unreadable */
@@ -439,7 +443,7 @@ async function writeStorePayload(
     await fs.unlink(tmp).catch(() => undefined);
     throw new StorePersistError("Refusing to persist empty store payload");
   }
-  await parseStoreFile(tmpRaw, tmp);
+  await parseStoreFile(tmpRaw, tmp).then((p) => p.store);
 
   persistFailureInjector?.();
 
@@ -471,7 +475,7 @@ async function findBackupAcrossSearchPaths(
     try {
       const raw = await fs.readFile(backupPath, "utf8");
       if (!raw.trim()) continue;
-      await parseStoreFile(raw, backupPath);
+      await parseStoreFile(raw, backupPath).then((p) => p.store);
       return { dir, backupPath };
     } catch {
       /* try next candidate */
@@ -487,12 +491,16 @@ async function restoreStoreFromBackup(
   message: string
 ): Promise<AppStore> {
   const raw = await fs.readFile(pathToBackup, "utf8");
-  const store = await parseStoreFile(raw, pathToBackup);
-  reconcileInterruptedAnalysisJobsOnBoot(store);
+  const { store, legacyCompacted } = await parseStoreFile(raw, pathToBackup);
+  const interrupted = reconcileInterruptedAnalysisJobsOnBoot(store);
   prepareAnalysisResultsInStore(store);
-  await upgradeCatalog(store);
+  const upgraded = await upgradeCatalog(store);
   setLastBootRecovery("recovered-backup");
-  await writeStorePayload(dir, pathToStore, pathToBackup, store);
+  if (legacyCompacted || interrupted || upgraded) {
+    await persist(store);
+  } else {
+    await writeStorePayload(dir, pathToStore, pathToBackup, store);
+  }
   memory = store;
   memoryDataDir = dir;
   markStorageHealthy(dir, message, { lastBoot: "recovered-backup" });
@@ -553,16 +561,19 @@ async function readStoreFromPostgresPrimary(): Promise<AppStore> {
   try {
     const raw = await loadStorePayloadFromPostgres();
     if (raw !== null) {
-      const store = await parseStoreFile(raw, "postgres:planning_store");
-      reconcileInterruptedAnalysisJobsOnBoot(store);
+      const { store, legacyCompacted } = await parseStoreFile(raw, "postgres:planning_store");
+      const interrupted = reconcileInterruptedAnalysisJobsOnBoot(store);
       prepareAnalysisResultsInStore(store);
       const upgraded = await upgradeCatalog(store);
       setLastBootRecovery("normal");
       markStorageHealthy(dir, undefined, {
         ...postgresHealthOptions({ lastBoot: "normal" }),
       });
-      if (upgraded) await persist(store);
-      await writeFileCacheBestEffort(dir, pathToStore, pathToBackup, store);
+      if (legacyCompacted || interrupted || upgraded) {
+        await persist(store);
+      } else {
+        await writeFileCacheBestEffort(dir, pathToStore, pathToBackup, store);
+      }
       return store;
     }
 
@@ -623,13 +634,15 @@ async function readStoreFromDisk(): Promise<AppStore> {
       if (!raw.trim()) {
         throw new Error("store.json is empty");
       }
-      const store = await parseStoreFile(raw, pathToStore);
-      reconcileInterruptedAnalysisJobsOnBoot(store);
+      const { store, legacyCompacted } = await parseStoreFile(raw, pathToStore);
+      const interrupted = reconcileInterruptedAnalysisJobsOnBoot(store);
       prepareAnalysisResultsInStore(store);
       const upgraded = await upgradeCatalog(store);
       setLastBootRecovery("normal");
       markStorageHealthy(dir, undefined, { lastBoot: "normal" });
-      if (upgraded) await persist(store);
+      if (legacyCompacted || interrupted || upgraded) {
+        await persist(store);
+      }
       return store;
     } catch (primaryErr) {
       if (await fileExists(pathToBackup)) {
