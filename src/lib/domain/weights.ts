@@ -36,3 +36,29 @@ export function rebalanceWeights(
 export function weightSumPercent(weights: CriterionWeight[]): number {
   return Math.round(weights.reduce((sum, w) => sum + w.weight, 0) * 100);
 }
+
+const FLOOD_WEIGHT_KEY_MARKERS = ["flood_resilience", "flood_exposure", "flood"];
+
+export const FLOOD_WEIGHTED_BRANCH_FLOOD_PERCENT = 35;
+
+export function isFloodWeightedBranchName(name: string): boolean {
+  return /\bflood[- ]?weighted\b/i.test(name.trim());
+}
+
+function floodWeightIndex(weights: CriterionWeight[]): number {
+  return weights.findIndex((weight) =>
+    FLOOD_WEIGHT_KEY_MARKERS.some(
+      (marker) => weight.key === marker || weight.key.includes(marker)
+    )
+  );
+}
+
+/** Shift criterion weights toward flood resilience (default 35% flood). */
+export function applyFloodWeightedWeights(
+  weights: CriterionWeight[],
+  floodPercent: number = FLOOD_WEIGHTED_BRANCH_FLOOD_PERCENT
+): CriterionWeight[] {
+  const floodIndex = floodWeightIndex(weights);
+  if (floodIndex < 0) return weights.map((weight) => ({ ...weight }));
+  return rebalanceWeights(weights, floodIndex, floodPercent);
+}

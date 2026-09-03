@@ -1,4 +1,40 @@
-import type { AppStore, Scenario } from "./types";
+import type { AnalysisResult, AppStore, Scenario } from "./types";
+
+export function scenarioAnalysisResult(
+  scenario: Scenario,
+  results: AnalysisResult[]
+): AnalysisResult | undefined {
+  if (!scenario.latestResultId) return undefined;
+  return results.find((result) => result.id === scenario.latestResultId);
+}
+
+/** True when a scenario has fresh completed analysis with ranked candidates. */
+export function scenarioHasComparableAnalysis(
+  scenario: Scenario,
+  results: AnalysisResult[]
+): boolean {
+  const result = scenarioAnalysisResult(scenario, results);
+  return Boolean(
+    result &&
+      result.status === "completed" &&
+      !result.stale &&
+      result.candidates.length > 0
+  );
+}
+
+export function countComparableScenarios(
+  scenarios: Scenario[],
+  results: AnalysisResult[]
+): number {
+  return scenarios.filter((scenario) => scenarioHasComparableAnalysis(scenario, results)).length;
+}
+
+export function firstUnanalyzedScenarioName(
+  scenarios: Scenario[],
+  results: AnalysisResult[]
+): string | undefined {
+  return scenarios.find((scenario) => !scenarioHasComparableAnalysis(scenario, results))?.name;
+}
 
 export function scenariosForProject(store: AppStore, projectId: string): Scenario[] {
   return store.scenarios.filter((s) => s.projectId === projectId);

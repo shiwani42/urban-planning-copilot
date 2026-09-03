@@ -16,6 +16,10 @@ import {
 import { formatReportDateTime, dedupeLimitations, formatDecisionType } from "../format";
 import { cloneScenarioForBranch } from "./scenario-clone";
 import {
+  applyFloodWeightedWeights,
+  isFloodWeightedBranchName,
+} from "./weights";
+import {
   activeScenarioNeedsRepair,
   resolveScenarioId,
 } from "./scenario-resolution";
@@ -1573,6 +1577,11 @@ export async function createScenario(
         datasetNameMap(store)
       );
     }
+
+    if (source && isFloodWeightedBranchName(name)) {
+      scenario.weights = applyFloodWeightedWeights(scenario.weights);
+    }
+
     store.scenarios.push(scenario);
     project.activeScenarioId = scenario.id;
     project.updatedAt = now();
@@ -1580,7 +1589,11 @@ export async function createScenario(
       ? store.analysisResults.find((r) => r.id === scenario.latestResultId)
       : undefined;
     project.resumeNote = source
-      ? `Branched from "${source.name}" — no analysis yet. Prior results and decision were not copied.`
+      ? isFloodWeightedBranchName(name)
+        ? `Branched from "${source.name}" as flood-weighted (${Math.round(
+            (scenario.weights.find((w) => w.key.includes("flood"))?.weight ?? 0) * 100
+          )}% flood) — no analysis yet.`
+        : `Branched from "${source.name}" — no analysis yet. Prior results and decision were not copied.`
       : resumeNoteForScenario(scenario, branchResult);
     logActivity(store, {
       projectId,

@@ -30,7 +30,10 @@ type UrbanPlanningCopilotProps = {
   projectId?: string | null;
   scenarioId?: string | null;
   scenarioCount?: number;
+  analyzedScenarioCount?: number;
+  unanalyzedScenarioName?: string;
   scenarioIds?: string[];
+  analyzedScenarioIds?: string[];
   topCandidateId?: string | null;
   topCandidateLabel?: string | null;
   variant?: "sidebar" | "home";
@@ -51,7 +54,10 @@ export function UrbanPlanningCopilot({
   projectId,
   scenarioId,
   scenarioCount = 0,
+  analyzedScenarioCount = 0,
+  unanalyzedScenarioName,
   scenarioIds = [],
+  analyzedScenarioIds = [],
   topCandidateId,
   topCandidateLabel,
   variant = "sidebar",
@@ -75,11 +81,23 @@ export function UrbanPlanningCopilot({
     () => ({
       hasProject,
       scenarioCount,
+      analyzedScenarioCount,
+      unanalyzedScenarioName,
       scenarioIds,
+      analyzedScenarioIds,
       topCandidateId: topCandidateId ?? undefined,
       topCandidateLabel: topCandidateLabel ?? undefined,
     }),
-    [hasProject, scenarioCount, scenarioIds, topCandidateId, topCandidateLabel]
+    [
+      hasProject,
+      scenarioCount,
+      analyzedScenarioCount,
+      unanalyzedScenarioName,
+      scenarioIds,
+      analyzedScenarioIds,
+      topCandidateId,
+      topCandidateLabel,
+    ]
   );
 
   const suggestions = useMemo(
@@ -154,7 +172,9 @@ export function UrbanPlanningCopilot({
       }
 
       if (tool === "compare_scenarios" && !Array.isArray(mergedArgs.scenarioIds)) {
-        if (scenarioIds.length >= 2) {
+        if (analyzedScenarioIds.length >= 2) {
+          mergedArgs.scenarioIds = analyzedScenarioIds;
+        } else if (scenarioIds.length >= 2) {
           mergedArgs.scenarioIds = scenarioIds;
         }
       }
@@ -202,6 +222,7 @@ export function UrbanPlanningCopilot({
       router,
       scenarioId,
       scenarioIds,
+      analyzedScenarioIds,
       topCandidateId,
       topCandidateLabel,
     ]
