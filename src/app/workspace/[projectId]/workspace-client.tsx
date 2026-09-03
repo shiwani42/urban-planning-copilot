@@ -110,6 +110,7 @@ import {
   scenarioHasComparableAnalysis,
 } from "@/lib/domain/scenario-resolution";
 import type { MapDrawMode } from "@/components/PlanningMap";
+import { CompareScenarioMaps } from "@/components/CompareScenarioMaps";
 import { resolveWorkspaceTab, type WorkspaceTab } from "@/lib/workspace-tabs";
 
 const PlanningMap = dynamic(
@@ -2705,6 +2706,11 @@ export default function WorkspaceClient({
             });
             await refresh();
           }}
+          onSensitivityBranch={async (name) => {
+            await act("create_scenario_branch", { name });
+            await refresh();
+            showToast(`Created branch “${name}” — adjust weights and re-run analysis.`);
+          }}
         />
       ) : null}
 
@@ -2728,6 +2734,7 @@ export default function WorkspaceClient({
       {tab === "compare" && (
         <CompareView
           workspace={workspace}
+          layerData={layerData}
           compareIds={compareIds}
           setCompareIds={setCompareIds}
           comparison={comparison}
@@ -3249,10 +3256,12 @@ function ResultsDrawer(props: {
   onUnpinShortlist: (candidateId: string) => void | Promise<void>;
   onUpdateShortlistNote: (candidateId: string, note: string) => void | Promise<void>;
   onReject: (c: Candidate, reason: string) => Promise<void>;
+  onSensitivityBranch?: (branchName: string) => void | Promise<void>;
 }) {
   const { result, selected, panel, intent, scenario, shortlist } = props;
   const [resultsFilter, setResultsFilter] = useState<ResultsFilterState>(DEFAULT_RESULTS_FILTER);
   const [floodExpanded, setFloodExpanded] = useState(false);
+  const [evidenceTab, setEvidenceTab] = useState<"why" | "evidence" | "sensitivity">("why");
   const allCandidates = result?.candidates ?? [];
   const shortlistedIds = useMemo(
     () => new Set(shortlist.map((e) => e.candidateId).filter(Boolean) as string[]),
@@ -3563,93 +3572,134 @@ function ResultsDrawer(props: {
                 {(() => {
                   const provenance = candidateProvenance(selected, props.resultLimitations);
                   const floodCaveat = candidateFloodIncompleteCaveat(floodDataset, selected);
+                  const confidencePct = Math.min(100, Math.max(12, selected.score));
                   return (
                     <>
-                <div>
-                  <h3 className="text-headline-md mb-1">{selected.label}</h3>
-                  <div className="flex gap-2 items-center flex-wrap">
-                    {props.topCandidateId === selected.id && (
-                      <ProvenanceChip kind="copilot_recommendation" />
-                    )}
-                    <span className="font-mono text-data-label">Score {formatCandidateScore(selected)}</span>
-                    {props.housingTarget != null && housingAnalysis && (
-                      <span className="text-caption text-on-surface-variant">
-                        Capacity{" "}
-                        {candidateMetricValue(selected, "capacity") ?? "—"} vs goal{" "}
-                        {props.housingTarget.toLocaleString()} homes
-                      </span>
-                    )}
+                <div className="relative border border-outline-variant rounded overflow-hidden">
+                  <div className="h-1 bg-surface-variant w-full">
+                    <div
+                      className="h-full bg-primary-container"
+                      style={{ width: `${confidencePct}%` }}
+                      role="presentation"
+                      aria-label={`Confidence evidence ${confidencePct}%`}
+                    />
                   </div>
-                  {floodCaveat && (
-                    <p className="text-caption text-secondary border border-secondary/40 bg-secondary-fixed/15 rounded px-2 py-1.5 mt-2">
-                      {floodCaveat}
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <h4 className="font-mono text-data-label uppercase mb-2">Score breakdown</h4>
-                  <ul className="text-body-sm space-y-1">
-                    {Object.entries(provenance.scoreBreakdown).map(([k, v]) => (
-                      <li key={k} className="flex justify-between gap-4">
-                        <span className="text-on-surface-variant">
-                          {k.replace(/_/g, " ")} (weighted contribution)
-                        </span>
-                        <span className="font-mono">{v}</span>
-                      </li>
-                    ))}
-                    <li className="flex justify-between gap-4 font-medium border-t border-outline-variant pt-1">
-                      <span>Total score</span>
-                      <span className="font-mono">{formatCandidateScore(selected)}</span>
-                    </li>
-                  </ul>
-                  <p className="text-caption text-on-surface-variant mt-2">
-                    {housingAnalysis
-                      ? "Ranking uses weighted criteria — higher capacity alone does not guarantee rank #1."
-                      : "Ranking prioritizes population with poor service access, not farthest distance alone."}
-                  </p>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {evidenceMetrics.map((m) => (
-                    <div key={m.key} className="border border-outline-variant p-2">
-                      <div className="font-mono text-[10px] uppercase text-on-surface-variant">
-                        {m.label}
-                      </div>
-                      <div className="font-mono text-body-sm mt-1">
-                        {m.value}
-                        {m.unit ? ` ${m.unit}` : ""}
-                      </div>
-                      <ProvenanceChip kind={m.kind} />
-                      {m.method && (
-                        <p className="text-caption text-on-surface-variant mt-1">{m.method}</p>
+                  <div className="p-3 bg-surface-container-lowest">
+                    <h3 className="text-headline-md mb-1">{selected.label}</h3>
+                    <div className="flex gap-2 items-center flex-wrap">
+                      {props.topCandidateId === selected.id && (
+                        <ProvenanceChip kind="copilot_recommendation" />
                       )}
+                      <span className="font-mono text-data-label">
+                        Score {formatCandidateScore(selected)} · rank {selected.rank}
+                      </span>
                     </div>
+                  </div>
+                </div>
+                <div className="flex gap-3 border-b border-outline-variant">
+                  {(["why", "evidence", "sensitivity"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setEvidenceTab(tab)}
+                      className={`font-mono text-data-label pb-2 uppercase tracking-wide ${
+                        evidenceTab === tab
+                          ? "text-primary-container border-b-2 border-primary-container"
+                          : "text-on-surface-variant hover:text-primary"
+                      }`}
+                    >
+                      {tab === "why" ? "Why this candidate" : tab === "evidence" ? "Evidence" : "Sensitivity"}
+                    </button>
                   ))}
                 </div>
-                <div>
-                  <h4 className="font-mono text-data-label uppercase mb-2">Provenance</h4>
-                  <ul className="text-caption space-y-1 text-on-surface-variant">
-                    <li className="flex flex-wrap items-center gap-1">
-                      <span>Datasets:</span>
-                      {provenance.datasets.length > 0
-                        ? provenance.datasets.map((id) => (
-                            <DatasetRefChip
-                              key={id}
-                              label={id}
-                              datasets={props.datasets}
-                              onInspect={props.onInspectDataset}
-                            />
-                          ))
-                        : "—"}
-                    </li>
-                    <li>Assumptions: {provenance.assumptions.join(", ") || "—"}</li>
-                    <li>Constraints: {provenance.constraints.join("; ") || "—"}</li>
-                    <li>Limitations: {limitationText}</li>
-                  </ul>
-                </div>
-                {selected.recommendationNote && (
-                  <p className="text-body-sm text-on-surface-variant border-l-2 border-primary pl-3">
-                    {selected.recommendationNote}
+                {floodCaveat && (
+                  <p className="text-caption text-secondary border border-secondary/40 bg-secondary-fixed/15 rounded px-2 py-1.5">
+                    {floodCaveat}
                   </p>
+                )}
+                {evidenceTab === "why" && (
+                  <div className="space-y-3 text-body-sm">
+                    <p className="text-on-surface-variant leading-relaxed">
+                      {selected.recommendationNote ??
+                        "Ranked by weighted criteria under the active scenario constraints."}
+                    </p>
+                    {props.housingTarget != null && housingAnalysis && (
+                      <p className="text-caption text-on-surface-variant">
+                        Capacity {candidateMetricValue(selected, "capacity") ?? "—"} vs goal{" "}
+                        {props.housingTarget.toLocaleString()} homes
+                      </p>
+                    )}
+                    <ul className="text-caption space-y-1 border-t border-outline-variant pt-3">
+                      {Object.entries(provenance.scoreBreakdown).slice(0, 5).map(([k, v]) => (
+                        <li key={k} className="flex justify-between gap-2">
+                          <span className="text-on-surface-variant">{k.replace(/_/g, " ")}</span>
+                          <span className="font-mono">{v}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {evidenceTab === "evidence" && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      {evidenceMetrics.map((m) => (
+                        <div key={m.key} className="border border-outline-variant p-2 rounded">
+                          <div className="font-mono text-[10px] uppercase text-on-surface-variant">
+                            {m.label}
+                          </div>
+                          <div className="font-mono text-body-sm mt-1">
+                            {m.value}
+                            {m.unit ? ` ${m.unit}` : ""}
+                          </div>
+                          <ProvenanceChip kind={m.kind} />
+                        </div>
+                      ))}
+                    </div>
+                    <div>
+                      <h4 className="font-mono text-data-label uppercase mb-2">Provenance</h4>
+                      <ul className="text-caption space-y-1 text-on-surface-variant">
+                        <li className="flex flex-wrap items-center gap-1">
+                          <span>Datasets:</span>
+                          {provenance.datasets.length > 0
+                            ? provenance.datasets.map((id) => (
+                                <DatasetRefChip
+                                  key={id}
+                                  label={id}
+                                  datasets={props.datasets}
+                                  onInspect={props.onInspectDataset}
+                                />
+                              ))
+                            : "—"}
+                        </li>
+                        <li>Assumptions: {provenance.assumptions.join(", ") || "—"}</li>
+                        <li>Constraints: {provenance.constraints.join("; ") || "—"}</li>
+                        <li>Limitations: {limitationText}</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+                {evidenceTab === "sensitivity" && (
+                  <div className="space-y-3">
+                    <p className="text-body-sm text-on-surface-variant">
+                      Branch the scenario to test how weight or constraint shifts change ranking for
+                      this candidate.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {["Transit sensitivity", "Flood-weighted branch", "Capacity-first branch"].map(
+                        (name) => (
+                          <button
+                            key={name}
+                            type="button"
+                            disabled={!props.onSensitivityBranch}
+                            onClick={() => void props.onSensitivityBranch?.(name)}
+                            className="text-caption border border-outline-variant px-3 py-1.5 rounded hover:border-primary-container text-on-surface disabled:opacity-40"
+                          >
+                            {name}
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
                 )}
                 {selected.status !== "rejected" && (
                   <button
@@ -3842,6 +3892,30 @@ function EvidenceView({
   );
 }
 
+const COMPARE_COLUMN_TINTS = [
+  "bg-[#f0eedb]/25",
+  "bg-[#e8f4f8]/30",
+  "bg-[#f6ebdd]/25",
+  "bg-surface-container-low/50",
+];
+
+function bestCompareCellIndex(row: CompareTableRow): number | null {
+  if (!row.applicable || row.cells.length < 2) return null;
+  const nums = row.cells.map((c) => {
+    const pct = c.match(/^(-?\d+)%$/);
+    if (pct) return Number(pct[1]);
+    const n = Number(c.replace(/,/g, ""));
+    return Number.isFinite(n) ? n : null;
+  });
+  if (nums.some((n) => n == null)) return null;
+  let best = 0;
+  for (let i = 1; i < nums.length; i++) {
+    if ((nums[i] ?? 0) > (nums[best] ?? 0)) best = i;
+  }
+  const allSame = nums.every((n) => n === nums[0]);
+  return allSame ? null : best;
+}
+
 function CompareMetricsTable(props: {
   scenarioNames: string[];
   rows: CompareTableRow[];
@@ -3849,6 +3923,7 @@ function CompareMetricsTable(props: {
   onSortKey: (key: "label" | "delta") => void;
   showDelta?: boolean;
   sortable?: boolean;
+  matrixStyle?: boolean;
 }) {
   const sorted = [...props.rows].sort((a, b) => {
     if (props.sortKey === "delta") {
@@ -3857,84 +3932,122 @@ function CompareMetricsTable(props: {
     return a.label.localeCompare(b.label);
   });
 
+  const matrix = props.matrixStyle;
+
   return (
-    <div className="overflow-auto border border-outline-variant bg-surface-container-lowest">
+    <section
+      className={
+        matrix
+          ? "border border-outline-variant rounded bg-surface overflow-hidden"
+          : "overflow-auto border border-outline-variant bg-surface-container-lowest"
+      }
+    >
+      {matrix && (
+        <div className="bg-surface-container-low px-4 py-3 border-b border-outline-variant flex justify-between items-center">
+          <h3 className="text-headline-md text-on-surface">Calculated comparison</h3>
+          <span className="font-mono text-data-label text-outline uppercase text-[10px] tracking-wider">
+            Data matrix
+          </span>
+        </div>
+      )}
       {props.sortable !== false && (
         <div className="flex flex-wrap gap-2 p-3 border-b border-outline-variant text-caption">
-        <span className="text-on-surface-variant">Sort rows by:</span>
-        <button
-          type="button"
-          className={`px-2 py-0.5 rounded border ${
-            props.sortKey === "label"
-              ? "border-primary bg-primary-fixed/20 text-primary"
-              : "border-outline-variant"
-          }`}
-          onClick={() => props.onSortKey("label")}
-        >
-          Metric name
-        </button>
-        <button
-          type="button"
-          className={`px-2 py-0.5 rounded border ${
-            props.sortKey === "delta"
-              ? "border-primary bg-primary-fixed/20 text-primary"
-              : "border-outline-variant"
-          }`}
-          onClick={() => props.onSortKey("delta")}
-        >
-          Largest delta
-        </button>
-      </div>
+          <span className="text-on-surface-variant">Sort rows by:</span>
+          <button
+            type="button"
+            className={`px-2 py-0.5 rounded border ${
+              props.sortKey === "label"
+                ? "border-primary bg-primary-fixed/20 text-primary"
+                : "border-outline-variant"
+            }`}
+            onClick={() => props.onSortKey("label")}
+          >
+            Metric name
+          </button>
+          <button
+            type="button"
+            className={`px-2 py-0.5 rounded border ${
+              props.sortKey === "delta"
+                ? "border-primary bg-primary-fixed/20 text-primary"
+                : "border-outline-variant"
+            }`}
+            onClick={() => props.onSortKey("delta")}
+          >
+            Largest delta
+          </button>
+        </div>
       )}
-      <table className="w-full text-body-sm">
-        <thead className="bg-surface-container-low font-mono text-data-label">
-          <tr>
-            <th className="p-3 text-left">Metric</th>
-            {props.scenarioNames.map((name) => (
-              <th key={name} className="p-3 text-left">
-                {name}
-              </th>
-            ))}
-            {props.showDelta !== false && props.scenarioNames.length === 2 && (
-              <th className="p-3 text-left">Δ</th>
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((row) => (
-            <tr
-              key={row.key}
-              className={`border-t border-outline-variant ${
-                row.identical ? "" : "bg-surface-container-low/40"
-              }`}
-            >
-              <td className="p-3 font-mono text-caption">{row.label}</td>
-              {row.cells.map((cell, i) => (
-                <td key={`${row.key}-${i}`} className="p-3 font-mono">
-                  {row.applicable ? (
-                    cell
-                  ) : (
-                    <span className="text-caption text-on-surface-variant italic">
-                      not in this analysis
-                    </span>
-                  )}
-                </td>
+      <div className={matrix ? "w-full overflow-x-auto" : ""}>
+        <table className="w-full text-body-sm">
+          <thead className="bg-surface-container-low font-mono text-data-label">
+            <tr className={matrix ? "border-b border-outline-variant" : ""}>
+              <th className="p-3 text-left text-on-surface-variant font-normal">Metric</th>
+              {props.scenarioNames.map((name, i) => (
+                <th
+                  key={name}
+                  className={`p-3 text-left text-on-surface-variant font-normal ${
+                    matrix ? `border-l border-outline-variant ${COMPARE_COLUMN_TINTS[i % 4]}` : ""
+                  }`}
+                >
+                  {name}
+                </th>
               ))}
               {props.showDelta !== false && props.scenarioNames.length === 2 && (
-                <td className="p-3 font-mono text-caption">
-                  {row.applicable ? (row.delta ?? "—") : "—"}
-                </td>
+                <th className="p-3 text-left text-on-surface-variant font-normal">Δ</th>
               )}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody className={matrix ? "font-mono text-data-label" : ""}>
+            {sorted.map((row) => {
+              const bestIdx = matrix ? bestCompareCellIndex(row) : null;
+              return (
+                <tr
+                  key={row.key}
+                  className={`border-t border-outline-variant ${
+                    row.identical ? "" : "bg-surface-container-low/40"
+                  } ${matrix ? "hover:bg-surface-container-lowest transition-colors" : ""}`}
+                >
+                  <td className={`p-3 ${matrix ? "text-on-surface font-sans" : "font-mono text-caption"}`}>
+                    {row.label}
+                  </td>
+                  {row.cells.map((cell, i) => (
+                    <td
+                      key={`${row.key}-${i}`}
+                      className={`p-3 font-mono ${
+                        matrix
+                          ? `border-l border-outline-variant ${COMPARE_COLUMN_TINTS[i % 4]} ${
+                              bestIdx === i ? "font-bold" : ""
+                            }`
+                          : ""
+                      }`}
+                    >
+                      {row.applicable ? (
+                        cell
+                      ) : (
+                        <span className="text-caption text-on-surface-variant italic font-sans">
+                          not in this analysis
+                        </span>
+                      )}
+                    </td>
+                  ))}
+                  {props.showDelta !== false && props.scenarioNames.length === 2 && (
+                    <td className="p-3 font-mono text-caption">
+                      {row.applicable ? (row.delta ?? "—") : "—"}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
 function CompareView(props: {
   workspace: WorkspaceSnapshot;
+  layerData: Record<string, GeoJSON.FeatureCollection>;
   compareIds: string[];
   setCompareIds: Dispatch<SetStateAction<string[]>>;
   comparison: Array<Record<string, string | number>> | null;
@@ -4009,12 +4122,60 @@ function CompareView(props: {
     props.tableRows &&
     props.tableRows.length > 0;
 
+  const compareMapEntries = props.compareIds
+    .filter((id) => scenarioIsComparable(id))
+    .map((id) => {
+      const scenario = workspace.scenarios.find((s) => s.id === id);
+      const result = workspace.analysisResults.find((r) => r.id === scenario?.latestResultId);
+      return {
+        scenarioId: id,
+        name: scenario?.name ?? id,
+        candidates: result?.candidates ?? [],
+        stale: result?.stale,
+      };
+    });
+
+  const copilotInterpretation =
+    props.insights?.find((i) => i.heading === "Top recommendation")?.body ??
+    props.insights?.[0]?.body ??
+    null;
+
+  const confidencePct = showResults
+    ? Math.min(
+        95,
+        Math.max(
+          55,
+          70 + (props.insights?.filter((i) => !i.body.includes("identical")).length ?? 0) * 5
+        )
+      )
+    : 0;
+
   return (
-    <main className="flex-1 overflow-auto p-8">
-      <h2 className="text-display mb-2">Scenario comparison</h2>
-      <p className="text-body-sm text-on-surface-variant mb-6">
-        Select two or more scenarios with completed analysis, then compare trade-offs.
-      </p>
+    <main className="flex-1 overflow-auto">
+      <div className="px-8 py-6 border-b border-outline-variant bg-surface sticky top-0 z-20 flex flex-wrap justify-between items-center gap-4">
+        <div>
+          <h2 className="text-display">Compare scenarios</h2>
+          <p className="text-body-sm text-on-surface-variant mt-1">
+            KPI matrix, synchronized maps, and copilot interpretation — not a lone table.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={comparableSelectedCount < 2 || props.busy}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            void props.onCompare();
+          }}
+          className="bg-primary-container text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40"
+        >
+          {props.busy
+            ? "Comparing…"
+            : `Compare selected (${comparableSelectedCount} analyzed)`}
+        </button>
+      </div>
+
+      <div className="p-8 space-y-8 max-w-6xl">
 
       <div
         className="mb-6 border border-secondary/40 bg-secondary-fixed/10 px-4 py-3 rounded"
@@ -4119,20 +4280,6 @@ function CompareView(props: {
           )}
         </div>
       )}
-      <button
-        type="button"
-        disabled={comparableSelectedCount < 2 || props.busy}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          void props.onCompare();
-        }}
-        className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40 mb-4"
-      >
-        {props.busy
-          ? "Comparing…"
-          : `Compare selected (${comparableSelectedCount} analyzed)`}
-      </button>
       {props.error && (
         <p className="text-body-sm text-error mb-4" role="alert">
           {props.error}
@@ -4218,43 +4365,163 @@ function CompareView(props: {
       )}
 
       {showResults && props.tableRows && (
-        <div className="mb-6">
+        <>
           <CompareMetricsTable
             scenarioNames={scenarioNames}
             rows={props.tableRows}
             sortKey={props.sortKey}
             onSortKey={props.onSortKey}
             sortable
+            matrixStyle
           />
-          <div className="p-4 flex flex-wrap gap-2 border border-t-0 border-outline-variant bg-surface-container-lowest">
-            {props.comparison!.map((row) => (
-              <button
-                key={String(row.scenarioId)}
-                onClick={() => props.onPrefer(String(row.scenarioId))}
-                className="bg-secondary text-on-secondary px-3 py-1.5 text-body-sm rounded"
-              >
-                Select {row.name}
-              </button>
-            ))}
+
+          {compareMapEntries.length >= 2 && (
+            <CompareScenarioMaps
+              workspace={workspace}
+              layerData={props.layerData}
+              entries={compareMapEntries}
+            />
+          )}
+
+          <section className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-outline-variant pt-8">
+            <div className="space-y-3">
+              <h3 className="text-headline-md text-on-surface">Where the scenarios differ</h3>
+              {props.insights && props.insights.length > 0 ? (
+                <ul className="space-y-3 text-body-sm text-on-surface-variant">
+                  {props.insights.map((item) => (
+                    <li key={item.heading} className="flex items-start gap-3">
+                      <span className="material-symbols-outlined text-[18px] text-outline mt-0.5">
+                        compare_arrows
+                      </span>
+                      <span>
+                        <strong>{item.heading}:</strong> {item.body}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-body-sm text-on-surface-variant">
+                  Run compare to load trade-off notes.
+                </p>
+              )}
+            </div>
+
+            <div className="border border-outline-variant rounded bg-surface p-5 flex flex-col gap-4 relative overflow-hidden">
+              <div className="absolute top-0 left-0 h-1 bg-surface-variant w-full">
+                <div
+                  className="h-full bg-primary-container transition-all"
+                  style={{ width: `${confidencePct}%` }}
+                  role="presentation"
+                />
+              </div>
+              <div className="flex justify-between items-center mt-1 gap-2 flex-wrap">
+                <h3 className="text-headline-md text-on-surface flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary-container">auto_awesome</span>
+                  Copilot interpretation
+                </h3>
+                <span className="inline-flex items-center px-2 py-1 bg-primary-container text-on-primary rounded font-mono text-data-label text-[10px] uppercase tracking-wide">
+                  AI recommendation
+                </span>
+              </div>
+              <p className="text-body-sm text-on-surface-variant leading-relaxed">
+                {copilotInterpretation ??
+                  "Compare analyzed scenarios to surface a ranked recommendation and trade-off narrative."}
+              </p>
+            </div>
+          </section>
+
+          <div
+            className="sticky bottom-0 bg-surface/95 backdrop-blur py-4 border-t border-outline-variant flex flex-wrap justify-between items-center gap-4 -mx-8 px-8 z-10"
+          >
+            <span className="text-headline-md text-on-surface">Select preferred scenario</span>
+            <div className="flex flex-wrap gap-3">
+              {props.comparison!.map((row, idx) => (
+                <button
+                  key={String(row.scenarioId)}
+                  type="button"
+                  onClick={() => props.onPrefer(String(row.scenarioId))}
+                  className={`px-6 py-2 rounded font-mono text-data-label uppercase tracking-wide ${
+                    idx === 0
+                      ? "bg-tertiary text-on-tertiary hover:opacity-90"
+                      : "border border-outline text-on-surface hover:bg-surface-container-low"
+                  }`}
+                >
+                  Select {row.name}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
-      {props.insights && props.insights.length > 0 && showResults && (
-        <div className="space-y-3 border border-outline-variant bg-surface-container-low p-4">
-          <h3 className="font-mono text-data-label uppercase text-on-surface-variant">
-            Trade-off insights
-          </h3>
-          {props.insights.map((item) => (
-            <div key={item.heading}>
-              <h4 className="text-body-sm font-medium">{item.heading}</h4>
-              <p className="text-body-sm text-on-surface-variant">{item.body}</p>
-            </div>
-          ))}
-        </div>
-      )}
+      </div>
     </main>
   );
+}
+
+function EvidenceSummaryRow(props: { icon: string; label: string; text: string }) {
+  return (
+    <div className="flex gap-4">
+      <div className="w-8 h-8 rounded bg-surface-container-highest flex items-center justify-center shrink-0 border border-outline-variant/50">
+        <span className="material-symbols-outlined text-on-surface-variant text-sm">
+          {props.icon}
+        </span>
+      </div>
+      <div>
+        <p className="font-mono text-data-label text-on-surface-variant mb-1 uppercase tracking-wide">
+          {props.label}
+        </p>
+        <p className="text-body-sm text-on-surface">{props.text}</p>
+      </div>
+    </div>
+  );
+}
+
+function buildDecisionTradeoffs(
+  result: WorkspaceSnapshot["analysisResults"][0] | undefined,
+  topCandidate: Candidate | null,
+  yieldGap?: YieldGapSummary | null
+): Array<{ tone: "positive" | "negative" | "warning"; text: string }> {
+  const items: Array<{ tone: "positive" | "negative" | "warning"; text: string }> = [];
+  if (yieldGap) {
+    items.push({
+      tone: yieldGap.needsWarning ? "negative" : "positive",
+      text: yieldGap.headline,
+    });
+    if (yieldGap.detail) {
+      items.push({ tone: "warning", text: yieldGap.detail });
+    }
+  }
+  if (topCandidate && result) {
+    const capacity = topCandidate.metrics.find((m) => m.key === "capacity")?.value;
+    const maxCapacity = Math.max(
+      ...result.candidates.map((c) => c.metrics.find((m) => m.key === "capacity")?.value ?? 0)
+    );
+    if (capacity != null && maxCapacity > capacity) {
+      const pct = Math.round(((maxCapacity - capacity) / maxCapacity) * 100);
+      items.push({
+        tone: "negative",
+        text: `Top recommendation is ${pct}% below maximum parcel capacity in this analysis.`,
+      });
+    }
+    const transit = topCandidate.metrics.find((m) => m.key === "transit_distance_m")?.value;
+    if (transit != null && transit >= 0 && transit <= 400) {
+      items.push({
+        tone: "positive",
+        text: `Recommended site is within ${transit}m of transit — strong accessibility profile.`,
+      });
+    }
+    if (topCandidate.recommendationNote) {
+      items.push({ tone: "positive", text: topCandidate.recommendationNote });
+    }
+  }
+  if (items.length === 0) {
+    items.push({
+      tone: "warning",
+      text: "Run analysis and review evidence before recording a formal decision.",
+    });
+  }
+  return items.slice(0, 4);
 }
 
 function DecisionView(props: {
@@ -4289,213 +4556,303 @@ function DecisionView(props: {
       ? "Approved (stale)"
       : formatDecisionStatus(scenario.decisionStatus);
   const mapCandidates = result?.candidates ?? [];
+  const readyForReview =
+    hasFreshAnalysis &&
+    scenario.decisionStatus !== "approved" &&
+    scenario.decisionStatus !== "rejected";
+  const tradeoffs = buildDecisionTradeoffs(result, topCandidate, props.yieldGap);
+  const limitationItems = filterAnalysisCaveats(analysisLimitations(result), { max: 6 });
+  const enabledDatasets = props.workspace.datasets
+    .filter((d) => scenario.enabledDatasetIds.includes(d.id))
+    .map((d) => d.name)
+    .join(", ");
+
+  const copilotLine = topCandidate
+    ? `${scenario.name} centers on ${topCandidate.label} (score ${formatCandidateScore(topCandidate)}) under current weights and constraints.`
+    : "No copilot recommendation until analysis completes.";
 
   return (
     <main className="flex-1 flex overflow-hidden min-h-0">
-      <div className="flex-1 overflow-auto p-8 max-w-3xl min-h-0">
-      <h2 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">
-        Review decision
-      </h2>
-      <h3 className="text-headline-md mb-4">{scenario.name}</h3>
-      {!hasFreshAnalysis && (
-        <div
-          className="mb-6 border border-outline-variant rounded-lg p-5 bg-surface-container-low space-y-3"
-          role="status"
-        >
-          <p className="text-body-sm text-on-surface">
-            {!result
-              ? "No analysis results for this scenario yet."
-              : result.stale
-                ? `Results are stale (${result.staleReason ?? "inputs changed"}).`
-                : "Evidence pack is incomplete for a formal decision."}
-          </p>
-          <button
-            type="button"
-            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm focus-ring"
-            onClick={props.onGoToWorkspace}
-          >
-            {result?.stale ? "Recalculate in Workspace" : "Run analysis in Workspace"}
-          </button>
-          <p className="text-caption text-on-surface-variant">
-            Approve, request changes, and reject unlock after fresh analysis and evidence review.
-          </p>
-        </div>
-      )}
-      {hasFreshAnalysis && (
-        <p className="text-body-sm text-on-surface-variant mb-4" role="status">
-          {result!.candidates.length} candidates ranked — evidence summary below.
-        </p>
-      )}
-      {result && isHousingIntent(scenario.objective.intent) && props.housingGoalLine && (
-        <p className="text-body-sm text-on-surface-variant mb-4 border border-outline-variant bg-surface-container-low px-3 py-2 rounded">
-          {props.housingGoalLine}
-        </p>
-      )}
-      {props.yieldGap && <YieldGapBanner gap={props.yieldGap} />}
-      <div className="mb-4">
-        <ProvenanceChip kind="copilot_recommendation" />
-        <p className="text-body-sm mt-2">
-          {topCandidate
-            ? `Copilot recommends ${topCandidate.label} (score ${formatCandidateScore(topCandidate)}).`
-            : "No recommendation available yet."}
-        </p>
-      </div>
-      <section className="mb-6 border border-outline-variant p-4">
-        <ShortlistPanel
-          entries={props.shortlist}
-          onSelect={props.onSelectShortlist}
-          onUnpin={props.onUnpinShortlist}
-          onUpdateNote={props.onUpdateShortlistNote}
-        />
-      </section>
-      <section className="mb-6 border border-outline-variant p-4 space-y-3">
-        <h4 className="font-mono text-data-label uppercase">Evidence summary</h4>
-        <p className="text-body-sm">
-          <strong>Objective:</strong> {scenario.objective.rawText}
-        </p>
-        <p className="text-body-sm">
-          <strong>Assumptions:</strong>{" "}
-          {scenario.assumptions.map((a) => `${a.label}: ${a.value}${a.unit ? ` ${a.unit}` : ""}`).join("; ")}
-        </p>
-        <p className="text-body-sm">
-          <strong>Constraints:</strong>{" "}
-          {scenario.constraints
-            .filter((c) => c.enabled)
-            .map((c) => c.label)
-            .join("; ")}
-        </p>
-        <p className="text-body-sm">
-          <strong>Results:</strong> {result?.summary ?? "No analysis yet"}
-        </p>
-        <p className="text-body-sm text-secondary">
-          <strong>Limitations:</strong>{" "}
-          {limitationsSummary(analysisLimitations(result), { fallback: "None recorded" })}
-        </p>
-      </section>
-      <label className="block mb-4">
-        <span className="font-mono text-data-label uppercase text-on-surface-variant">
-          Reason for decision
-        </span>
-        <textarea
-          value={props.reason}
-          onChange={(e) => props.setReason(e.target.value)}
-          className={`mt-2 w-full border rounded p-3 text-body-sm focus-ring ${
-            props.error ? "border-error" : "border-outline-variant"
-          }`}
-          rows={3}
-          placeholder="Required for approve/reject — substantive justification for the audit trail"
-          disabled={!hasFreshAnalysis}
-        />
-        {props.error && (
-          <p className="text-caption text-error mt-1" role="alert">
-            {props.error}
-          </p>
-        )}
-      </label>
-      {hasFreshAnalysis ? (
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => props.onRequestConfirm("approve_scenario")}
-            className="bg-secondary text-on-secondary px-4 py-2 rounded text-body-sm focus-ring"
-          >
-            Approve scenario
-          </button>
-          <button
-            type="button"
-            onClick={() => props.onRequestConfirm("request_changes")}
-            className="border border-outline px-4 py-2 rounded text-body-sm focus-ring"
-          >
-            Request changes
-          </button>
-          <button
-            type="button"
-            onClick={() => props.onRequestConfirm("reject_scenario")}
-            className="border border-error text-error px-4 py-2 rounded text-body-sm focus-ring"
-          >
-            Reject
-          </button>
-        </div>
-      ) : (
-        <p className="text-caption text-on-surface-variant">
-          Decision actions appear after analysis is complete and results are current.
-        </p>
-      )}
-      <p className="mt-4 text-caption text-on-surface-variant">
-        Current decision status:{" "}
-        <span className="font-medium text-secondary">{decisionLabel}</span>
-        {scenario.decisionStaleReason && (
-          <span className="block mt-1 text-error">{scenario.decisionStaleReason}</span>
-        )}
-      </p>
-      <div className="mt-8 max-h-[40vh] overflow-y-auto">
-        <h4 className="font-mono text-data-label uppercase mb-3">Decision history</h4>
-        <ul className="space-y-2">
-          {props.workspace.decisions
-            .filter((d) => d.scenarioId === scenario.id)
-            .map((d) => (
-              <li key={d.id} className="text-body-sm border-b border-outline-variant pb-2">
-                <span className="font-mono text-caption text-on-surface-variant">
-                  {formatLocaleDateTime(d.createdAt)}
-                </span>
-                <div>
-                  <ProvenanceChip kind="planner_decision" /> {formatDecisionType(d.type)}
-                  {d.reason ? ` — ${d.reason}` : ""}
-                </div>
-              </li>
-            ))}
-        </ul>
-      </div>
-
-      {props.confirmType && (
-        <div
-          className="fixed inset-0 z-[9999] bg-black/40 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="confirm-decision-title"
-        >
-          <div className="bg-surface max-w-lg w-full rounded-lg border border-outline-variant p-6 shadow-xl">
-            <h4 id="confirm-decision-title" className="text-headline-md mb-3">
-              Confirm {formatDecisionType(props.confirmType)}
-            </h4>
-            <p className="text-body-sm text-on-surface-variant mb-4">
-              You are about to record a planner decision on <strong>{scenario.name}</strong>.
-              Review the evidence summary above, then confirm.
-            </p>
-            <div className="text-body-sm space-y-2 mb-4 border border-outline-variant p-3 rounded bg-surface-container-low">
-              <p>
-                <strong>Copilot recommendation:</strong>{" "}
-                {topCandidate
-                  ? `${topCandidate.label} (score ${formatCandidateScore(topCandidate)})`
-                  : "—"}
+      <div className="flex-1 overflow-auto min-h-0">
+        <div className="max-w-[1000px] mx-auto p-8 pb-24">
+          <div className="mb-10 flex flex-wrap justify-between items-end gap-4 border-b border-outline-variant pb-6">
+            <div>
+              <p className="font-mono text-data-label text-on-surface-variant uppercase tracking-widest mb-2">
+                Review decision
               </p>
-              <p>
-                <strong>Your reason:</strong> {props.reason.trim() || "(none entered)"}
-              </p>
-              <p>
-                <strong>Limitations:</strong>{" "}
-                {limitationsSummary(analysisLimitations(result), { max: 2, fallback: "None" })}
-              </p>
+              <h1 className="text-display text-primary">{scenario.name}</h1>
             </div>
-            <div className="flex gap-3 justify-end">
+            {readyForReview && (
+              <span
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded border border-secondary text-secondary font-mono text-data-label bg-surface-bright"
+                role="status"
+              >
+                <span className="w-2 h-2 rounded bg-secondary shrink-0" />
+                Ready for human review
+              </span>
+            )}
+            {!readyForReview && hasFreshAnalysis && (
+              <span className="font-mono text-data-label text-on-surface-variant uppercase">
+                {decisionLabel}
+              </span>
+            )}
+          </div>
+
+          {!hasFreshAnalysis && (
+            <div
+              className="mb-8 border border-outline-variant rounded p-5 bg-surface-container-low space-y-3"
+              role="status"
+            >
+              <p className="text-body-sm text-on-surface">
+                {!result
+                  ? "No analysis results for this scenario yet."
+                  : result.stale
+                    ? `Results are stale (${result.staleReason ?? "inputs changed"}).`
+                    : "Evidence pack is incomplete for a formal decision."}
+              </p>
               <button
                 type="button"
-                onClick={props.onCancelConfirm}
-                className="border border-outline-variant px-4 py-2 rounded text-body-sm"
+                className="bg-primary-container text-on-primary px-4 py-2 rounded text-body-sm focus-ring"
+                onClick={props.onGoToWorkspace}
               >
-                Cancel
+                {result?.stale ? "Recalculate in Workspace" : "Run analysis in Workspace"}
               </button>
-              <button
-                type="button"
-                onClick={() => void props.onDecide(props.confirmType!)}
-                className="bg-secondary text-on-secondary px-4 py-2 rounded text-body-sm"
-              >
-                Confirm decision
-              </button>
+            </div>
+          )}
+
+          <div className="bg-surface-container-lowest border border-outline-variant rounded overflow-hidden mb-8">
+            <div className="h-1 bg-primary-container w-full" role="presentation" />
+            <div className="p-6">
+              <div className="flex items-center gap-2 mb-4 text-primary-container">
+                <span className="material-symbols-outlined">psychology</span>
+                <span className="font-mono text-data-label uppercase tracking-widest">
+                  Copilot recommendation
+                </span>
+              </div>
+              <p className="text-body-lg text-on-surface max-w-3xl leading-relaxed">{copilotLine}</p>
             </div>
           </div>
+
+          {result && isHousingIntent(scenario.objective.intent) && props.housingGoalLine && (
+            <p className="text-body-sm text-on-surface-variant mb-6 border border-outline-variant bg-surface-container-low px-3 py-2 rounded">
+              {props.housingGoalLine}
+            </p>
+          )}
+          {props.yieldGap && <YieldGapBanner gap={props.yieldGap} />}
+
+          <div className="grid grid-cols-12 gap-element-gap mb-8">
+            <div className="col-span-12 lg:col-span-7 bg-surface-container-lowest border border-outline-variant rounded p-6">
+              <h3 className="font-mono text-data-label text-on-surface-variant uppercase tracking-widest mb-6 border-b border-outline-variant pb-2">
+                Evidence summary
+              </h3>
+              <div className="space-y-4">
+                <EvidenceSummaryRow
+                  icon="flag"
+                  label="Objective"
+                  text={scenario.objective.rawText}
+                />
+                <EvidenceSummaryRow
+                  icon="block"
+                  label="Constraints"
+                  text={
+                    scenario.constraints
+                      .filter((c) => c.enabled)
+                      .map((c) => c.label)
+                      .join("; ") || "None enabled"
+                  }
+                />
+                <EvidenceSummaryRow
+                  icon="database"
+                  label="Datasets"
+                  text={enabledDatasets || "None enabled for this scenario"}
+                />
+                <EvidenceSummaryRow
+                  icon="analytics"
+                  label="Results"
+                  text={result?.summary ?? "No analysis yet"}
+                />
+              </div>
+            </div>
+            <div className="col-span-12 lg:col-span-5 bg-surface-container-lowest border border-outline-variant rounded p-6">
+              <h3 className="font-mono text-data-label text-on-surface-variant uppercase tracking-widest mb-6 border-b border-outline-variant pb-2">
+                Key trade-offs
+              </h3>
+              <ul className="space-y-4">
+                {tradeoffs.map((item, i) => (
+                  <li key={i} className="flex items-start gap-3">
+                    <span
+                      className={`material-symbols-outlined mt-0.5 ${
+                        item.tone === "positive"
+                          ? "text-primary-container"
+                          : item.tone === "negative"
+                            ? "text-error"
+                            : "text-secondary"
+                      }`}
+                    >
+                      {item.tone === "positive"
+                        ? "add_circle"
+                        : item.tone === "negative"
+                          ? "remove_circle"
+                          : "warning"}
+                    </span>
+                    <span className="text-body-sm text-on-surface">{item.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <section className="mb-8 border border-secondary/30 bg-secondary-fixed/10 rounded p-5 flex items-start gap-4">
+            <span className="material-symbols-outlined text-secondary mt-0.5">info</span>
+            <div>
+              <h4 className="font-mono text-data-label text-secondary uppercase tracking-widest mb-2">
+                Uncertainty &amp; limitations
+              </h4>
+              <ul className="list-disc list-inside text-body-sm text-on-surface-variant space-y-1">
+                {limitationItems.length > 0
+                  ? limitationItems.map((l) => <li key={l}>{l}</li>)
+                  : <li>No material limitations recorded for this analysis.</li>}
+              </ul>
+            </div>
+          </section>
+
+          <section className="mb-6">
+            <ShortlistPanel
+              entries={props.shortlist}
+              onSelect={props.onSelectShortlist}
+              onUnpin={props.onUnpinShortlist}
+              onUpdateNote={props.onUpdateShortlistNote}
+            />
+          </section>
+
+          <div className="border-t-2 border-primary-container pt-8 mb-10">
+            <h2 className="text-headline-md text-primary-container mb-6">Your decision</h2>
+            <label className="block mb-6">
+              <span className="font-mono text-data-label text-on-surface-variant uppercase tracking-wide">
+                Reason for decision (optional, logged in audit trail)
+              </span>
+              <textarea
+                value={props.reason}
+                onChange={(e) => props.setReason(e.target.value)}
+                className={`mt-2 w-full border rounded p-3 text-body-sm focus-ring bg-surface-container-lowest ${
+                  props.error ? "border-error" : "border-outline-variant focus:border-primary-container"
+                }`}
+                rows={3}
+                placeholder="Enter justification or specific conditions…"
+                disabled={!hasFreshAnalysis}
+              />
+              {props.error && (
+                <p className="text-caption text-error mt-1" role="alert">{props.error}</p>
+              )}
+            </label>
+            {hasFreshAnalysis ? (
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="button"
+                  onClick={() => props.onRequestConfirm("approve_scenario")}
+                  className="flex-1 bg-secondary text-on-primary py-4 rounded text-headline-md hover:bg-secondary/90 flex items-center justify-center gap-2 focus-ring"
+                >
+                  <span className="material-symbols-outlined">check_circle</span>
+                  Approve scenario
+                </button>
+                <button
+                  type="button"
+                  onClick={() => props.onRequestConfirm("request_changes")}
+                  className="flex-1 bg-surface-container-highest border border-outline-variant text-on-surface py-4 rounded text-headline-md hover:bg-surface-variant flex items-center justify-center gap-2 focus-ring"
+                >
+                  <span className="material-symbols-outlined">edit_note</span>
+                  Request changes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => props.onRequestConfirm("reject_scenario")}
+                  className="flex-1 border border-error text-error py-4 rounded text-headline-md hover:bg-error-container/30 flex items-center justify-center gap-2 focus-ring"
+                >
+                  <span className="material-symbols-outlined">cancel</span>
+                  Reject
+                </button>
+              </div>
+            ) : (
+              <p className="text-caption text-on-surface-variant">
+                Decision actions appear after analysis is complete and results are current.
+              </p>
+            )}
+            <p className="mt-4 text-caption text-on-surface-variant">
+              Current status:{" "}
+              <span className="font-medium text-secondary">{decisionLabel}</span>
+              {scenario.decisionStaleReason && (
+                <span className="block mt-1 text-error">{scenario.decisionStaleReason}</span>
+              )}
+            </p>
+          </div>
+
+          <div className="max-h-[40vh] overflow-y-auto border-t border-outline-variant pt-6">
+            <h4 className="font-mono text-data-label uppercase mb-3">Decision history</h4>
+            <ul className="space-y-2">
+              {props.workspace.decisions
+                .filter((d) => d.scenarioId === scenario.id)
+                .map((d) => (
+                  <li key={d.id} className="text-body-sm border-b border-outline-variant pb-2">
+                    <span className="font-mono text-caption text-on-surface-variant">
+                      {formatLocaleDateTime(d.createdAt)}
+                    </span>
+                    <div>
+                      <ProvenanceChip kind="planner_decision" /> {formatDecisionType(d.type)}
+                      {d.reason ? ` — ${d.reason}` : ""}
+                    </div>
+                  </li>
+                ))}
+              {props.workspace.decisions.filter((d) => d.scenarioId === scenario.id).length === 0 && (
+                <li className="text-body-sm text-on-surface-variant">No decisions recorded yet.</li>
+              )}
+            </ul>
+          </div>
+
+          {props.confirmType && (
+            <div
+              className="fixed inset-0 z-[9999] bg-black/40 flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="confirm-decision-title"
+            >
+              <div className="bg-surface max-w-lg w-full rounded border border-outline-variant p-6">
+                <h4 id="confirm-decision-title" className="text-headline-md mb-3">
+                  Confirm {formatDecisionType(props.confirmType)}
+                </h4>
+                <p className="text-body-sm text-on-surface-variant mb-4">
+                  You are about to record a planner decision on <strong>{scenario.name}</strong>.
+                </p>
+                <div className="text-body-sm space-y-2 mb-4 border border-outline-variant p-3 rounded bg-surface-container-low">
+                  <p>
+                    <strong>Copilot recommendation:</strong>{" "}
+                    {topCandidate
+                      ? `${topCandidate.label} (score ${formatCandidateScore(topCandidate)})`
+                      : "—"}
+                  </p>
+                  <p>
+                    <strong>Your reason:</strong> {props.reason.trim() || "(none entered)"}
+                  </p>
+                </div>
+                <div className="flex gap-3 justify-end">
+                  <button
+                    type="button"
+                    onClick={props.onCancelConfirm}
+                    className="border border-outline-variant px-4 py-2 rounded text-body-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void props.onDecide(props.confirmType!)}
+                    className="bg-secondary text-on-primary px-4 py-2 rounded text-body-sm"
+                  >
+                    Confirm decision
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-      )}
       </div>
 
       <aside className="hidden lg:flex flex-1 min-w-[300px] max-w-[50%] flex-col border-l border-outline-variant bg-surface-container-low min-h-0">
@@ -4785,223 +5142,312 @@ function ReportView(props: {
     }
   }
 
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(Boolean(displayReport));
+
   return (
-    <main className="flex-1 overflow-auto p-8 max-w-4xl">
-      <div className="flex flex-col sm:flex-row sm:flex-wrap justify-between items-start gap-4 mb-6">
+    <main className="flex-1 overflow-hidden flex flex-col min-h-0 relative">
+      <div className="px-8 py-6 border-b border-outline-variant bg-surface flex flex-wrap justify-between items-center gap-4 shrink-0">
         <div>
-          <h2 className="text-display mb-1">Reports</h2>
-          <p className="text-body-sm text-on-surface-variant">
-            Export a markdown brief for <strong>{props.scenario.name}</strong>.
+          <h2 className="text-display">Reports</h2>
+          <p className="text-caption text-on-surface-variant mt-1">
+            Manage and generate analytical planning documents for {props.scenario.name}.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          <button
-            type="button"
-            onClick={async () => {
-              setLocalGenerating(true);
-              try {
-                await props.onGenerate();
-              } finally {
-                setLocalGenerating(false);
-              }
-            }}
-            disabled={!canGenerate || generating}
-            title={
-              canGenerate
-                ? undefined
-                : "Run analysis on the active scenario first"
-            }
-            className="bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium disabled:opacity-40 flex items-center gap-2 focus-ring flex-1 sm:flex-none justify-center"
-          >
-            {generating && (
-              <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
-            )}
-            {generating ? "Generating…" : scenarioReports.length > 0 ? "Update report" : "Generate report"}
-          </button>
-          {displayReport && (
-            <button
-              type="button"
-              onClick={downloadMarkdown}
-              className="border border-outline-variant px-5 py-2.5 rounded text-body-sm focus-ring flex-1 sm:flex-none justify-center"
-            >
-              Export Markdown
-            </button>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => setGenerateOpen(true)}
+          disabled={!canGenerate}
+          className="bg-primary-container text-on-primary px-4 py-2 rounded text-body-sm flex items-center gap-2 disabled:opacity-40"
+        >
+          <span className="material-symbols-outlined text-[18px]">add</span>
+          Generate report
+        </button>
       </div>
-      {!canGenerate && (
-        <div className="mb-6 border border-outline-variant rounded-lg p-5 bg-surface-container-low">
-          <p className="text-body-sm text-on-surface mb-2">
-            Run analysis on <strong>{props.scenario.name}</strong> before generating a report.
-          </p>
-          <p className="text-caption text-on-surface-variant">
-            Reports include objective, methodology, datasets, ranked candidates, and decision history.
-          </p>
-        </div>
-      )}
-      {canGenerate && !displayReport && (
-        <p className="text-body-sm text-on-surface-variant mb-4">
-          Generate a markdown report for <strong>{props.scenario.name}</strong> including objective,
-          methodology, datasets, results ({props.result?.candidates.length ?? 0} candidates), and
-          decision history.
-        </p>
-      )}
-      {housingGoal && (
-          <p className="text-body-sm text-on-surface-variant mb-4 border border-outline-variant bg-surface-container-low px-3 py-2 rounded">
+
+      <div className="flex-1 overflow-y-auto p-8 bg-surface-container-lowest min-h-0">
+        {!canGenerate && (
+          <div className="mb-6 border border-outline-variant rounded p-5 bg-surface">
+            <p className="text-body-sm text-on-surface mb-2">
+              Run analysis on <strong>{props.scenario.name}</strong> before generating a report.
+            </p>
+          </div>
+        )}
+        {housingGoal && (
+          <p className="text-body-sm text-on-surface-variant mb-6 border border-outline-variant bg-surface px-3 py-2 rounded">
             {housingGoal}
           </p>
         )}
-      <section className="mb-6 border border-outline-variant p-4">
-        <ShortlistPanel
-          entries={props.shortlist}
-          onSelect={props.onSelectShortlist}
-          onUnpin={props.onUnpinShortlist}
-          onUpdateNote={props.onUpdateShortlistNote}
-        />
-      </section>
-      {scenarioReports.length > 1 && (
-        <div className="mb-6">
-          <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">
-            Report history
-          </h3>
-          <ul className="space-y-1">
-            {scenarioReports.map((r) => (
-              <li key={r.id}>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-6">
+          {scenarioReports.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => {
+                props.onSelectReport(r.id);
+                setPreviewOpen(true);
+              }}
+              className={`border border-outline-variant rounded bg-surface hover:border-outline transition-colors text-left flex flex-col relative overflow-hidden group ${
+                displayReport?.id === r.id ? "ring-1 ring-primary-container" : ""
+              }`}
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-surface-variant group-hover:bg-primary-container transition-colors" />
+              <div className="p-5 flex-1">
+                <div className="flex justify-between items-start mb-3">
+                  <span className="bg-surface-container-high text-on-surface px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider border border-outline-variant">
+                    {r.stale ? "Stale" : "Ready"}
+                  </span>
+                </div>
+                <h3 className="text-headline-md text-on-surface mb-2 leading-snug">{r.title}</h3>
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <div className="font-mono text-data-label text-outline mb-1 uppercase text-[10px]">
+                      Project
+                    </div>
+                    <div className="text-body-sm truncate">{props.workspace.project.name}</div>
+                  </div>
+                  <div>
+                    <div className="font-mono text-data-label text-outline mb-1 uppercase text-[10px]">
+                      Scenario
+                    </div>
+                    <div className="text-body-sm truncate">{props.scenario.name}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="px-5 py-3 border-t border-outline-variant bg-surface-container-low flex justify-between items-center">
+                <span className="text-caption text-on-surface-variant flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[14px]">calendar_today</span>
+                  {formatReportDateTime(r.createdAt)}
+                </span>
+                <span className="text-primary-container font-mono text-data-label text-[10px] uppercase opacity-0 group-hover:opacity-100 transition-opacity">
+                  Open preview
+                </span>
+              </div>
+            </button>
+          ))}
+          {scenarioReports.length === 0 && (
+            <div className="border border-dashed border-outline-variant rounded p-8 text-center bg-surface col-span-full">
+              <p className="text-body-sm text-on-surface-variant mb-3">No reports yet for this scenario.</p>
+              {canGenerate && (
                 <button
                   type="button"
-                  onClick={() => props.onSelectReport(r.id)}
-                  className={`text-body-sm text-left w-full px-3 py-2 rounded border ${
-                    r.id === displayReport?.id
-                      ? "border-primary bg-primary-fixed/20"
-                      : "border-outline-variant hover:bg-surface-container-low"
-                  }`}
+                  onClick={() => setGenerateOpen(true)}
+                  className="text-body-sm text-primary-container hover:underline"
                 >
-                  {r.title}
-                  <span className="block text-caption text-on-surface-variant">
-                    {formatReportDateTime(r.createdAt)}
-                    {r.stale ? " · stale snapshot" : ""}
-                  </span>
+                  Generate your first report
                 </button>
-              </li>
-            ))}
-          </ul>
+              )}
+            </div>
+          )}
+        </div>
+
+        {otherReports.length > 0 && (
+          <section className="mt-10 border-t border-outline-variant pt-6">
+            <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-3">
+              Other scenario reports
+            </h3>
+            <ul className="grid sm:grid-cols-2 gap-3">
+              {otherReports.map((r) => (
+                <li key={r.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      props.onSelectReport(r.id);
+                      setPreviewOpen(true);
+                    }}
+                    className="text-body-sm text-left w-full px-3 py-2 rounded border border-outline-variant hover:bg-surface bg-surface"
+                  >
+                    {r.title}
+                    <span className="block text-caption text-on-surface-variant">
+                      {formatReportDateTime(r.createdAt)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
+
+      {previewOpen && displayReport && (
+        <div
+          className="absolute inset-0 z-30 bg-black/30 flex justify-end"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Report preview"
+        >
+          <div className="w-full max-w-2xl bg-surface h-full border-l border-outline-variant flex flex-col shadow-lg">
+            <div className="px-6 py-4 border-b border-outline-variant flex justify-between items-start gap-4 shrink-0">
+              <div>
+                <h3 className="text-headline-md">{displayReport.title}</h3>
+                <p className="text-caption text-on-surface-variant mt-1">
+                  {formatReportDateTime(displayReport.createdAt)} · {displayReport.audience}
+                </p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={downloadMarkdown}
+                  className="border border-outline-variant px-3 py-1.5 rounded text-caption"
+                >
+                  Export
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewOpen(false)}
+                  className="p-1 hover:bg-surface-variant rounded"
+                  aria-label="Close preview"
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {displayReport.stale && (
+                <p className="text-body-sm text-error border border-error/40 bg-error-container/20 px-3 py-2 rounded">
+                  Stale snapshot — regenerate to include latest decisions.
+                </p>
+              )}
+              <div className="grid sm:grid-cols-2 gap-3">
+                {displayReport.sections.map((s, i) => (
+                  <div
+                    key={i}
+                    className={`border border-outline-variant rounded p-4 bg-surface-container-lowest ${
+                      s.kind === "copilot_recommendation" ? "sm:col-span-2 border-t-2 border-t-primary-container" : ""
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <h4 className="font-mono text-data-label uppercase text-on-surface-variant text-[10px]">
+                        {s.heading}
+                      </h4>
+                      {s.kind === "source_data" ||
+                      s.kind === "calculated" ||
+                      s.kind === "copilot_recommendation" ||
+                      s.kind === "planner_decision" ? (
+                        <ProvenanceChip kind={s.kind} />
+                      ) : null}
+                    </div>
+                    <p className="text-body-sm text-on-surface-variant whitespace-pre-wrap line-clamp-6">
+                      {s.body}
+                    </p>
+                    {s.data != null && Array.isArray(s.data) && s.kind === "comparison" && (
+                      <div className="mt-3 overflow-hidden rounded border border-outline-variant">
+                        <CompareMetricsTable
+                          scenarioNames={(s.data as Array<Record<string, string | number>>).map(
+                            (row) => String(row.name)
+                          )}
+                          rows={buildCompareTableRows(
+                            s.data as Array<Record<string, string | number>>
+                          )}
+                          sortKey="label"
+                          onSortKey={() => undefined}
+                          sortable={false}
+                        />
+                      </div>
+                    )}
+                    {s.data != null &&
+                      Array.isArray(s.data) &&
+                      s.kind === "calculated" &&
+                      (s.data as Array<{ key?: string; label?: string; value?: number; unit?: string }>)[0]
+                        ?.key != null && (
+                        <ul className="mt-2 text-caption space-y-1">
+                          {(
+                            s.data as Array<{
+                              key: string;
+                              label: string;
+                              value: number;
+                              unit?: string;
+                            }>
+                          )
+                            .slice(0, 6)
+                            .map((m) => (
+                              <li key={m.key} className="flex justify-between gap-2">
+                                <span>{m.label}</span>
+                                <span className="font-mono">
+                                  {m.value.toLocaleString()}
+                                  {m.unit ? ` ${m.unit}` : ""}
+                                </span>
+                              </li>
+                            ))}
+                        </ul>
+                      )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       )}
-      {!displayReport ? (
-        <p className="text-body-sm text-on-surface-variant">No reports yet for this scenario.</p>
-      ) : (
-        <article className="border border-outline-variant bg-surface-container-lowest p-8 space-y-6">
-          <header>
-            <h1 className="text-headline-md mb-1">{displayReport.title}</h1>
-            <p className="text-caption text-on-surface-variant">
-              Generated {formatReportDateTime(displayReport.createdAt)} · Audience: {displayReport.audience}
+
+      {generateOpen && (
+        <div
+          className="absolute inset-y-0 right-0 z-40 w-full max-w-md bg-surface border-l border-outline-variant shadow-lg flex flex-col"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Generate report"
+        >
+          <div className="px-6 py-4 border-b border-outline-variant flex justify-between items-center">
+            <h3 className="text-headline-md">Generate report</h3>
+            <button
+              type="button"
+              onClick={() => setGenerateOpen(false)}
+              className="p-1 hover:bg-surface-variant rounded"
+              aria-label="Close"
+            >
+              <span className="material-symbols-outlined">close</span>
+            </button>
+          </div>
+          <div className="p-6 space-y-4 flex-1 overflow-y-auto">
+            <p className="text-body-sm text-on-surface-variant">
+              Creates a structured planning brief for <strong>{props.scenario.name}</strong> with
+              objective, methodology, ranked candidates, and decision history.
             </p>
-            {displayReport.stale && (
-              <p
-                role="status"
-                className="mt-3 text-body-sm text-error border border-error/40 bg-error-container/20 px-3 py-2 rounded"
-              >
-                This report snapshot is stale
-                {displayReport.staleReason ? ` — ${displayReport.staleReason}` : ""}. Generate an
-                updated report to include the latest planner decision and results.
+            <div className="border border-outline-variant rounded p-4 bg-surface-container-low space-y-2 text-body-sm">
+              <p>
+                <span className="font-mono text-data-label text-[10px] uppercase text-on-surface-variant">
+                  Includes
+                </span>
               </p>
-            )}
-          </header>
-          {displayReport.sections.map((s, i) => (
-            <section key={i}>
-              <div className="flex items-center gap-2 mb-2">
-                <h3 className="text-body-sm font-medium">{s.heading}</h3>
-                {s.kind === "source_data" ||
-                s.kind === "calculated" ||
-                s.kind === "copilot_recommendation" ||
-                s.kind === "planner_decision" ? (
-                  <ProvenanceChip kind={s.kind} />
-                ) : null}
-              </div>
-              <p className="text-body-sm whitespace-pre-wrap text-on-surface-variant">{s.body}</p>
-              {s.data != null && Array.isArray(s.data) && s.kind === "comparison" && (
-                <div className="mt-3">
-                  <CompareMetricsTable
-                    scenarioNames={(s.data as Array<Record<string, string | number>>).map((row) =>
-                      String(row.name)
-                    )}
-                    rows={buildCompareTableRows(s.data as Array<Record<string, string | number>>)}
-                    sortKey="label"
-                    onSortKey={() => undefined}
-                    sortable={false}
-                  />
-                </div>
+              <ul className="text-caption list-disc pl-5 space-y-1 text-on-surface-variant">
+                <li>Objective and constraints snapshot</li>
+                <li>Methodology and dataset provenance</li>
+                <li>{props.result?.candidates.length ?? 0} ranked candidates</li>
+                <li>Planner decision history</li>
+              </ul>
+            </div>
+            <ShortlistPanel
+              entries={props.shortlist}
+              onSelect={props.onSelectShortlist}
+              onUnpin={props.onUnpinShortlist}
+              onUpdateNote={props.onUpdateShortlistNote}
+            />
+          </div>
+          <div className="p-6 border-t border-outline-variant shrink-0">
+            <button
+              type="button"
+              onClick={async () => {
+                setLocalGenerating(true);
+                try {
+                  await props.onGenerate();
+                  setGenerateOpen(false);
+                  setPreviewOpen(true);
+                } finally {
+                  setLocalGenerating(false);
+                }
+              }}
+              disabled={!canGenerate || generating}
+              className="w-full bg-primary-container text-on-primary py-3 rounded text-body-sm font-medium disabled:opacity-40 flex items-center justify-center gap-2"
+            >
+              {generating && (
+                <span className="material-symbols-outlined text-[18px] animate-spin">
+                  progress_activity
+                </span>
               )}
-              {s.data != null &&
-                Array.isArray(s.data) &&
-                s.kind === "calculated" &&
-                (s.data as Array<{ key?: string; label?: string; value?: number; unit?: string }>)[0]
-                  ?.key != null && (
-                <div className="mt-3 overflow-auto border border-outline-variant">
-                  <table className="w-full text-body-sm">
-                    <thead className="bg-surface-container-low font-mono text-data-label">
-                      <tr>
-                        <th className="p-2 text-left">Metric</th>
-                        <th className="p-2 text-right">Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(
-                        s.data as Array<{
-                          key: string;
-                          label: string;
-                          value: number;
-                          unit?: string;
-                        }>
-                      ).map((m) => (
-                        <tr key={m.key} className="border-t border-outline-variant">
-                          <td className="p-2">{m.label}</td>
-                          <td className="p-2 text-right font-mono">
-                            {m.value.toLocaleString()}
-                            {m.unit ? ` ${m.unit}` : ""}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-          ))}
-        </article>
-      )}
-      {otherReports.length > 0 && (
-        <section className="mt-10 border-t border-outline-variant pt-6">
-          <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">
-            Reports for other scenarios ({otherReports.length})
-          </h3>
-          <p className="text-caption text-on-surface-variant mb-3">
-            These reports were generated for different scenarios — switch the active scenario or
-            open them below.
-          </p>
-          <ul className="space-y-1">
-            {otherReports.map((r) => (
-              <li key={r.id}>
-                <button
-                  type="button"
-                  onClick={() => props.onSelectReport(r.id)}
-                  className="text-body-sm text-left w-full px-3 py-2 rounded border border-outline-variant hover:bg-surface-container-low"
-                >
-                  {r.title}
-                  <span className="block text-caption text-on-surface-variant">
-                    {formatReportDateTime(r.createdAt)} · scenarios:{" "}
-                    {r.scenarioIds
-                      .map(
-                        (id) =>
-                          props.workspace.scenarios.find((s) => s.id === id)?.name ?? id
-                      )
-                      .join(", ")}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
+              {generating ? "Generating…" : scenarioReports.length > 0 ? "Update report" : "Generate report"}
+            </button>
+          </div>
+        </div>
       )}
     </main>
   );

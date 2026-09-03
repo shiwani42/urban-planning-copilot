@@ -92,7 +92,30 @@ type Props = {
   onVertexDrag?: (index: number, lat: number, lng: number) => void;
   onSelectGeographic?: (selection: GeographicSelection) => void;
   stale?: boolean;
+  controlledViewport?: { center: [number, number]; zoom: number } | null;
+  onViewportChange?: (center: [number, number], zoom: number) => void;
+  suppressGeoLabel?: boolean;
 };
+
+function MapViewportReporter({
+  onChange,
+}: {
+  onChange?: (center: [number, number], zoom: number) => void;
+}) {
+  const map = useMap();
+  useEffect(() => {
+    if (!onChange) return;
+    const handler = () => {
+      const c = map.getCenter();
+      onChange([c.lng, c.lat], map.getZoom());
+    };
+    map.on("moveend", handler);
+    return () => {
+      map.off("moveend", handler);
+    };
+  }, [map, onChange]);
+  return null;
+}
 
 export default function PlanningMap({
   workspace,
@@ -107,17 +130,27 @@ export default function PlanningMap({
   onVertexDrag,
   onSelectGeographic,
   stale = false,
+  controlledViewport = null,
+  onViewportChange,
+  suppressGeoLabel = false,
 }: Props) {
   const { mapState } = workspace.project;
   const [liveViewport, setLiveViewport] = useState<{
     center: [number, number];
     zoom: number;
   } | null>(null);
-  const viewport = liveViewport ?? mapState.viewport;
+  const viewport =
+    controlledViewport ?? liveViewport ?? mapState.viewport;
 
   useEffect(() => {
+    if (controlledViewport) return;
     setLiveViewport(null);
-  }, [mapState.viewport.center[0], mapState.viewport.center[1], mapState.viewport.zoom]);
+  }, [
+    controlledViewport,
+    mapState.viewport.center[0],
+    mapState.viewport.center[1],
+    mapState.viewport.zoom,
+  ]);
 
   useEffect(() => {
     return onWorkspaceMutated((detail) => {
@@ -217,11 +250,13 @@ export default function PlanningMap({
   return (
     <div className="absolute inset-0">
     <div className="absolute inset-0 z-0 bg-surface-container-low" aria-hidden />
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1001] pointer-events-none">
-        <div className="bg-surface/95 border border-outline-variant px-4 py-1.5 rounded shadow-sm text-caption text-on-surface-variant font-medium whitespace-nowrap">
-          {workspace.project.geographyLabel}
+      {!suppressGeoLabel && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1001] pointer-events-none">
+          <div className="bg-surface/95 border border-outline-variant px-4 py-1.5 rounded shadow-sm text-caption text-on-surface-variant font-medium whitespace-nowrap">
+            {workspace.project.geographyLabel}
+          </div>
         </div>
-      </div>
+      )}
       <MapContainer
         center={[viewport.center[1], viewport.center[0]]}
         zoom={viewport.zoom}
@@ -234,6 +269,7 @@ export default function PlanningMap({
         <ScaleControl position="bottomleft" imperial={false} />
         <BasemapLayer />
         <MapViewportSync center={viewport.center} zoom={viewport.zoom} />
+        <MapViewportReporter onChange={onViewportChange} />
         <FitBoundsOnce bounds={studyBounds} />
         <RestrictToStudyArea bounds={studyBounds} />
         <DrawModeHandler enabled={drawingActive} />

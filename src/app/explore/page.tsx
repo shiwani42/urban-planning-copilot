@@ -21,7 +21,7 @@ const EXPLORE_PAGE_SIZE = 15;
 
 const ExploreMap = dynamic(
   () => import("@/components/ExploreMap").then((m) => m.ExploreMap),
-  { ssr: false, loading: () => <div className="h-[360px] bg-surface-container-low animate-pulse rounded" /> }
+  { ssr: false, loading: () => <div className="h-full bg-surface-container-low animate-pulse" /> }
 );
 
 const EXAMPLE_QUESTIONS = [
@@ -29,6 +29,14 @@ const EXAMPLE_QUESTIONS = [
   "Which neighborhoods are underserved by schools?",
   "Where could 500 additional homes fit near transit?",
   "Which areas have the highest flood exposure?",
+];
+
+const SUGGESTED_CHIPS = [
+  "Transit accessibility",
+  "Housing capacity",
+  "Flood exposure",
+  "School access",
+  "Infrastructure gaps",
 ];
 
 type ExploreResult = ExploreInvestigationResult & {
@@ -255,77 +263,131 @@ export default function ExplorePage() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <AppHeader active="explore" />
-      <main className="flex-1 max-w-6xl w-full mx-auto px-section-padding py-8">
-        <h1 className="text-display mb-3">City discovery</h1>
-        <p className="text-body-lg text-on-surface-variant mb-6">
-          Investigate spatial patterns in a scratch session — no project is created until you
-          convert findings into a formal planning workspace.
-        </p>
-
-        <div className="flex flex-wrap gap-2 mb-4">
-          {EXAMPLE_QUESTIONS.map((example) => (
-            <button
-              key={example}
-              type="button"
-              onClick={() => setQuestion(example)}
-              className="text-caption border border-outline-variant px-3 py-1 rounded hover:border-primary"
-            >
-              {example}
-            </button>
-          ))}
-        </div>
-
-        <textarea
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder="Ask a spatial question — transit gaps, school access, flood exposure, or housing siting…"
-          rows={4}
-          className="w-full border border-outline-variant rounded p-3 text-body-sm mb-2"
-        />
-        {error && (
-          <p className="text-body-sm text-error mb-3" role="alert">
-            {error}
-          </p>
-        )}
-        {!error && question.trim() && !objectiveQuality.interpretable && (
-          <p className="text-body-sm text-secondary mb-3" role="status">
-            {objectiveQuality.warning}
-          </p>
-        )}
-        {convertError && (
-          <p className="text-body-sm text-error mb-3" role="alert">
-            {convertError}
-          </p>
-        )}
-        <div className="flex flex-wrap gap-3 items-center mb-8">
-          <button
-            type="button"
-            onClick={investigate}
-            disabled={busy || !question.trim()}
-            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-50"
-          >
-            {busy ? "Investigating…" : "Investigate"}
-          </button>
-          {result ? (
-            <button
-              type="button"
-              onClick={() => void handleConvert()}
-              disabled={convertBusy}
-              className="text-body-sm text-primary hover:underline disabled:opacity-50"
-            >
-              {convertBusy ? "Opening workspace form…" : "Convert to planning project →"}
-            </button>
+      <main className="flex-1 flex flex-col min-h-0">
+        <div className="relative flex-1 min-h-[480px] flex flex-col">
+          {result?.layerData ? (
+            <div className="absolute inset-0 z-0">
+              <ExploreMap
+                layerData={result.layerData}
+                candidates={result.candidates}
+                selectedId={selectedId}
+                analysisType={result.analysisType}
+                onSelectCandidate={(c) => setSelectedId(c.id)}
+              />
+            </div>
           ) : (
-            <span className="text-caption text-on-surface-variant">
-              Run an investigation to enable conversion
-            </span>
+            <div
+              className="absolute inset-0 z-0 bg-surface-container-low border-b border-outline-variant"
+              aria-hidden
+            />
           )}
+
+          <div className="relative z-10 flex flex-col lg:flex-row gap-6 p-section-padding flex-1 pointer-events-none">
+            <div
+              className="w-full lg:w-[min(420px,100%)] glass-panel border border-outline-variant rounded p-6 pointer-events-auto shadow-sm"
+            >
+              <h1 className="text-display mb-2 text-primary">City discovery</h1>
+              <p className="text-body-sm text-on-surface-variant mb-4">
+                Investigate spatial patterns in a scratch session — convert findings into a formal
+                workspace when ready.
+              </p>
+
+              <div className="mb-4">
+                <p className="font-mono text-data-label text-on-surface-variant uppercase mb-2 tracking-wide">
+                  Example questions
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {EXAMPLE_QUESTIONS.map((example) => (
+                    <button
+                      key={example}
+                      type="button"
+                      onClick={() => setQuestion(example)}
+                      className="text-caption border border-outline-variant px-3 py-1.5 rounded hover:border-primary-container text-on-surface text-left"
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <label className="block font-mono text-data-label text-on-surface-variant uppercase mb-2 tracking-wide">
+                Spatial question
+              </label>
+              <textarea
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="Ask about transit gaps, school access, flood exposure, or housing siting…"
+                rows={3}
+                className="w-full border border-outline-variant rounded p-3 text-body-sm mb-3 bg-surface-container-lowest focus:border-primary-container focus:outline-none"
+              />
+
+              <div className="mb-4">
+                <p className="font-mono text-data-label text-on-surface-variant uppercase mb-2 tracking-wide">
+                  Suggested explorations
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {SUGGESTED_CHIPS.map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() =>
+                        setQuestion((prev) =>
+                          prev.trim() ? prev : `Explore ${chip.toLowerCase()} in the study area`
+                        )
+                      }
+                      className="inline-flex items-center px-3 py-1.5 rounded border border-outline-variant bg-surface hover:bg-surface-container text-body-sm text-on-surface"
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {error && (
+                <p className="text-body-sm text-error mb-3" role="alert">{error}</p>
+              )}
+              {!error && question.trim() && !objectiveQuality.interpretable && (
+                <p className="text-body-sm text-secondary mb-3" role="status">
+                  {objectiveQuality.warning}
+                </p>
+              )}
+              {convertError && (
+                <p className="text-body-sm text-error mb-3" role="alert">{convertError}</p>
+              )}
+
+              <div className="flex flex-wrap gap-3 items-center">
+                <button
+                  type="button"
+                  onClick={investigate}
+                  disabled={busy || !question.trim()}
+                  className="bg-primary-container text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-50 flex items-center gap-2"
+                >
+                  <span className="material-symbols-outlined text-[18px]">play_arrow</span>
+                  {busy ? "Investigating…" : "Run exploration"}
+                </button>
+                {result ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleConvert()}
+                    disabled={convertBusy}
+                    className="text-body-sm text-primary-container hover:underline disabled:opacity-50"
+                  >
+                    {convertBusy ? "Opening workspace form…" : "Convert to planning project →"}
+                  </button>
+                ) : (
+                  <span className="text-caption text-on-surface-variant">
+                    Run an investigation to enable conversion
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         {result && (
           <section
             ref={findingsRef}
-            className="border border-outline-variant bg-surface-container-lowest p-6 space-y-5"
+            className="border-t border-outline-variant bg-surface-container-lowest p-section-padding space-y-5 pointer-events-auto"
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -342,21 +404,21 @@ export default function ExplorePage() {
                 <button
                   type="button"
                   onClick={() => setShowMethodology((v) => !v)}
-                  className="text-caption border border-outline-variant px-2 py-1 rounded hover:border-primary"
+                  className="text-caption border border-outline-variant px-2 py-1 rounded hover:border-primary-container"
                 >
                   {showMethodology ? "Hide methodology" : "Methodology & evidence"}
                 </button>
                 <button
                   type="button"
                   onClick={() => exportCsv(result)}
-                  className="text-caption border border-outline-variant px-2 py-1 rounded hover:border-primary"
+                  className="text-caption border border-outline-variant px-2 py-1 rounded hover:border-primary-container"
                 >
                   Export CSV
                 </button>
                 <button
                   type="button"
                   onClick={() => exportGeoJson(result)}
-                  className="text-caption border border-outline-variant px-2 py-1 rounded hover:border-primary"
+                  className="text-caption border border-outline-variant px-2 py-1 rounded hover:border-primary-container"
                 >
                   Export GeoJSON
                 </button>
@@ -367,60 +429,27 @@ export default function ExplorePage() {
             {result.limitations.length > 0 && (() => {
               const filtered = filterAnalysisCaveats(result.limitations, { max: 8 });
               return (
-              <ul className="text-caption text-secondary list-disc pl-5 space-y-1">
-                {filtered.map((l) => (
-                  <li key={l}>{l}</li>
-                ))}
-                {result.limitations.length > filtered.length && (
-                  <li className="text-on-surface-variant list-none -ml-5">
-                    +{result.limitations.length - filtered.length} additional caveats in methodology
-                  </li>
-                )}
-              </ul>
+                <ul className="text-caption text-secondary list-disc pl-5 space-y-1">
+                  {filtered.map((l) => (
+                    <li key={l}>{l}</li>
+                  ))}
+                </ul>
               );
             })()}
 
             {showMethodology && (
-              <div className="border border-outline-variant bg-surface p-4 space-y-3 text-body-sm">
+              <div className="border border-outline-variant bg-surface p-4 space-y-3 text-body-sm rounded">
                 <h3 className="font-medium">Methodology</h3>
                 <p className="text-caption text-on-surface-variant">
                   Sorted by <strong>{result.methodology.sortKey}</strong> (rank = sort order).
                 </p>
-                <div>
-                  <div className="font-mono text-data-label text-on-surface-variant uppercase mb-1">
-                    Weights
-                  </div>
-                  <ul className="text-caption space-y-1">
-                    {result.methodology.weights.map((w) => (
-                      <li key={w.key}>
-                        {w.label}: {Math.round(w.weight * 100)}%
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <div className="font-mono text-data-label text-on-surface-variant uppercase mb-1">
-                    Datasets
-                  </div>
-                  <p className="text-caption">{result.methodology.datasets.join(" · ")}</p>
-                </div>
-                <div>
-                  <div className="font-mono text-data-label text-on-surface-variant uppercase mb-1">
-                    Steps
-                  </div>
-                  <ol className="text-caption list-decimal pl-5 space-y-1">
-                    {result.methodology.steps.map((s) => (
-                      <li key={s}>{s}</li>
-                    ))}
-                  </ol>
-                </div>
               </div>
             )}
 
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {result.aggregateMetrics.slice(0, 4).map((m) => (
-                <div key={m.key} className="border border-outline-variant p-3">
-                  <div className="font-mono text-[10px] uppercase text-on-surface-variant">
+                <div key={m.key} className="border border-outline-variant p-3 rounded bg-surface">
+                  <div className="font-mono text-data-label uppercase text-on-surface-variant text-[10px]">
                     {m.label}
                   </div>
                   <div className="font-mono text-headline-md">
@@ -431,25 +460,15 @@ export default function ExplorePage() {
               ))}
             </div>
 
-            {result.layerData && (
-              <ExploreMap
-                layerData={result.layerData}
-                candidates={result.candidates}
-                selectedId={selectedId}
-                analysisType={result.analysisType}
-                onSelectCandidate={(c) => setSelectedId(c.id)}
-              />
-            )}
-
             {candidateRows.length > 0 && (
-              <div className="overflow-auto">
+              <div className="overflow-auto border border-outline-variant rounded bg-surface">
                 <table className="w-full text-body-sm">
                   <thead>
-                    <tr className="font-mono text-data-label text-on-surface-variant">
-                      <th className="text-left py-2">Rank</th>
-                      <th className="text-left">Area</th>
-                      <th className="text-left">{scoreColumnLabel(result.analysisType)}</th>
-                      <th className="text-left">{distanceColumnLabel(result.analysisType)}</th>
+                    <tr className="font-mono text-data-label text-on-surface-variant bg-surface-container-low">
+                      <th className="text-left py-2 px-3">Rank</th>
+                      <th className="text-left px-3">Area</th>
+                      <th className="text-left px-3">{scoreColumnLabel(result.analysisType)}</th>
+                      <th className="text-left px-3">{distanceColumnLabel(result.analysisType)}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -457,65 +476,37 @@ export default function ExplorePage() {
                       <tr
                         key={c.id}
                         className={`border-t border-outline-variant cursor-pointer ${
-                          selectedId === c.id ? "bg-primary/10" : "hover:bg-surface-container"
+                          selectedId === c.id ? "bg-primary-fixed/20" : "hover:bg-surface-container"
                         }`}
                         onClick={() => setSelectedId(c.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setSelectedId(c.id);
-                          }
-                        }}
                         tabIndex={0}
                         role="button"
                         aria-pressed={selectedId === c.id}
                       >
-                        <td className="py-2 font-mono">{c.rank}</td>
-                        <td>{c.label}</td>
-                        <td className="font-mono">{c.score.toFixed(1)}</td>
-                        <td className="font-mono">{distanceValue(c as Candidate, result.analysisType)}</td>
+                        <td className="py-2 px-3 font-mono">{c.rank}</td>
+                        <td className="px-3">{c.label}</td>
+                        <td className="px-3 font-mono">{c.score.toFixed(1)}</td>
+                        <td className="px-3 font-mono">
+                          {distanceValue(c as Candidate, result.analysisType)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <div className="flex flex-wrap items-center gap-3 mt-2">
-                  <p className="text-caption text-on-surface-variant">
-                    Showing {visibleRows.length} of {result.totalCandidates} areas.
-                  </p>
-                  {listLimit < candidateRows.length && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setListLimit((n) =>
-                          Math.min(n + EXPLORE_PAGE_SIZE, candidateRows.length)
-                        )
-                      }
-                      className="text-caption text-primary hover:underline"
-                    >
-                      Show {Math.min(EXPLORE_PAGE_SIZE, candidateRows.length - listLimit)} more
-                    </button>
-                  )}
-                  {listLimit > EXPLORE_PAGE_SIZE && (
-                    <button
-                      type="button"
-                      onClick={() => setListLimit(EXPLORE_PAGE_SIZE)}
-                      className="text-caption text-on-surface-variant hover:underline"
-                    >
-                      Show top {EXPLORE_PAGE_SIZE} only
-                    </button>
-                  )}
-                </div>
               </div>
             )}
 
             {selectedRow && (
-              <div className="border border-outline-variant bg-surface p-4 space-y-3">
+              <div className="border border-outline-variant bg-surface p-4 space-y-3 rounded">
                 <h3 className="text-body-sm font-medium">
                   Evidence — {selectedRow.label} (rank {selectedRow.rank})
                 </h3>
                 <div className="grid sm:grid-cols-2 gap-2 text-caption">
                   {(selectedCandidate?.metrics ?? selectedRow.metrics).slice(0, 8).map((m) => (
-                    <div key={m.key} className="flex justify-between gap-2 border-b border-outline-variant/50 py-1">
+                    <div
+                      key={m.key}
+                      className="flex justify-between gap-2 border-b border-outline-variant/50 py-1"
+                    >
                       <span className="text-on-surface-variant">{m.label}</span>
                       <span className="font-mono">
                         {m.value.toLocaleString()}
@@ -524,32 +515,6 @@ export default function ExplorePage() {
                     </div>
                   ))}
                 </div>
-                {selectedCandidate && (
-                <div>
-                  <div className="font-mono text-data-label uppercase text-on-surface-variant mb-1">
-                    Score breakdown (weighted contribution)
-                  </div>
-                  <ul className="text-caption space-y-1">
-                    {Object.entries(selectedCandidate.provenance.scoreBreakdown).map(([k, v]) => (
-                      <li key={k}>
-                        {k}: {typeof v === "number" ? v.toFixed(2) : v}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                )}
-                {selectedCandidate?.provenance.limitations.length ? (
-                  <div>
-                    <div className="font-mono text-data-label uppercase text-on-surface-variant mb-1">
-                      Limitations
-                    </div>
-                    <ul className="text-caption list-disc pl-5">
-                      {selectedCandidate.provenance.limitations.map((l) => (
-                        <li key={l}>{l}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
               </div>
             )}
           </section>
