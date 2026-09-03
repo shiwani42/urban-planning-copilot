@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   buildFloodCoverageDetail,
   candidateFloodIncompleteCaveat,
+  featureIdsOutsideFloodCoverage,
   listFloodExcludedParcelLabels,
   parseFloodFunnel,
 } from "./flood-coverage";
@@ -113,5 +114,46 @@ describe("flood-coverage", () => {
       metrics: [{ key: "flood_resilience", label: "Flood", value: 20, kind: "calculated" }],
     } as unknown as Candidate;
     assert.equal(candidateFloodIncompleteCaveat(floodDataset, lowRisk), null);
+  });
+
+  it("identifies parcels whose centroid sits outside the flood layer extent", () => {
+    const parcels: GeoJSON.Feature[] = [
+      {
+        type: "Feature",
+        id: "in",
+        properties: { id: "in" },
+        geometry: { type: "Point", coordinates: [-122.41, 37.76] },
+      },
+      {
+        type: "Feature",
+        id: "gap",
+        properties: { id: "gap" },
+        geometry: { type: "Point", coordinates: [-122.5, 37.8] },
+      },
+    ];
+    const flood: GeoJSON.FeatureCollection = {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "Polygon",
+            coordinates: [
+              [
+                [-122.42, 37.75],
+                [-122.4, 37.75],
+                [-122.4, 37.77],
+                [-122.42, 37.77],
+                [-122.42, 37.75],
+              ],
+            ],
+          },
+        },
+      ],
+    };
+    const gaps = featureIdsOutsideFloodCoverage(parcels, flood);
+    assert.equal(gaps.has("gap"), true);
+    assert.equal(gaps.has("in"), false);
   });
 });

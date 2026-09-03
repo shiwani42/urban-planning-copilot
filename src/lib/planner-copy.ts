@@ -106,6 +106,15 @@ export const NEW_PROJECT_CREATE_VERIFY_FAILED =
 export const COPILOT_PANEL_FOOTER =
   "Ask about your study — pin sites, run analysis, or compare scenarios.";
 
+export const RANKING_STALE_FALLBACK =
+  "Ranking may not match the current objective — recalculate before deciding.";
+
+export const SHORTLIST_SAVE_FAILED =
+  "This study may not be saved if you leave. The pin was shown locally but could not be stored.";
+
+export const CLIENT_STUDY_CONTINUE_NAME = "Client Demo SF Housing";
+export const INFILL_STUDY_CONTINUE_NAME = "Mission/SoMa infill — 2,000 homes";
+
 // —— Explore convert names ——
 
 const EXPLORE_SUGGESTED_NAMES: Record<string, string> = {
@@ -149,6 +158,10 @@ export function allPlannerCopyStrings(): string[] {
     NEW_PROJECT_DRAFT_STORAGE_RETRY,
     NEW_PROJECT_CREATE_VERIFY_FAILED,
     COPILOT_PANEL_FOOTER,
+    RANKING_STALE_FALLBACK,
+    SHORTLIST_SAVE_FAILED,
+    CLIENT_STUDY_CONTINUE_NAME,
+    INFILL_STUDY_CONTINUE_NAME,
     ...Object.values(EXPLORE_SUGGESTED_NAMES),
   ];
 }

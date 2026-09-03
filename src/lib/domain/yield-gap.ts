@@ -6,6 +6,8 @@ export const DEFAULT_YIELD_TOP_N = 5;
 
 export type YieldGapSummary = {
   target: number;
+  eligibleCapacity: number;
+  shortfall: number;
   shortlistCapacity: number;
   topCandidateCapacity: number;
   topNCapacity: number;
@@ -21,6 +23,13 @@ export function shortlistCombinedCapacity(shortlist: ResolvedShortlistEntry[]): 
     const cap = entry.candidate ? candidateMetricValue(entry.candidate, "capacity") ?? 0 : 0;
     return sum + cap;
   }, 0);
+}
+
+export function eligibleCapacityFromCandidates(candidates: Candidate[]): number {
+  return candidates.reduce(
+    (sum, c) => sum + (candidateMetricValue(c, "capacity") ?? 0),
+    0
+  );
 }
 
 export function topNCandidatesCapacity(
@@ -41,6 +50,10 @@ export function topNCandidatesCapacity(
   };
 }
 
+function closingGapHint(): string {
+  return "Closing the gap needs more parcels, higher allowed density, or dropping a constraint (transit walk, flood, or exclusions).";
+}
+
 export function computeYieldGap(input: {
   target: number;
   candidates: Candidate[];
@@ -50,14 +63,14 @@ export function computeYieldGap(input: {
   const { target, candidates, shortlist, topN = DEFAULT_YIELD_TOP_N } = input;
   if (!target || target <= 0 || candidates.length === 0) return null;
 
+  const eligibleCapacity = eligibleCapacityFromCandidates(candidates);
+  const shortfall = Math.max(0, target - eligibleCapacity);
   const shortlistCapacity = shortlistCombinedCapacity(shortlist);
   const { capacity: topNCapacity, topCandidateCapacity, topCandidateLabel } =
     topNCandidatesCapacity(candidates, topN);
 
-  const needsWarning =
-    topCandidateCapacity < target || (shortlist.length > 0 && shortlistCapacity < target);
+  const needsWarning = shortfall > 0 || topCandidateCapacity < target;
 
-  const headline = `Housing target: ${target.toLocaleString()} homes`;
   const parts = [
     `Top site ~${topCandidateCapacity.toLocaleString()} homes`,
     `Top ${topN} combined ~${topNCapacity.toLocaleString()} homes`,
@@ -66,15 +79,26 @@ export function computeYieldGap(input: {
       : "No shortlist pinned",
   ];
 
-  let warningNote = "";
-  if (topCandidateCapacity < target) {
-    warningNote = ` No single parcel meets the ${target.toLocaleString()}-home objective — planners need multiple sites.`;
-  } else if (shortlist.length > 0 && shortlistCapacity < target) {
-    warningNote = ` Shortlist capacity (${shortlistCapacity.toLocaleString()}) is below the ${target.toLocaleString()}-home target.`;
+  let headline: string;
+  let extra = "";
+  if (shortfall > 0) {
+    headline = `Shortfall of ${shortfall.toLocaleString()} homes — ${eligibleCapacity.toLocaleString()} eligible vs ${target.toLocaleString()} target`;
+    extra = ` ${closingGapHint()}`;
+  } else if (topCandidateCapacity < target) {
+    headline = `Eligible capacity meets ${target.toLocaleString()} homes — no single parcel does`;
+    extra = ` Planners need multiple sites.`;
+  } else {
+    headline = `Housing target: ${target.toLocaleString()} homes`;
+  }
+
+  if (shortlist.length > 0 && shortlistCapacity < target) {
+    extra += ` Shortlist capacity (${shortlistCapacity.toLocaleString()}) is below the ${target.toLocaleString()}-home target.`;
   }
 
   return {
     target,
+    eligibleCapacity,
+    shortfall,
     shortlistCapacity,
     topCandidateCapacity,
     topNCapacity,
@@ -82,6 +106,6 @@ export function computeYieldGap(input: {
     topCandidateLabel,
     needsWarning,
     headline,
-    detail: `${parts.join(" · ")}.${warningNote}`,
+    detail: `${parts.join(" · ")}.${extra}`,
   };
 }

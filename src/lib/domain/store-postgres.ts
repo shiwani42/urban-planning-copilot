@@ -160,6 +160,69 @@ export async function assertNotClobberingNonemptyPostgresCatalog(
   }
 }
 
+/** Keys patched on map/shortlist/viewport writes — never GIS features or analysis blobs. */
+export function documentsPatchFromStore(store: AppStore): Record<string, unknown> {
+  return {
+    version: store.version,
+    projects: store.projects,
+    scenarios: store.scenarios,
+    decisions: store.decisions,
+    activities: store.activities,
+    confirmations: store.confirmations,
+    proposals: store.proposals,
+    analysisJobs: store.analysisJobs,
+    reports: store.reports,
+  };
+}
+
+/**
+ * Merge planner documents into the existing postgres row without rewriting
+ * `analysisResults`, `datasets`, or `featuresByDataset`.
+ */
+export async function patchPostgresDocuments(
+  store: AppStore,
+  options?: PostgresPersistOptions
+): Promise<void> {
+  await assertNotClobberingNonemptyPostgresCatalog(store, options);
+  const compact = prepareStoreForPersistence(store);
+  const patch = documentsPatchFromStore(compact);
+
+  if (usingInMemoryPostgres()) {
+    if (!inMemoryRow && inMemoryRawText === null) {
+      await upsertStoreToPostgres(store, options);
+      return;
+    }
+    let existing: Record<string, unknown> = {};
+    if (inMemoryRow) {
+      existing =
+        inMemoryRow.payload && typeof inMemoryRow.payload === "object"
+          ? ({ ...(inMemoryRow.payload as Record<string, unknown>) } as Record<string, unknown>)
+          : (JSON.parse(payloadToRaw(inMemoryRow.payload)) as Record<string, unknown>);
+    } else if (inMemoryRawText !== null) {
+      existing = JSON.parse(inMemoryRawText) as Record<string, unknown>;
+    }
+    inMemoryRow = {
+      payload: { ...existing, ...patch },
+      updated_at: new Date().toISOString(),
+    };
+    inMemoryRawText = null;
+    return;
+  }
+
+  await ensurePlanningStoreTable();
+  const sql = getSql();
+  const updated = await sql`
+    UPDATE planning_store
+    SET payload = payload || ${patch}::jsonb,
+        updated_at = now()
+    WHERE id = ${STORE_ROW_ID}
+    RETURNING id
+  `;
+  if (!updated.length) {
+    await upsertStoreToPostgres(store, options);
+  }
+}
+
 export async function upsertStoreToPostgres(
   store: AppStore,
   options?: PostgresPersistOptions

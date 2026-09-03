@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { WebMcpProvider } from "@/components/WebMcpProvider";
+import { KeepalivePing } from "@/components/KeepalivePing";
 
 export const metadata: Metadata = {
   title: "Urban Planning Copilot",
@@ -27,7 +28,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="antialiased min-h-screen">
-        <WebMcpProvider>{children}</WebMcpProvider>
+        <WebMcpProvider>
+          <KeepalivePing />
+          {children}
+        </WebMcpProvider>
       </body>
     </html>
   );

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import { routePlannerQuery } from "@/lib/copilot/planner-query";
 import {
   mutationDetailFromToolResult,
@@ -17,6 +17,15 @@ const workspaceCtx = {
 };
 
 describe("pass 45 decision and report workspace pages", () => {
+  beforeEach(async () => {
+    process.env.DATA_DIR = `/tmp/upc-pass45-${Date.now()}-${Math.random()}`;
+    await resetStore();
+  });
+
+  afterEach(() => {
+    delete process.env.DATA_DIR;
+  });
+
   it("routes open decision to the decision path tab", () => {
     const route = routePlannerQuery("open decision review", workspaceCtx);
     assert.equal(route.kind, "workspace_tab");
@@ -65,7 +74,6 @@ describe("pass 45 decision and report workspace pages", () => {
   });
 
   it("marks reports stale after analysis recalculates", async () => {
-    await resetStore();
     const ws = await services.createProject({
       name: "Report stale on analysis",
       objectiveText:

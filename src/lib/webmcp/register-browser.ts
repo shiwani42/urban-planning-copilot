@@ -29,6 +29,13 @@ import {
   pendingPlannerNavigationDetail,
 } from "@/lib/workspace-sync";
 import { resolveWebMcpBrowserContext, setWebMcpBrowserContext } from "./browser-context";
+import { parseMapCenter } from "@/lib/domain/map-center";
+import { ToolError } from "@/lib/domain/tool-errors";
+import {
+  getBrowserWorkspaceSnapshot,
+  listCandidatesFromBrowserCache,
+} from "./browser-workspace-cache";
+import { applyShortlistMutation } from "@/lib/domain/shortlist-optimistic";
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {
   const res = await fetch(path, {
@@ -99,10 +106,143 @@ export async function invokePlanningTool(
   return invokeMcpTool(name, rawArgs);
 }
 
+function fireAndForgetPersist(name: string, args: Record<string, unknown>, context: {
+  projectId?: string;
+  scenarioId?: string;
+}) {
+  void api("/api/mcp", {
+    method: "POST",
+    body: JSON.stringify({ tool: name, arguments: args, context }),
+  }).catch(() => {
+    notifyWorkspaceMutated({
+      tool: name,
+      projectId: context.projectId,
+      persistFailed: true,
+      skipRefresh: true,
+    });
+  });
+}
+
+async function invokeSetMapViewClientFirst(
+  args: Record<string, unknown>,
+  context: { projectId?: string; scenarioId?: string }
+) {
+  const [lng, lat] = parseMapCenter(args.center);
+  const zoom = args.zoom == null ? undefined : Number(args.zoom);
+  if (zoom != null && (!Number.isFinite(zoom) || zoom < 1 || zoom > 20)) {
+    throw new ToolError("INVALID_INPUT", "zoom must be between 1 and 20", "zoom");
+  }
+  const projectId =
+    (typeof args.projectId === "string" ? args.projectId : undefined) ?? context.projectId;
+  const viewport = {
+    center: [lng, lat] as [number, number],
+    zoom: zoom ?? 14,
+  };
+  notifyWorkspaceMutated({
+    tool: "set_map_view",
+    projectId,
+    mapViewport: viewport,
+    skipRefresh: true,
+  });
+  fireAndForgetPersist("set_map_view", args, context);
+  return {
+    center: viewport.center,
+    zoom: viewport.zoom,
+    note: "Map viewport updated",
+  };
+}
+
+async function invokeShortlistOptimistic(
+  name: "add_to_shortlist" | "remove_from_shortlist",
+  args: Record<string, unknown>,
+  context: { projectId?: string; scenarioId?: string }
+) {
+  const candidateId = String(args.candidateId ?? "").trim();
+  if (!candidateId) {
+    throw new ToolError("MISSING_FIELD", "candidateId is required", "candidateId");
+  }
+  const projectId =
+    (typeof args.projectId === "string" ? args.projectId : undefined) ?? context.projectId;
+  const mutation = {
+    action: (name === "add_to_shortlist" ? "pin" : "unpin") as "pin" | "unpin",
+    candidateId,
+    reason: typeof args.reason === "string" ? args.reason : undefined,
+    note: typeof args.note === "string" ? args.note : undefined,
+  };
+  notifyWorkspaceMutated({
+    tool: name,
+    projectId,
+    skipRefresh: true,
+    shortlistMutation: mutation,
+  });
+  const cached = getBrowserWorkspaceSnapshot();
+  const estimatedCount = cached
+    ? applyShortlistMutation(cached, mutation).scenarios.find(
+        (s) => s.id === (context.scenarioId ?? cached.project.activeScenarioId)
+      )?.shortlist?.length
+    : undefined;
+  void api("/api/mcp", {
+    method: "POST",
+    body: JSON.stringify({ tool: name, arguments: args, context }),
+  })
+    .then((res) => {
+      const data = res as { ok?: boolean };
+      if (data.ok === false) {
+        throw new Error("Shortlist persist failed");
+      }
+    })
+    .catch(() => {
+      notifyWorkspaceMutated({
+        tool: name,
+        projectId,
+        skipRefresh: true,
+        persistFailed: true,
+        shortlistMutation: {
+          action: name === "add_to_shortlist" ? "unpin" : "pin",
+          candidateId,
+        },
+      });
+    });
+  const countNote =
+    estimatedCount != null
+      ? ` (${estimatedCount} site${estimatedCount === 1 ? "" : "s"})`
+      : "";
+  return {
+    candidateId,
+    shortlistCount: estimatedCount,
+    note:
+      name === "add_to_shortlist"
+        ? `Pinned to shortlist${countNote}`
+        : `Removed from shortlist${countNote}`,
+  };
+}
+
 async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
   const resolvedName =
     name === "list_projects" ? "list_projects" : resolvePlanningToolAlias(name);
   const { args, context } = mergeArgsWithBrowserContext(rawArgs);
+
+  if (resolvedName === "set_map_view") {
+    return invokeSetMapViewClientFirst(args, context);
+  }
+  if (resolvedName === "add_to_shortlist" || resolvedName === "remove_from_shortlist") {
+    return invokeShortlistOptimistic(resolvedName, args, context);
+  }
+  if (resolvedName === "list_candidates") {
+    const toolArgs = args as Record<string, unknown>;
+    const local = listCandidatesFromBrowserCache({
+      projectId:
+        (typeof toolArgs.projectId === "string" ? toolArgs.projectId : undefined) ??
+        context.projectId,
+      scenarioId:
+        (typeof toolArgs.scenarioId === "string" ? toolArgs.scenarioId : undefined) ??
+        context.scenarioId,
+      limit: toolArgs.limit == null ? undefined : Number(toolArgs.limit),
+      offset: toolArgs.offset == null ? undefined : Number(toolArgs.offset),
+    });
+    if (local) return local;
+  }
+
   const res = await api("/api/mcp", {
     method: "POST",
     body: JSON.stringify({ tool: resolvedName, arguments: args, context }),

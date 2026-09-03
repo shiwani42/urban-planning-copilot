@@ -15,6 +15,7 @@ import {
   applyScoreStatsToResult,
   compactCandidateForStore,
   dedupeAnalysisResultsPerScenario,
+  paginateCandidatesCompact,
   resultCandidateCount,
   resultScoreSpread,
 } from "./analysis-candidates";
@@ -59,8 +60,8 @@ import {
   RANK_SCORE_EXPLANATION,
   type ScenarioInputSnapshot,
 } from "./compare";
-import { getStore, updateStore, reloadStoreFromDisk, StorePersistError } from "./store";
-import { STUDY_BOUNDS } from "./study-bounds";
+import { getStore, updateStore, reloadStoreFromDisk, StorePersistError, DOCUMENT_PERSIST } from "./store";
+import { GEOGRAPHY_LABEL, STUDY_BOUNDS, displayGeographyLabel } from "./study-bounds";
 import { ToolError } from "./tool-errors";
 import {
   assertObjectiveTextAllowed,
@@ -656,7 +657,7 @@ function projectListItemsFromStore(store: AppStore): ProjectListItem[] {
         updatedAt: p.updatedAt,
         lastOpenedAt: p.lastOpenedAt,
         resumeNote: summary.resumeNote,
-        geographyLabel: p.geographyLabel,
+        geographyLabel: displayGeographyLabel(p.geographyLabel),
         approvedScenarioName: summary.approvedScenarioName,
         activeScenarioStatus: summary.activeScenarioStatus,
         activeScenarioNote: summary.activeScenarioNote,
@@ -673,7 +674,7 @@ function projectListItemsFromStore(store: AppStore): ProjectListItem[] {
 }
 
 export async function listProjects(): Promise<ProjectListItem[]> {
-  const store = await reloadStoreFromDisk();
+  const store = await getStore();
   return projectListItemsFromStore(store);
 }
 
@@ -694,7 +695,7 @@ export async function listHomeDashboard(): Promise<{
   recentAnalyses: RecentAnalysisRow[];
   recentActivity: RecentActivityRow[];
 }> {
-  const store = await reloadStoreFromDisk();
+  const store = await getStore();
   return listHomeDashboardFromStore(store);
 }
 
@@ -703,7 +704,7 @@ export async function recordProjectOpen(projectId: string): Promise<void> {
     const project = store.projects.find((p) => p.id === projectId);
     if (!project) return;
     project.lastOpenedAt = now();
-  });
+  }, DOCUMENT_PERSIST);
 }
 
 export async function renameProject(projectId: string, name: string): Promise<ProjectListItem> {
@@ -767,11 +768,13 @@ function workspaceSnapshotFromStore(
   const project = store.projects.find((p) => p.id === projectId);
   if (!project) return null;
   const syncedMap = syncMapLayers(project.mapState, store.datasets);
+  const labeled = {
+    ...project,
+    geographyLabel: displayGeographyLabel(project.geographyLabel),
+    mapState: syncedMap.layers.length !== project.mapState.layers.length ? syncedMap : project.mapState,
+  };
   return {
-    project:
-      syncedMap.layers.length !== project.mapState.layers.length
-        ? { ...project, mapState: syncedMap }
-        : project,
+    project: labeled,
     scenarios: store.scenarios.filter((s) => s.projectId === projectId),
     decisions: store.decisions.filter((d) => d.projectId === projectId),
     activities: store.activities.filter((a) => a.projectId === projectId).slice(0, 200),
@@ -789,6 +792,8 @@ function workspaceSnapshotFromStore(
 }
 
 async function repairActiveScenarioIfNeeded(projectId: string): Promise<void> {
+  const current = await getStore();
+  if (!activeScenarioNeedsRepair(current, projectId)) return;
   await updateStore((store) => {
     const repairId = activeScenarioNeedsRepair(store, projectId);
     if (!repairId) return;
@@ -811,12 +816,12 @@ async function repairActiveScenarioIfNeeded(projectId: string): Promise<void> {
       action: "repair_active_scenario",
       summary: `Restored active scenario to "${scenario?.name ?? "default"}"`,
     });
-  });
+  }, DOCUMENT_PERSIST);
 }
 
 export async function getWorkspace(projectId: string): Promise<WorkspaceSnapshot | null> {
   await repairActiveScenarioIfNeeded(projectId);
-  const store = await reloadStoreFromDisk();
+  const store = await getStore();
   return workspaceSnapshotFromStore(store, projectId);
 }
 
@@ -836,7 +841,7 @@ export async function createProject(input: {
     const geographyLabel =
       typeof input.geographyLabel === "string" && input.geographyLabel.trim()
         ? input.geographyLabel.trim()
-        : "Study area";
+        : GEOGRAPHY_LABEL;
     const parsed = parseForStore(store, trimmedObjective, geographyLabel);
     const project: Project = {
       id: nanoid(),
@@ -1057,13 +1062,24 @@ export async function setMapView(
   const store = await getStore();
   const project = store.projects.find((p) => p.id === projectId);
   if (!project) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
-  return updateMapState(projectId, {
-    viewport: {
-      ...project.mapState.viewport,
-      center: view.center,
-      zoom: view.zoom ?? project.mapState.viewport.zoom,
-    },
-  });
+  const nextZoom = view.zoom ?? project.mapState.viewport.zoom;
+  await updateStore((s) => {
+    const live = s.projects.find((p) => p.id === projectId);
+    if (!live) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+    live.mapState = {
+      ...live.mapState,
+      viewport: {
+        ...live.mapState.viewport,
+        center: view.center,
+        zoom: nextZoom,
+      },
+    };
+    live.updatedAt = now();
+  }, DOCUMENT_PERSIST);
+  return {
+    center: view.center,
+    zoom: nextZoom,
+  };
 }
 
 export async function addGeographicSelection(
@@ -1205,7 +1221,7 @@ export async function updateMapState(projectId: string, mapState: Partial<MapSta
     if (!project) throw new Error("Project not found");
     project.mapState = { ...project.mapState, ...mapState };
     project.updatedAt = now();
-  });
+  }, DOCUMENT_PERSIST);
   return getWorkspace(projectId);
 }
 
@@ -1242,7 +1258,7 @@ export async function selectCandidate(
     p.mapState.highlightFeatureIds =
       featureIds ?? (candidateId ? [candidateId] : []);
     p.updatedAt = now();
-  });
+  }, DOCUMENT_PERSIST);
   return getWorkspace(projectId);
 }
 
@@ -1303,8 +1319,11 @@ export async function addToShortlist(
       relatedCandidateIds: [candidate.id],
     });
     touchProject(s, projectId, `Shortlist: ${candidate.label} pinned`);
-  });
-  return getWorkspace(projectId);
+  }, DOCUMENT_PERSIST);
+  const after = await getStore();
+  const shortlistCount =
+    after.scenarios.find((s) => s.id === scenarioId)?.shortlist?.length ?? 0;
+  return { candidateId: candidate.id, shortlistCount };
 }
 
 export async function removeFromShortlist(
@@ -1345,8 +1364,11 @@ export async function removeFromShortlist(
       relatedCandidateIds: entry.candidateId ? [entry.candidateId] : undefined,
     });
     touchProject(s, projectId, `Shortlist: ${entry.label} removed`);
-  });
-  return getWorkspace(projectId);
+  }, DOCUMENT_PERSIST);
+  const after = await getStore();
+  const shortlistCount =
+    after.scenarios.find((s) => s.id === scenarioId)?.shortlist?.length ?? 0;
+  return { candidateId: entry.candidateId ?? candidateId, shortlistCount };
 }
 
 export async function updateShortlistNote(
@@ -1379,7 +1401,7 @@ export async function updateShortlistNote(
     liveEntry.note = note.trim() || undefined;
     scenarioLive.updatedAt = now();
     touchProject(s, projectId, `Shortlist note updated for ${liveEntry.label}`);
-  });
+  }, DOCUMENT_PERSIST);
   return getWorkspace(projectId);
 }
 
@@ -1522,26 +1544,16 @@ export async function listCandidatesPage(
   if (!result) {
     return null;
   }
-  const all = Array.isArray(result.candidates) ? result.candidates : [];
-  const totalCount = resultCandidateCount(result);
-  const safeLimit = Math.max(1, Math.min(100, Number.isFinite(limit) ? limit : 10));
-  const safeOffset = Math.max(0, Number.isFinite(offset) ? offset : 0);
-  const page = all.slice(safeOffset, safeOffset + safeLimit);
+  const page = paginateCandidatesCompact(result, limit, offset);
   return {
     status: "ok" as const,
-    stale: result.stale ?? false,
-    summary: result.summary,
-    totalCount,
-    offset: safeOffset,
-    limit: safeLimit,
-    scoreSpread: resultScoreSpread(result),
-    candidates: page.map((c) => ({
-      id: c.id,
-      label: c.label,
-      rank: c.rank,
-      score: c.score,
-      status: c.status ?? "eligible",
-    })),
+    stale: page.stale,
+    summary: page.summary,
+    totalCount: page.totalCount,
+    offset: page.offset,
+    limit: page.limit,
+    scoreSpread: page.scoreSpread,
+    candidates: page.candidates,
   };
 }
 
@@ -1898,7 +1910,7 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
       const { intentChanged, previousIntent } = reconcileScenarioObjectiveFromRawText(
         s,
         sc,
-        project?.geographyLabel ?? "Study area"
+        project?.geographyLabel ?? GEOGRAPHY_LABEL
       );
       if (intentChanged) {
         markResultsStale(

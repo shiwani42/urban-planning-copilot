@@ -14,6 +14,7 @@ import {
 } from "./objective";
 import { runSpatialAnalysis } from "./spatial";
 import { exploreSuggestedProjectName } from "../planner-copy";
+import { GEOGRAPHY_LABEL } from "./study-bounds";
 
 export type ExploreAnalysisType =
   | "transit_gap"
@@ -277,7 +278,7 @@ export function runExploreInvestigation(
     );
   }
 
-  const parsed = parseObjective(input.question, "Study area");
+  const parsed = parseObjective(input.question, GEOGRAPHY_LABEL);
   const analysisType = assessed.analysisType;
   const exploreConstraints = constraintsForExplore(analysisType, parsed.constraints);
   const exploreWeights = weightsForExplore(analysisType, parsed.objective.intent);

@@ -13,6 +13,7 @@ import {
 } from "react-leaflet";
 import type { WorkspaceSnapshot, Candidate, GeographicSelection } from "@/lib/domain/types";
 import { featureIdsInExclusions, ringFromPolygon } from "@/lib/domain/geographic";
+import { featureIdsOutsideFloodCoverage } from "@/lib/domain/flood-coverage";
 import { STUDY_BOUNDS } from "@/lib/domain/study-bounds";
 import BasemapLayer from "@/components/BasemapLayer";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
@@ -74,7 +75,7 @@ function MapViewportSync({
     const key = `${center[0].toFixed(6)},${center[1].toFixed(6)},${zoom}`;
     if (lastKey.current === key) return;
     lastKey.current = key;
-    map.flyTo([center[1], center[0]], zoom, { duration: 0.75, animate: true });
+    map.setView([center[1], center[0]], zoom, { animate: false });
   }, [map, center, zoom]);
   return null;
 }
@@ -96,6 +97,7 @@ type Props = {
   onViewportChange?: (center: [number, number], zoom: number) => void;
   suppressGeoLabel?: boolean;
   hideEmptyState?: boolean;
+  floodCoverageGapIds?: Set<string>;
 };
 
 function MapViewportReporter({
@@ -135,6 +137,7 @@ export default function PlanningMap({
   onViewportChange,
   suppressGeoLabel = false,
   hideEmptyState = false,
+  floodCoverageGapIds,
 }: Props) {
   const { mapState } = workspace.project;
   const [liveViewport, setLiveViewport] = useState<{
@@ -179,6 +182,18 @@ export default function PlanningMap({
     (s) => s.id === workspace.project.activeScenarioId
   );
 
+  const floodGapIds = useMemo(() => {
+    if (floodCoverageGapIds) return floodCoverageGapIds;
+    const floodDs = workspace.datasets.find((d) => d.kind === "flood");
+    if (!floodDs?.incompleteCoverage || !layerData.parcels) return new Set<string>();
+    return featureIdsOutsideFloodCoverage(layerData.parcels.features, layerData.flood);
+  }, [
+    floodCoverageGapIds,
+    workspace.datasets,
+    layerData.parcels,
+    layerData.flood,
+  ]);
+
   const excludedFeatureIds = useMemo(() => {
     if (!layerData.parcels || !activeScenario) return new Set<string>();
     return featureIdsInExclusions(
@@ -212,6 +227,7 @@ export default function PlanningMap({
       shortlistedFeatureIds &&
       candidate.featureIds.some((fid) => shortlistedFeatureIds.has(fid));
     const geoExcluded = excludedFeatureIds.has(id);
+    const coverageGap = floodGapIds.has(id);
     const staleDim = stale && candidate ? 0.35 : 1;
 
     if (geoExcluded && !drawingActive) {
@@ -225,9 +241,21 @@ export default function PlanningMap({
       };
     }
 
+    if (coverageGap && !candidate) {
+      return {
+        color: "#815504",
+        weight: 1.5,
+        fillColor: "transparent",
+        fillOpacity: 0,
+        opacity: 0.85 * staleDim,
+        dashArray: "5 4",
+      };
+    }
+
     return {
-      color: selected ? "#00455d" : rejected ? "#ba1a1a" : shortlisted ? "#815504" : "#70787e",
-      weight: selected ? 2.5 : shortlisted ? 2 : 1,
+      color: selected ? "#00455d" : rejected ? "#ba1a1a" : shortlisted ? "#815504" : coverageGap ? "#815504" : "#70787e",
+      weight: selected ? 2.5 : shortlisted || coverageGap ? 2 : 1,
+      dashArray: coverageGap && !selected && !shortlisted ? "5 4" : undefined,
       fillColor: candidate
         ? rejected
           ? "#ba1a1a"
@@ -596,10 +624,12 @@ function DrawModeHandler({ enabled }: { enabled: boolean }) {
 export function MapLegend({
   visibleKinds,
   hasExclusions,
+  hasFloodCoverageGaps,
   compact,
 }: {
   visibleKinds: Set<string>;
   hasExclusions?: boolean;
+  hasFloodCoverageGaps?: boolean;
   compact?: boolean;
 }) {
   const items: Array<{ label: string; swatch: ReactNode }> = [];
@@ -632,6 +662,16 @@ export function MapLegend({
             background:
               "repeating-linear-gradient(135deg, #ba1a1a33 0, #ba1a1a33 2px, transparent 2px, transparent 4px)",
           }}
+        />
+      ),
+    });
+  }
+  if (hasFloodCoverageGaps) {
+    items.push({
+      label: "Flood coverage gap",
+      swatch: (
+        <div
+          className="w-3 h-3 border border-dashed border-[#815504] bg-transparent shrink-0"
         />
       ),
     });

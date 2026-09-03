@@ -7,3 +7,10 @@ export const STUDY_BOUNDS = {
 };
 
 export const GEOGRAPHY_LABEL = "Mission/SoMa, San Francisco";
+
+/** Legacy rows stored "Study area" — never show that to planners. */
+export function displayGeographyLabel(raw?: string | null): string {
+  const trimmed = raw?.trim();
+  if (!trimmed || trimmed === "Study area") return GEOGRAPHY_LABEL;
+  return trimmed;
+}

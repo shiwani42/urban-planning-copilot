@@ -12,6 +12,8 @@ import {
   resetPostgresBackendForTests,
   upsertStoreToPostgres,
   verifyPostgresWritable,
+  documentsPatchFromStore,
+  patchPostgresDocuments,
 } from "./store-postgres";
 
 function minimalStore(projectCount: number): AppStore {
@@ -100,6 +102,70 @@ describe("store-postgres adapter", () => {
     await assert.doesNotReject(() =>
       assertNotClobberingNonemptyPostgresCatalog(minimalStore(1))
     );
+  });
+
+  it("documents patch keeps analysis results and GIS features", async () => {
+    const fat = minimalStore(1);
+    fat.analysisResults = [
+      {
+        id: "r1",
+        jobId: "j1",
+        scenarioId: "s1",
+        status: "completed",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        candidates: [],
+        aggregateMetrics: [],
+        summary: "",
+        limitations: [],
+        stale: false,
+        configHash: "test",
+      },
+    ];
+    fat.datasets = [
+      {
+        id: "ds1",
+        kind: "parcels",
+        name: "Parcels",
+        source: "test",
+        version: "1",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        synthetic: false,
+        coverage: "test",
+        limitations: [],
+        featureCount: 0,
+        enabled: true,
+        attributes: [],
+      },
+    ];
+    fat.featuresByDataset = {
+      ds1: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "Point", coordinates: [0, 0] },
+          },
+        ],
+      },
+    };
+    await upsertStoreToPostgres(fat, { allowEmptyCatalog: true });
+
+    const next = minimalStore(1);
+    next.projects[0]!.resumeNote = "Pinned site";
+    next.analysisResults = [];
+    next.datasets = [];
+    next.featuresByDataset = {};
+    await patchPostgresDocuments(next);
+
+    const raw = await loadStorePayloadFromPostgres();
+    assert.ok(raw);
+    const parsed = JSON.parse(raw) as AppStore;
+    assert.equal(parsed.projects[0]?.resumeNote, "Pinned site");
+    assert.equal(parsed.analysisResults.length, 1);
+    assert.equal(parsed.datasets.length, 1);
+    assert.ok(parsed.featuresByDataset.ds1);
+    assert.equal("analysisResults" in documentsPatchFromStore(next), false);
   });
 });
 

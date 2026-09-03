@@ -5,6 +5,9 @@ import type { WorkspaceSnapshot } from "@/lib/domain/types";
 import { WORKSPACE_LOAD_PHASES, workspaceLoadPhaseLabel } from "@/lib/planner-copy";
 import { fetchJsonWithServerWake } from "@/lib/server-wake";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
+import { applyShortlistMutation } from "@/lib/domain/shortlist-optimistic";
+import { EPHEMERAL_SAVE_HEADING, SHORTLIST_SAVE_FAILED } from "@/lib/planner-copy";
+import { setBrowserWorkspaceSnapshot } from "@/lib/webmcp/browser-workspace-cache";
 
 const LOAD_TIMEOUT_MS = 25_000;
 
@@ -26,7 +29,11 @@ export type WorkspaceLoadState = {
   projectNotFound: boolean;
   lastFetchAt: string | null;
   refresh: () => Promise<WorkspaceSnapshot | null>;
-  act: (action: string, body?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  act: (
+    action: string,
+    body?: Record<string, unknown>,
+    options?: { skipRefresh?: boolean }
+  ) => Promise<Record<string, unknown>>;
   clearError: () => void;
   setWorkspace: React.Dispatch<React.SetStateAction<WorkspaceSnapshot | null>>;
 };
@@ -47,6 +54,7 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
 
   useEffect(() => {
     workspaceRef.current = workspace;
+    setBrowserWorkspaceSnapshot(workspace);
   }, [workspace]);
 
   const handleFetchFailure = useCallback((message: string) => {
@@ -140,6 +148,20 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
   useEffect(() => {
     return onWorkspaceMutated((detail) => {
       if (detail.projectId && detail.projectId !== projectId) return;
+      if (detail.persistFailed) {
+        setError(
+          detail.tool === "add_to_shortlist" || detail.tool === "remove_from_shortlist"
+            ? SHORTLIST_SAVE_FAILED
+            : EPHEMERAL_SAVE_HEADING
+        );
+      }
+      if (detail.shortlistMutation && workspaceRef.current) {
+        const next = applyShortlistMutation(workspaceRef.current, detail.shortlistMutation);
+        setWorkspace(next);
+        workspaceRef.current = next;
+        setBrowserWorkspaceSnapshot(next);
+      }
+      if (detail.skipRefresh) return;
       refresh().catch((e) => {
         const message = e instanceof Error ? e.message : String(e);
         handleFetchFailure(message);
@@ -148,7 +170,11 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
   }, [projectId, refresh, handleFetchFailure]);
 
   const act = useCallback(
-    async (action: string, body: Record<string, unknown> = {}) => {
+    async (
+      action: string,
+      body: Record<string, unknown> = {},
+      options?: { skipRefresh?: boolean }
+    ) => {
       setBusy(true);
       try {
         const data = await fetchJsonWithServerWake<Record<string, unknown>>(
@@ -160,6 +186,9 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
           },
           { label: "Workspace action" }
         );
+        if (options?.skipRefresh) {
+          return data;
+        }
         try {
           await refresh();
         } catch (refreshErr) {
