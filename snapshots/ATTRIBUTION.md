@@ -19,12 +19,13 @@ Refresh with `npm run ingest:sf`. Outputs live in `snapshots/sf/` (gzipped GeoJS
 | Active parcels | [data.sfgov.org/d/acdm-wktn](https://data.sfgov.org/d/acdm-wktn) | PDDL | See `snapshots/sf/manifest.json` (`data_as_of` from source) |
 | Muni stops | [Muni Stops (i28k-bkz6)](https://data.sfgov.org/Transportation/Muni-Stops/i28k-bkz6) | PDDL | See manifest |
 | 100-year storm flood | [SFPUC flood risk (jzu3-4yxp)](https://data.sfgov.org/Public-Safety/100-Year-Storm-Flood-Risk-Zone-July-2022-/jzu3-4yxp) | PDDL | July 2022 model (see manifest) |
+| Recreation and Parks | [Recreation and Parks Properties (gtr9-ntp6)](https://data.sfgov.org/Culture-and-Recreation/Recreation-and-Parks-Properties/gtr9-ntp6) | PDDL | See manifest |
 
 **Demo AOI:** Mission & South of Market — clipped and simplified for browser performance. Not full city coverage.
 
-## Illustrative layers (not city open data in Pass 09)
+## Illustrative layers (not city open data)
 
-Population grid, schools, and infrastructure nodes remain **illustrative** synthetic supplements until a future ingest pass. They are labeled in the Data explorer and marked `synthetic: true` in dataset metadata where applicable.
+Population grid, schools, and infrastructure nodes remain **illustrative** synthetic supplements until a future ingest pass. They are labeled in the Data explorer and marked `synthetic: true` in dataset metadata where applicable. Parks in Mission/SoMa use the Recreation and Parks snapshot above.
 
 ## What we do not use
 

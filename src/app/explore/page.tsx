@@ -53,6 +53,7 @@ type ExploreResult = ExploreInvestigationResult & {
     transit?: GeoJSON.FeatureCollection;
     flood?: GeoJSON.FeatureCollection;
     schools?: GeoJSON.FeatureCollection;
+    parks?: GeoJSON.FeatureCollection;
   };
   datasets?: DatasetMeta[];
 };

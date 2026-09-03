@@ -21,8 +21,8 @@ export const LAYER_SWATCH: Record<string, { className: string; label: string }> 
     className: "bg-outline-variant/50 rounded-full",
   },
   parks: {
-    label: "Parks",
-    className: "bg-tertiary-container rounded-full border border-tertiary",
+    label: "Recreation and Parks",
+    className: "bg-[#7d9b76]/70 border border-[#4a6b44]",
   },
   infrastructure: {
     label: "Infrastructure",

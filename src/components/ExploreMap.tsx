@@ -41,6 +41,7 @@ type LayerData = {
   transit?: GeoJSON.FeatureCollection;
   flood?: GeoJSON.FeatureCollection;
   schools?: GeoJSON.FeatureCollection;
+  parks?: GeoJSON.FeatureCollection;
 };
 
 type Props = {
@@ -117,6 +118,20 @@ export function ExploreMap({
               weight: 1,
               fillColor: f?.properties?.risk === "high" ? "#8ccff3" : "#c1e8ff",
               fillOpacity: 0.4,
+            })}
+          />
+        )}
+
+        {layerData.parks && (
+          <GeoJSON
+            data={layerData.parks}
+            interactive={false}
+            style={() => ({
+              color: "#4a6b44",
+              weight: 1,
+              fillColor: "#7d9b76",
+              fillOpacity: 0.35,
+              opacity: 0.9,
             })}
           />
         )}

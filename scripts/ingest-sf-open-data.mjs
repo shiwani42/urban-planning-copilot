@@ -6,8 +6,9 @@
  * - Parcels: https://data.sfgov.org/d/acdm-wktn
  * - Muni stops: https://data.sfgov.org/Transportation/Muni-Stops/i28k-bkz6
  * - 100-year storm flood: https://data.sfgov.org/Public-Safety/100-Year-Storm-Flood-Risk-Zone-July-2022-/jzu3-4yxp
+ * - Recreation and Parks properties: https://data.sfgov.org/d/gtr9-ntp6
  */
-import { createWriteStream, mkdirSync, writeFileSync } from "fs";
+import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { createGzip } from "zlib";
 import { pipeline } from "stream/promises";
 import { Readable } from "stream";
@@ -44,6 +45,12 @@ const SOURCES = {
   flood: {
     id: "jzu3-4yxp",
     url: "https://data.sfgov.org/resource/jzu3-4yxp.geojson",
+    license: "PDDL",
+    vintageField: "data_as_of",
+  },
+  parks: {
+    id: "gtr9-ntp6",
+    url: "https://data.sfgov.org/resource/gtr9-ntp6.geojson",
     license: "PDDL",
     vintageField: "data_as_of",
   },
@@ -301,6 +308,82 @@ async function ingestFlood() {
   return { kind: "flood", featureCount: features.length, vintage, path: relPath, bytes: file.bytes };
 }
 
+function mapParkFeature(raw, index) {
+  const props = raw.properties ?? {};
+  if (/non-park/i.test(String(props.propertytype ?? ""))) return null;
+  const simplified = simplifyFeature(raw);
+  const geom = simplified.geometry;
+  if (!geom || (geom.type !== "Polygon" && geom.type !== "MultiPolygon" && geom.type !== "Point")) {
+    return null;
+  }
+
+  const pad = 0.008;
+  const padded = {
+    west: DEMO_AOI.west - pad,
+    south: DEMO_AOI.south - pad,
+    east: DEMO_AOI.east + pad,
+    north: DEMO_AOI.north + pad,
+  };
+  const box = turf.bboxPolygon([padded.west, padded.south, padded.east, padded.north]);
+
+  let outGeom = geom;
+  if (geom.type === "Polygon" || geom.type === "MultiPolygon") {
+    let clipped = null;
+    try {
+      clipped = turf.intersect(
+        turf.featureCollection([
+          { type: "Feature", geometry: geom, properties: {} },
+          box,
+        ])
+      );
+    } catch {
+      clipped = null;
+    }
+    if (!clipped?.geometry) return null;
+    outGeom = clipped.geometry;
+    if (turf.area({ type: "Feature", geometry: outGeom, properties: {} }) < 1) return null;
+  } else {
+    const [lng, lat] = geom.coordinates;
+    if (
+      lng < padded.west ||
+      lng > padded.east ||
+      lat < padded.south ||
+      lat > padded.north
+    ) {
+      return null;
+    }
+  }
+
+  const id = String(props.property_id ?? props.objectid ?? `park-${index}`);
+  return {
+    type: "Feature",
+    id,
+    geometry: outGeom,
+    properties: {
+      id,
+      name: String(props.property_name ?? `Park ${id}`),
+      type: String(props.propertytype ?? "park"),
+      neighborhood: String(props.analysis_neighborhood ?? ""),
+      synthetic: false,
+    },
+  };
+}
+
+async function ingestParks() {
+  console.log("Parks…");
+  const where = `analysis_neighborhood in(${neighborhoodList()})`;
+  const raw = await fetchAllGeoJson(SOURCES.parks.url, where);
+  const features = raw.features.map((f, i) => mapParkFeature(f, i)).filter(Boolean);
+  console.log(`  ${features.length} park properties (clipped)`);
+  const vintage = pickVintage(raw.features, SOURCES.parks.vintageField);
+  const file = await writeGzJson("parks.geojson.gz", {
+    type: "FeatureCollection",
+    features,
+  });
+  const relPath = path.join("snapshots", "sf", "parks.geojson.gz");
+  return { kind: "parks", featureCount: features.length, vintage, path: relPath, bytes: file.bytes };
+}
+
 async function main() {
   mkdirSync(OUT_DIR, { recursive: true });
   console.log(`Writing snapshots to ${OUT_DIR}`);
@@ -313,9 +396,23 @@ async function main() {
     layers: {},
   };
 
-  results.layers.parcels = await ingestParcels();
-  results.layers.transit = await ingestTransit();
-  results.layers.flood = await ingestFlood();
+  const parksOnly = process.argv.includes("--parks-only");
+  if (parksOnly) {
+    try {
+      const existing = JSON.parse(readFileSync(path.join(OUT_DIR, "manifest.json"), "utf8"));
+      Object.assign(results, existing, { generatedAt: results.generatedAt, aoi: DEMO_AOI });
+      results.sources = { ...existing.sources, ...SOURCES };
+      results.layers = { ...existing.layers };
+    } catch {
+      /* new manifest */
+    }
+    results.layers.parks = await ingestParks();
+  } else {
+    results.layers.parcels = await ingestParcels();
+    results.layers.transit = await ingestTransit();
+    results.layers.flood = await ingestFlood();
+    results.layers.parks = await ingestParks();
+  }
 
   writeFileSync(path.join(OUT_DIR, "manifest.json"), JSON.stringify(results, null, 2));
   console.log("Done.");
