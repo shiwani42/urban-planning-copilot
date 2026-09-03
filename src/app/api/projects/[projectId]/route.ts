@@ -3,6 +3,16 @@ import * as services from "@/lib/domain/services";
 import type { Assumption, Constraint, CriterionWeight, GeographicSelection, MapState } from "@/lib/domain/types";
 import { apiError, runApiHandler } from "@/lib/api-route";
 
+const PATCH_ACTION_ALIASES: Record<string, string> = {
+  runAnalysis: "run_analysis",
+};
+
+function normalizeProjectPatchAction(raw: string): string {
+  const trimmed = raw?.trim();
+  if (!trimmed) return "";
+  return PATCH_ACTION_ALIASES[trimmed] ?? trimmed;
+}
+
 type Ctx = { params: Promise<{ projectId: string }> };
 
 export async function GET(_req: NextRequest, ctx: Ctx) {
@@ -31,7 +41,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     return apiError("Invalid JSON body", 400);
   }
 
-  const action = body.action as string;
+  const action = normalizeProjectPatchAction(body.action as string);
   if (!action) {
     return apiError("Missing action", 400);
   }

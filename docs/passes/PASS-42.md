@@ -1,33 +1,43 @@
-# PASS-42 — Live walk friction (cold start, priorities, freshness, explore)
+# PASS-42 — Live walk friction (cold start, catalog parity, tabs, freshness)
 
 Live reference: https://urban-planning-copilot.onrender.com/
 
 ## Scope
 
-Pass 41 follow-up from the 2026-09-03 production walk. No `store-postgres.ts` changes, no secrets, no false durability claims.
+Pass 41 follow-up from the 2026-09-03 production walk. No `store-postgres.ts` changes, no secrets, no false durability claims. Do not fight Render file-disk wipes — honesty and consistent reads only.
 
 ## Shipped
 
+### P0 — Catalog vs GET parity
+- `loadSharedStoreCatalog()` loads the store once for `/api/projects` and `/api/health`.
+- Project list is built from that snapshot via `listHomeDashboardFromStore` — only projects `getWorkspaceFromStore` can open.
+- Test: listed projects must load via `getWorkspace` on the same catalog.
+
+### P1 — Health under-report
+- Health `projectCount` uses listable projects from the loaded catalog (not a separate peek that can disagree).
+- Degraded when `storeReadError`, ENOENT with phantom peek count, or index/catalog count mismatch.
+
+### P1 — Workspace tab clicks
+- Tab buttons call `setTab` + `?tab=` URL; URL sync no longer resets to Workspace when `?tab=` is momentarily empty during navigation.
+- Client initial tab respects path-based deep links (`/workspace/:id/results`).
+
+### PATCH `runAnalysis` alias
+- `PATCH /api/projects/:id` accepts `runAnalysis` as an alias for `run_analysis` (same `runAnalysis` service path).
+
 ### Cold start wake UI
-- Shared `fetchJsonWithServerWake` shows a **Waking the server…** banner when `/api/health` or `/api/projects` (and workspace loads) exceed ~3s or fail once, then retries.
-- Banner does not fake success — pages still error if the server never responds.
+- `ServerWakeBanner` + `fetchJsonWithServerWake` when health/projects/workspace loads exceed ~3s or fail once, then retry.
 
-### Priorities panel honesty
-- Sliders remain live; **Apply priorities** only enables when weights differ from the saved scenario.
-- Apply performs a real `update_weights` save; moving sliders alone no longer marks results stale in the UI.
-- Clear states: unsaved draft, saved-but-awaiting-analysis, and the standing note that rankings change only after analysis.
+### Priorities panel
+- Apply only when weights differ from saved scenario; real `update_weights` save; clear run-analysis messaging.
 
-### Dataset freshness presentation
-- SFPUC flood (2022 vintage, single clipped feature) shows **Vintage stale** and **Partial coverage** alongside honest **Observed** provenance — not the same treatment as 2026 parcels.
-- Shared `DatasetProvenanceChips` on Data explorer, workspace Evidence, and dataset inspect panel.
+### Dataset freshness
+- Vintage stale / partial coverage chips on flood vs fresh parcels (`DatasetProvenanceChips`).
 
 ### Explore Run → convert
-- Investigation uses `assessExploreQuestion` (aligned with API routing) and `fetchJsonWithServerWake` for cold starts.
-- Run stays enabled for non-empty queries; convert CTA still appears after a successful run.
+- `assessExploreQuestion` + server-wake retries on investigation fetch.
 
-### Persistence copy scan
-- Home empty state uses “saved on the server while storage is healthy” instead of “persist across sessions”.
-- `StorageBanner` fallback avoids “persist across” phrasing.
+### Persistence copy
+- Home empty state avoids “persist across sessions”; storage banner fallback softened.
 
 ## Verification
 
@@ -36,4 +46,4 @@ npm test
 npm run build
 ```
 
-Manual: cold start on Render free shows wake banner then loads; priority sliders → Apply → run analysis message; Data explorer flood row shows stale/partial chips; Explore non-empty query runs and convert POSTs a project.
+Manual: list + GET same project id; health degraded when catalog unreadable; tab bar swaps Results/Evidence/etc.; `runAnalysis` PATCH runs analysis; cold start wake banner; priorities Apply; flood dataset chips.

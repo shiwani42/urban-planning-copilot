@@ -238,6 +238,7 @@ export default function WorkspaceClient({
       return resolveWorkspaceTabFromParams({
         tab: params.get("tab"),
         initialTab: params.get("initialTab"),
+        pathTab: initialTab,
       }) as Tab;
     }
     return TAB_PATHS.includes(initialTab as Tab) ? (initialTab as Tab) : "workspace";
@@ -354,15 +355,20 @@ export default function WorkspaceClient({
   );
 
   useEffect(() => {
-    const resolved = resolveWorkspaceTabFromParams({
-      tab: searchParams.get("tab"),
-      initialTab: searchParams.get("initialTab"),
-      pathTab: initialTab,
-    });
-    if (TAB_PATHS.includes(resolved as Tab) && resolved !== tab) {
-      setTabState(resolved as Tab);
+    const tabParam = searchParams.get("tab");
+    const initialTabParam = searchParams.get("initialTab");
+    const fromQuery = tabParam ?? initialTabParam;
+    if (fromQuery) {
+      const resolved = resolveWorkspaceTabFromParams({ tab: fromQuery }) as Tab;
+      if (TAB_PATHS.includes(resolved)) {
+        setTabState(resolved);
+      }
+      return;
     }
-  }, [initialTab, searchParams, tab]);
+    if (initialTab !== "workspace" && TAB_PATHS.includes(initialTab as Tab)) {
+      setTabState(initialTab as Tab);
+    }
+  }, [searchParams, initialTab]);
 
   useEffect(() => {
     if (tab !== "activity" || !workspace?.activities.length) return;

@@ -566,9 +566,16 @@ function assertCreateObjectiveText(objectiveText: unknown) {
   return objectiveText.trim();
 }
 
-export async function listProjects(): Promise<ProjectListItem[]> {
-  const store = await reloadStoreFromDisk();
+export function getWorkspaceFromStore(
+  store: AppStore,
+  projectId: string
+): WorkspaceSnapshot | null {
+  return workspaceSnapshotFromStore(store, projectId);
+}
+
+function projectListItemsFromStore(store: AppStore): ProjectListItem[] {
   return store.projects
+    .filter((p) => workspaceSnapshotFromStore(store, p.id) !== null)
     .slice()
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map((p) => {
@@ -599,46 +606,30 @@ export async function listProjects(): Promise<ProjectListItem[]> {
     });
 }
 
+export async function listProjects(): Promise<ProjectListItem[]> {
+  const store = await reloadStoreFromDisk();
+  return projectListItemsFromStore(store);
+}
+
+export function listHomeDashboardFromStore(store: AppStore): {
+  projects: ProjectListItem[];
+  recentAnalyses: RecentAnalysisRow[];
+  recentActivity: RecentActivityRow[];
+} {
+  return {
+    projects: projectListItemsFromStore(store),
+    recentAnalyses: listRecentAnalyses(store),
+    recentActivity: listRecentSystemActivity(store),
+  };
+}
+
 export async function listHomeDashboard(): Promise<{
   projects: ProjectListItem[];
   recentAnalyses: RecentAnalysisRow[];
   recentActivity: RecentActivityRow[];
 }> {
   const store = await reloadStoreFromDisk();
-  const projects = store.projects
-    .slice()
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .map((p) => {
-      const summary = summarizeProjectForList(store, p);
-      const scenarios = store.scenarios.filter((s) => s.projectId === p.id);
-      const scenarioNames = scenarios.map((s) => s.name);
-      const active =
-        scenarios.find((s) => s.id === p.activeScenarioId) ?? scenarios[0];
-      return {
-        id: p.id,
-        name: p.name,
-        updatedAt: p.updatedAt,
-        lastOpenedAt: p.lastOpenedAt,
-        resumeNote: summary.resumeNote,
-        geographyLabel: p.geographyLabel,
-        approvedScenarioName: summary.approvedScenarioName,
-        activeScenarioStatus: summary.activeScenarioStatus,
-        activeScenarioNote: summary.activeScenarioNote,
-        activeScenarioName: active?.name,
-        activeScenarioId: active?.id,
-        actionRequiredLabel: summary.actionRequiredLabel,
-        actionRequiredKind: summary.actionRequiredKind,
-        shortlistCount: summary.shortlistCount,
-        scenarioCount: scenarios.length > 1 ? scenarios.length : undefined,
-        scenarioSummary:
-          scenarios.length > 1 ? scenarioNames.join(" · ") : undefined,
-      };
-    });
-  return {
-    projects,
-    recentAnalyses: listRecentAnalyses(store),
-    recentActivity: listRecentSystemActivity(store),
-  };
+  return listHomeDashboardFromStore(store);
 }
 
 export async function recordProjectOpen(projectId: string): Promise<void> {
