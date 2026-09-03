@@ -755,6 +755,7 @@ export default function HomePage() {
       <ServerWakeBanner />
       <StorageBanner />
       {storageStatus.lastBoot === "empty-after-missing-file" &&
+        storageStatus.persistBackend !== "postgres" &&
         !shouldShowStorageUnavailableBanner(storageStatus) && (
         <div
           role="status"

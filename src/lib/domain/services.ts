@@ -8,6 +8,10 @@ import {
   sha256Receipt,
 } from "./objective";
 import {
+  isStaleRunningAnalysisJob,
+  staleRunningJobMessage,
+} from "./analysis-jobs";
+import {
   canRecordScenarioDecision,
   getLatestCompletedResult,
   getLatestFreshResult,
@@ -1377,6 +1381,30 @@ export async function requireProject(projectId: string): Promise<Project> {
     throw new ToolError("NOT_FOUND", "Project not found", "projectId");
   }
   return project;
+}
+
+export async function reconcileStaleRunningAnalysisJobs(
+  projectId: string,
+  scenarioId: string
+): Promise<void> {
+  await updateStore((store) => {
+    for (const job of store.analysisJobs) {
+      if (job.scenarioId !== scenarioId || job.status !== "running") continue;
+      if (!isStaleRunningAnalysisJob(job)) continue;
+      job.status = "failed";
+      job.completedAt = now();
+      job.error = staleRunningJobMessage();
+      job.currentStep = "Interrupted";
+      logActivity(store, {
+        projectId,
+        scenarioId,
+        actor: "system",
+        category: "analysis",
+        action: "analysis_stale_cancelled",
+        summary: job.error,
+      });
+    }
+  });
 }
 
 export async function getAnalysisRunStatus(projectId: string, scenarioId: string) {

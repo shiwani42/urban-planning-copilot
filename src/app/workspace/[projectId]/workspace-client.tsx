@@ -704,6 +704,11 @@ export default function WorkspaceClient({
         setDrawerPanel("candidates");
         setTab("results");
       }
+      if (detail.tool === "run_analysis") {
+        setCriteriaStaleHint(false);
+        setDrawerOpen(true);
+        setTab("results");
+      }
     });
   }, [projectId, setTab, applyCompareFromPayload]);
 
