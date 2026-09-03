@@ -69,6 +69,9 @@ describe("results-filter", () => {
         text: "blk/lot 3",
         neighborhood: "Mission",
         scoreBand: "all",
+        floodRisk: "all",
+        capacityMin: "",
+        capacityMax: "",
         shortlistedOnly: false,
       },
       new Set()
@@ -82,6 +85,9 @@ describe("results-filter", () => {
         text: "",
         neighborhood: "",
         scoreBand: "high",
+        floodRisk: "all",
+        capacityMin: "",
+        capacityMax: "",
         shortlistedOnly: true,
       },
       new Set(["a"])

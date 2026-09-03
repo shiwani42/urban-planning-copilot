@@ -90,6 +90,7 @@ import {
 } from "@/lib/domain/shortlist";
 import {
   buildFloodCoverageDetail,
+  candidateFloodIncompleteCaveat,
   type FloodCoverageDetail,
 } from "@/lib/domain/flood-coverage";
 import {
@@ -993,14 +994,10 @@ export default function WorkspaceClient({
       await act("create_scenario", { name, fromScenarioId: scenario.id });
       setCriteriaStaleHint(true);
       setDuplicateDialogOpen(false);
-      setTab("workspace");
-      setHighlightWeightsPanel(true);
       const floodNote = isFloodWeightedBranchName(name)
-        ? " Flood weights were increased — run analysis to see a new ranking."
-        : " Adjust priorities below (e.g. flood weight), then run analysis.";
-      showToast(
-        `Now viewing "${name}" — analysis not run yet.${floodNote}`
-      );
+        ? " Flood weights were increased — switch scenarios in the header to run analysis."
+        : " Switch scenarios in the header to adjust priorities or run analysis.";
+      showToast(`Created "${name}" — still viewing "${scenario.name}".${floodNote}`);
     } catch (e) {
       showToast(
         e instanceof Error ? e.message : "Could not duplicate scenario — try again."
@@ -1190,12 +1187,39 @@ export default function WorkspaceClient({
               {workspace.project.name}
             </span>
             <span className="text-outline-variant">/</span>
-            <span
-              className="text-primary font-medium max-w-[9rem] sm:max-w-[14rem] truncate"
-              title={`Scenario: ${scenario.name}`}
-            >
-              Scenario: {scenario.name}
-            </span>
+            {workspace.scenarios.length > 1 ? (
+              <label className="flex items-center gap-2 min-w-0">
+                <span className="sr-only">Active scenario</span>
+                <select
+                  value={scenario.id}
+                  onChange={(e) => void activateScenario(e.target.value)}
+                  className="text-primary font-medium max-w-[10rem] sm:max-w-[14rem] truncate border border-outline-variant rounded px-2 py-1 text-body-sm bg-surface"
+                  title="Switch scenario branch"
+                >
+                  {workspace.scenarios.map((s) => {
+                    const analyzed = scenarioHasComparableAnalysis(s, workspace.analysisResults);
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                        {analyzed ? "" : " — no results yet"}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+            ) : (
+              <span
+                className="text-primary font-medium max-w-[9rem] sm:max-w-[14rem] truncate"
+                title={`Scenario: ${scenario.name}`}
+              >
+                {scenario.name}
+              </span>
+            )}
+            {!scenarioHasComparableAnalysis(scenario, workspace.analysisResults) && (
+              <span className="shrink-0 px-2 py-0.5 rounded border border-outline-variant text-caption text-on-surface-variant whitespace-nowrap">
+                No results yet
+              </span>
+            )}
             {resolvedShortlistCount > 0 && (
               <span
                 className="shrink-0 ml-2 px-2 py-0.5 rounded border border-[#815504] text-[#815504] text-caption font-medium"
@@ -2343,28 +2367,7 @@ export default function WorkspaceClient({
               variant="sidebar"
               showActivityFeed={false}
               onToolComplete={async () => {
-                const previousScenarioId = scenario.id;
-                const updated = await refresh();
-                const activeId = updated?.project.activeScenarioId;
-                const activeScenario = updated?.scenarios.find((s) => s.id === activeId);
-                const latestBranch = listCopilotActivity().find(
-                  (entry) =>
-                    entry.tool === "create_scenario_branch" &&
-                    entry.status === "success" &&
-                    Date.now() - new Date(entry.timestamp).getTime() < 15000
-                );
-                if (
-                  latestBranch &&
-                  activeScenario &&
-                  activeScenario.id !== previousScenarioId &&
-                  !activeScenario.latestResultId
-                ) {
-                  setTab("workspace");
-                  setHighlightWeightsPanel(isFloodWeightedBranchName(activeScenario.name));
-                  showToast(
-                    `Now viewing “${activeScenario.name}” — analysis not run yet. Run analysis when ready.`
-                  );
-                }
+                await refresh();
               }}
               className="shrink-0 max-h-[42vh] border-t border-outline-variant min-h-[220px]"
             />
@@ -3005,7 +3008,7 @@ function ResultsFilterBar(props: {
           Showing {filteredCount.toLocaleString()} of {totalCount.toLocaleString()}
         </span>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">
         <label className="block text-caption">
           <span className="sr-only">Search address or block/lot</span>
           <input
@@ -3049,15 +3052,55 @@ function ResultsFilterBar(props: {
             <option value="low">Low (&lt;40)</option>
           </select>
         </label>
-        <label className="flex items-center gap-2 text-body-sm px-1 py-1">
+        <label className="block text-caption">
+          <span className="sr-only">Flood risk</span>
+          <select
+            value={filter.floodRisk}
+            onChange={(e) =>
+              onChange({
+                ...filter,
+                floodRisk: e.target.value as ResultsFilterState["floodRisk"],
+              })
+            }
+            className="w-full border border-outline-variant rounded px-2 py-1 text-body-sm bg-surface"
+          >
+            <option value="all">All flood risk</option>
+            <option value="high">High flood risk</option>
+            <option value="moderate">Moderate flood risk</option>
+            <option value="low">Low flood risk</option>
+          </select>
+        </label>
+        <label className="block text-caption">
+          <span className="text-on-surface-variant">Min homes</span>
           <input
-            type="checkbox"
-            checked={filter.shortlistedOnly}
-            onChange={(e) => onChange({ ...filter, shortlistedOnly: e.target.checked })}
+            type="text"
+            inputMode="numeric"
+            value={filter.capacityMin}
+            onChange={(e) => onChange({ ...filter, capacityMin: e.target.value })}
+            placeholder="Min"
+            className="w-full border border-outline-variant rounded px-2 py-1 text-body-sm"
           />
-          Shortlisted only
+        </label>
+        <label className="block text-caption">
+          <span className="text-on-surface-variant">Max homes</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={filter.capacityMax}
+            onChange={(e) => onChange({ ...filter, capacityMax: e.target.value })}
+            placeholder="Max"
+            className="w-full border border-outline-variant rounded px-2 py-1 text-body-sm"
+          />
         </label>
       </div>
+      <label className="flex items-center gap-2 text-body-sm px-1 py-1">
+        <input
+          type="checkbox"
+          checked={filter.shortlistedOnly}
+          onChange={(e) => onChange({ ...filter, shortlistedOnly: e.target.checked })}
+        />
+        Shortlisted only
+      </label>
     </div>
   );
 }
@@ -3111,6 +3154,7 @@ function ResultsDrawer(props: {
   );
   const visibleCandidates = filteredCandidates;
   const neighborhoods = useMemo(() => candidateNeighborhoods(allCandidates), [allCandidates]);
+  const floodDataset = props.datasets.find((d) => d.kind === "flood");
 
   if (!props.open) return null;
 
@@ -3278,6 +3322,7 @@ function ResultsDrawer(props: {
                   <tbody>
                     {visibleCandidates.map((c, rowIndex) => {
                       const pinned = isCandidateShortlisted(scenario, c);
+                      const floodCaveat = candidateFloodIncompleteCaveat(floodDataset, c);
                       return (
                       <tr
                         key={c.id}
@@ -3351,6 +3396,14 @@ function ResultsDrawer(props: {
                         {props.resultsColumns.map((col) => (
                           <td key={col.key} className="py-2 pr-2 font-mono">
                             {col.format(c)}
+                            {col.key === "label" && floodCaveat && (
+                              <span
+                                className="block text-[10px] text-secondary font-sans normal-case mt-0.5"
+                                title={floodCaveat}
+                              >
+                                Flood layer partial — high score ≠ verified safety
+                              </span>
+                            )}
                           </td>
                         ))}
                       </tr>
@@ -3399,6 +3452,7 @@ function ResultsDrawer(props: {
               <div className="space-y-4">
                 {(() => {
                   const provenance = candidateProvenance(selected, props.resultLimitations);
+                  const floodCaveat = candidateFloodIncompleteCaveat(floodDataset, selected);
                   return (
                     <>
                 <div>
@@ -3416,6 +3470,11 @@ function ResultsDrawer(props: {
                       </span>
                     )}
                   </div>
+                  {floodCaveat && (
+                    <p className="text-caption text-secondary border border-secondary/40 bg-secondary-fixed/15 rounded px-2 py-1.5 mt-2">
+                      {floodCaveat}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <h4 className="font-mono text-data-label uppercase mb-2">Score breakdown</h4>

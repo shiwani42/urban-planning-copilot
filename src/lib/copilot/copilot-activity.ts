@@ -4,6 +4,12 @@ export const COPILOT_ACTIVITY_EVENT = "upc:copilot-activity";
 
 export type CopilotActivityStatus = "running" | "success" | "error";
 
+export type CopilotActivityFollowUp = {
+  label: string;
+  tool: string;
+  args?: Record<string, unknown>;
+};
+
 export type CopilotActivityEntry = {
   id: string;
   tool: string;
@@ -11,6 +17,7 @@ export type CopilotActivityEntry = {
   status: CopilotActivityStatus;
   summary: string;
   detail?: string;
+  followUp?: CopilotActivityFollowUp;
   timestamp: string;
 };
 
@@ -36,7 +43,11 @@ export function clearCopilotActivity(): void {
 }
 
 export function appendCopilotActivity(
-  entry: Omit<CopilotActivityEntry, "id" | "timestamp"> & { id?: string; timestamp?: string }
+  entry: Omit<CopilotActivityEntry, "id" | "timestamp"> & {
+    id?: string;
+    timestamp?: string;
+    followUp?: CopilotActivityFollowUp;
+  }
 ): CopilotActivityEntry {
   const full: CopilotActivityEntry = {
     id: entry.id ?? `copilot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -46,6 +57,7 @@ export function appendCopilotActivity(
     status: entry.status,
     summary: entry.summary,
     detail: entry.detail,
+    followUp: entry.followUp,
   };
   entries.unshift(full);
   if (entries.length > MAX_ENTRIES) entries.length = MAX_ENTRIES;
@@ -55,7 +67,9 @@ export function appendCopilotActivity(
 
 export function updateCopilotActivity(
   id: string,
-  patch: Partial<Pick<CopilotActivityEntry, "status" | "summary" | "detail">>
+  patch: Partial<
+    Pick<CopilotActivityEntry, "status" | "summary" | "detail" | "followUp">
+  >
 ): void {
   const item = entries.find((e) => e.id === id);
   if (!item) return;

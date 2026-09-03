@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   buildFloodCoverageDetail,
+  candidateFloodIncompleteCaveat,
   listFloodExcludedParcelLabels,
   parseFloodFunnel,
 } from "./flood-coverage";
-import type { AnalysisResult, DatasetMeta } from "./types";
+import type { AnalysisResult, Candidate, DatasetMeta } from "./types";
 
 const floodDataset: DatasetMeta = {
   id: "ds-flood",
@@ -90,5 +91,27 @@ describe("flood-coverage", () => {
 
     assert.equal(labels.length, 1);
     assert.match(labels[0] ?? "", /Mission/);
+  });
+
+  it("flags high flood resilience when coverage is incomplete", () => {
+    const candidate = {
+      id: "c1",
+      label: "Mission — Blk/Lot 1",
+      featureIds: ["p1"],
+      score: 80,
+      rank: 1,
+      metrics: [{ key: "flood_resilience", label: "Flood", value: 100, kind: "calculated" }],
+      provenance: { limitations: [] },
+    } as unknown as Candidate;
+
+    const caveat = candidateFloodIncompleteCaveat(floodDataset, candidate);
+    assert.ok(caveat);
+    assert.match(caveat ?? "", /incomplete/i);
+
+    const lowRisk = {
+      ...candidate,
+      metrics: [{ key: "flood_resilience", label: "Flood", value: 20, kind: "calculated" }],
+    } as unknown as Candidate;
+    assert.equal(candidateFloodIncompleteCaveat(floodDataset, lowRisk), null);
   });
 });

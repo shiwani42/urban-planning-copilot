@@ -444,6 +444,10 @@ export interface ProjectListItem {
   actionRequiredKind?: "manual" | "data" | "ai";
   /** Pinned sites on the active scenario shortlist, when non-zero. */
   shortlistCount?: number;
+  /** Number of scenario branches on the project. */
+  scenarioCount?: number;
+  /** Scenario names joined for multi-branch projects (e.g. "Baseline · Flood-weighted"). */
+  scenarioSummary?: string;
 }
 
 export interface WorkspaceSnapshot {

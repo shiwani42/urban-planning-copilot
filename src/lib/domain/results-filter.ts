@@ -1,11 +1,16 @@
+import { candidateMetricValue } from "./analysis-display";
 import type { Candidate } from "./types";
 
 export type ScoreBand = "all" | "high" | "medium" | "low";
+export type FloodRiskBand = "all" | "high" | "moderate" | "low";
 
 export type ResultsFilterState = {
   text: string;
   neighborhood: string;
   scoreBand: ScoreBand;
+  floodRisk: FloodRiskBand;
+  capacityMin: string;
+  capacityMax: string;
   shortlistedOnly: boolean;
 };
 
@@ -13,6 +18,9 @@ export const DEFAULT_RESULTS_FILTER: ResultsFilterState = {
   text: "",
   neighborhood: "",
   scoreBand: "all",
+  floodRisk: "all",
+  capacityMin: "",
+  capacityMax: "",
   shortlistedOnly: false,
 };
 
@@ -45,6 +53,48 @@ export function matchesScoreBand(score: number, band: ScoreBand): boolean {
   return scoreBandFor(score) === band;
 }
 
+export function candidateCapacityHomes(candidate: Candidate): number | null {
+  const value = candidateMetricValue(candidate, "capacity");
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function floodRiskBandForCandidate(
+  candidate: Candidate
+): Exclude<FloodRiskBand, "all"> {
+  const resilience = candidateMetricValue(candidate, "flood_resilience");
+  if (resilience != null) {
+    if (resilience < 40) return "high";
+    if (resilience < 70) return "moderate";
+    return "low";
+  }
+  const exposure = candidateMetricValue(candidate, "flood_exposure");
+  if (exposure != null) {
+    if (exposure >= 80) return "high";
+    if (exposure >= 50) return "moderate";
+    return "low";
+  }
+  return "low";
+}
+
+export function matchesFloodRiskBand(candidate: Candidate, band: FloodRiskBand): boolean {
+  if (band === "all") return true;
+  return floodRiskBandForCandidate(candidate) === band;
+}
+
+export function matchesCapacityRange(
+  candidate: Candidate,
+  minText: string,
+  maxText: string
+): boolean {
+  const capacity = candidateCapacityHomes(candidate);
+  if (capacity == null) return false;
+  const min = minText.trim() ? Number(minText.replace(/,/g, "")) : undefined;
+  const max = maxText.trim() ? Number(maxText.replace(/,/g, "")) : undefined;
+  if (min != null && Number.isFinite(min) && capacity < min) return false;
+  if (max != null && Number.isFinite(max) && capacity > max) return false;
+  return true;
+}
+
 export function candidateMatchesText(c: Candidate, text: string): boolean {
   const q = text.trim().toLowerCase();
   if (!q) return true;
@@ -63,6 +113,13 @@ export function filterCandidates(
       return false;
     }
     if (!matchesScoreBand(c.score, filter.scoreBand)) return false;
+    if (!matchesFloodRiskBand(c, filter.floodRisk)) return false;
+    if (
+      (filter.capacityMin.trim() || filter.capacityMax.trim()) &&
+      !matchesCapacityRange(c, filter.capacityMin, filter.capacityMax)
+    ) {
+      return false;
+    }
     if (!candidateMatchesText(c, filter.text)) return false;
     return true;
   });
