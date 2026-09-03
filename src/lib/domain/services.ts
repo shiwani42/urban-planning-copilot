@@ -12,6 +12,13 @@ import {
   staleRunningJobMessage,
 } from "./analysis-jobs";
 import {
+  applyScoreStatsToResult,
+  compactCandidateForStore,
+  resultCandidateCount,
+  resultScoreSpread,
+} from "./analysis-candidates";
+import { findCandidateInStore } from "./store-persistence";
+import {
   canRecordScenarioDecision,
   getLatestCompletedResult,
   getLatestFreshResult,
@@ -223,8 +230,8 @@ export function reconcileScenarioObjectiveFromRawText(
   const parsed = parseForStore(store, rawText, geographyLabel);
   const intentChanged = parsed.objective.intent !== previousIntent;
   scenario.objective = parsed.objective;
-  scenario.constraints = parsed.constraints;
   if (intentChanged) {
+    scenario.constraints = parsed.constraints;
     scenario.weights = parsed.weights;
     scenario.assumptions = parsed.assumptions;
   }
@@ -290,6 +297,12 @@ function datasetIdsUsedByAnalysisPlan(store: AppStore, scenario: Scenario): Set<
     for (const step of steps) {
       for (const ref of step.datasets) addRef(ref);
     }
+    for (const id of [...used]) {
+      const ds = store.datasets.find((d) => d.id === id);
+      if (!ds) continue;
+      const constraint = scenario.constraints.find((c) => c.datasetKind === ds.kind);
+      if (constraint && !constraint.enabled) used.delete(id);
+    }
     return used;
   }
 
@@ -303,6 +316,14 @@ function datasetIdsUsedByAnalysisPlan(store: AppStore, scenario: Scenario): Set<
 }
 
 function scenarioUsesDataset(store: AppStore, scenario: Scenario, datasetId: string): boolean {
+  const ds = store.datasets.find((d) => d.id === datasetId);
+  if (!ds) return false;
+  const disabledKinds = new Set(
+    scenario.constraints
+      .filter((c) => !c.enabled && c.datasetKind)
+      .map((c) => c.datasetKind!)
+  );
+  if (disabledKinds.has(ds.kind)) return false;
   return datasetIdsUsedByAnalysisPlan(store, scenario).has(datasetId);
 }
 
@@ -1447,6 +1468,21 @@ export async function reconcileStaleRunningAnalysisJobs(
   });
 }
 
+export async function findCandidateForInspection(
+  projectId: string,
+  scenarioId: string,
+  candidateId: string
+) {
+  const store = await getStore();
+  const scenario = store.scenarios.find(
+    (s) => s.id === scenarioId && s.projectId === projectId
+  );
+  if (!scenario?.latestResultId) return undefined;
+  const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
+  if (!result) return undefined;
+  return findCandidateInStore(store, result, candidateId, { hydrate: true });
+}
+
 export async function listCandidatesPage(
   projectId: string,
   scenarioId: string,
@@ -1454,6 +1490,7 @@ export async function listCandidatesPage(
   offset = 0
 ) {
   await repairActiveScenarioIfNeeded(projectId);
+  const runStatus = await getAnalysisRunStatus(projectId, scenarioId);
   const store = await getStore();
   const scenario = store.scenarios.find(
     (s) => s.id === scenarioId && s.projectId === projectId
@@ -1462,25 +1499,41 @@ export async function listCandidatesPage(
     throw new ToolError("NOT_FOUND", "Scenario not found", "scenarioId");
   }
   const result = store.analysisResults.find((r) => r.id === scenario.latestResultId);
+  if (runStatus.status === "failed") {
+    return {
+      status: "error" as const,
+      error: runStatus.error ?? "Analysis failed",
+      stale: result?.stale ?? true,
+      summary: result?.summary ?? null,
+      totalCount: result ? resultCandidateCount(result) : 0,
+      offset: 0,
+      limit: Math.max(1, Math.min(100, Number.isFinite(limit) ? limit : 10)),
+      scoreSpread: result ? resultScoreSpread(result) : 0,
+      candidates: [] as Array<{
+        id: string;
+        label: string;
+        rank: number;
+        score: number;
+        status: string;
+      }>,
+    };
+  }
   if (!result) {
     return null;
   }
   const all = Array.isArray(result.candidates) ? result.candidates : [];
-  const totalCount = all.length;
+  const totalCount = resultCandidateCount(result);
   const safeLimit = Math.max(1, Math.min(100, Number.isFinite(limit) ? limit : 10));
   const safeOffset = Math.max(0, Number.isFinite(offset) ? offset : 0);
   const page = all.slice(safeOffset, safeOffset + safeLimit);
-  const scores = all.map((c) => c.score).filter((s) => Number.isFinite(s));
-  const scoreMin = scores.length ? Math.min(...scores) : undefined;
-  const scoreMax = scores.length ? Math.max(...scores) : undefined;
   return {
+    status: "ok" as const,
     stale: result.stale ?? false,
     summary: result.summary,
     totalCount,
     offset: safeOffset,
     limit: safeLimit,
-    scoreSpread:
-      scoreMin != null && scoreMax != null ? Number((scoreMax - scoreMin).toFixed(1)) : 0,
+    scoreSpread: resultScoreSpread(result),
     candidates: page.map((c) => ({
       id: c.id,
       label: c.label,
@@ -1500,7 +1553,7 @@ async function executeAnalysisComputation(
     await new Promise((resolve) => setTimeout(resolve, analysisDelayMsForTests));
   }
 
-  const live = await reloadStoreFromDisk();
+  const live = await getStore();
   const sc = requireScenario(live, projectId, scenarioId);
   const rejected = new Set(
     live.decisions
@@ -1575,6 +1628,10 @@ async function executeAnalysisComputation(
         return;
       }
 
+      const compactCandidates = output.candidates.map((c) =>
+        compactCandidateForStore(c)
+      ) as unknown as typeof output.candidates;
+
       const result: AnalysisResult = {
         id: nanoid(),
         jobId: job.id,
@@ -1582,7 +1639,7 @@ async function executeAnalysisComputation(
         status: "completed",
         createdAt: now(),
         completedAt: now(),
-        candidates: output.candidates,
+        candidates: compactCandidates,
         aggregateMetrics: output.aggregateMetrics,
         summary: output.summary,
         stepLogs: output.stepLogs,
@@ -1593,6 +1650,7 @@ async function executeAnalysisComputation(
         stale: false,
         configHash: job.configHash,
       };
+      applyScoreStatsToResult(result, compactCandidates);
 
       for (const c of result.candidates) {
         const rejectedDecision = s.decisions.find(
@@ -1612,10 +1670,6 @@ async function executeAnalysisComputation(
           scenarioLive.shortlist,
           result.candidates
         );
-      }
-
-      for (const c of result.candidates) {
-        c.provenance.limitations = [...result.limitations];
       }
 
       s.analysisResults.push(result);
@@ -1740,7 +1794,7 @@ async function executeAnalysisComputation(
 }
 
 export async function getAnalysisRunStatus(projectId: string, scenarioId: string) {
-  const store = await reloadStoreFromDisk();
+  const store = await getStore();
   const scenario = store.scenarios.find((s) => s.id === scenarioId && s.projectId === projectId);
   if (!scenario) {
     return { status: "not_found" as const };
@@ -1771,7 +1825,7 @@ export async function getAnalysisRunStatus(projectId: string, scenarioId: string
     return {
       status: "completed" as const,
       summary: result.summary,
-      candidateCount: result.candidates.length,
+      candidateCount: resultCandidateCount(result),
       top: top
         ? { id: top.id, label: top.label, score: top.score }
         : null,
@@ -1784,10 +1838,9 @@ export async function getAnalysisRunStatus(projectId: string, scenarioId: string
 }
 
 export async function runAnalysis(projectId: string, scenarioId: string) {
-  return withAnalysisGate(projectId, async () => {
-    await requireProject(projectId);
-    const store = await reloadStoreFromDisk();
-    const scenario = requireScenario(store, projectId, scenarioId);
+  await requireProject(projectId);
+  const store = await getStore();
+  const scenario = requireScenario(store, projectId, scenarioId);
   const missing: string[] = [];
   const layers = layersForScenario(store, scenario);
   if (!layers.parcels) missing.push("parcels");
@@ -1827,66 +1880,83 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
 
   const jobId = nanoid();
 
-  await updateStore((s) => {
-    const project = s.projects.find((p) => p.id === projectId);
-    const sc = requireScenario(s, projectId, scenarioId);
-    const { intentChanged, previousIntent } = reconcileScenarioObjectiveFromRawText(
-      s,
-      sc,
-      project?.geographyLabel ?? "Study area"
-    );
-    if (intentChanged) {
-      markResultsStale(s, scenarioId, `Objective re-parsed (${previousIntent} → ${sc.objective.intent})`);
+  await withAnalysisGate(projectId, async () => {
+    await updateStore((s) => {
+      const project = s.projects.find((p) => p.id === projectId);
+      const sc = requireScenario(s, projectId, scenarioId);
+      const { intentChanged, previousIntent } = reconcileScenarioObjectiveFromRawText(
+        s,
+        sc,
+        project?.geographyLabel ?? "Study area"
+      );
+      if (intentChanged) {
+        markResultsStale(
+          s,
+          scenarioId,
+          `Objective re-parsed (${previousIntent} → ${sc.objective.intent})`
+        );
+        logActivity(s, {
+          projectId,
+          scenarioId,
+          actor: "system",
+          category: "objective",
+          action: "reconcile_objective",
+          summary: `Re-parsed objective intent before analysis (${previousIntent} → ${sc.objective.intent})`,
+          inputs: { rawText: sc.objective.rawText },
+          outputs: { intent: sc.objective.intent },
+        });
+      }
+      const configHash = configHashFor(sc);
+      const job: AnalysisJob = {
+        id: jobId,
+        scenarioId,
+        status: "running",
+        planId: sc.analysisPlan?.id ?? "none",
+        startedAt: now(),
+        progress: 5,
+        currentStep: "Starting analysis",
+        activityIds: [],
+        configHash,
+      };
+      s.analysisJobs.push(job);
+      if (sc.analysisPlan) {
+        sc.analysisPlan.steps = sc.analysisPlan.steps.map((step) => ({
+          ...step,
+          status: "pending",
+        }));
+      }
       logActivity(s, {
         projectId,
         scenarioId,
-        actor: "system",
-        category: "objective",
-        action: "reconcile_objective",
-        summary: `Re-parsed objective intent before analysis (${previousIntent} → ${sc.objective.intent})`,
-        inputs: { rawText: sc.objective.rawText },
-        outputs: { intent: sc.objective.intent },
+        actor: "agent",
+        category: "analysis",
+        action: "analysis_started",
+        summary: "Started spatial analysis",
+        inputs: {
+          scenario: sc.name,
+          configHash,
+          datasets: datasetSnapshot(s, sc),
+          intent: sc.objective.intent,
+        },
       });
-    }
-    const configHash = configHashFor(sc);
-    const job: AnalysisJob = {
-      id: jobId,
-      scenarioId,
-      status: "running",
-      planId: sc.analysisPlan?.id ?? "none",
-      startedAt: now(),
-      progress: 5,
-      currentStep: "Starting analysis",
-      activityIds: [],
-      configHash,
-    };
-    s.analysisJobs.push(job);
-    if (sc.analysisPlan) {
-      sc.analysisPlan.steps = sc.analysisPlan.steps.map((step) => ({
-        ...step,
-        status: "pending",
-      }));
-    }
-    logActivity(s, {
-      projectId,
-      scenarioId,
-      actor: "agent",
-      category: "analysis",
-      action: "analysis_started",
-      summary: "Started spatial analysis",
-      inputs: {
-        scenario: sc.name,
-        configHash,
-        datasets: datasetSnapshot(s, sc),
-        intent: sc.objective.intent,
-      },
+      touchProject(s, projectId, "Analysis running…");
     });
-    touchProject(s, projectId, "Analysis running…");
   });
+
+  const runComputation = async () => {
+    try {
+      await executeAnalysisComputation(projectId, scenarioId, jobId);
+    } catch (err) {
+      if (err instanceof StorePersistError) {
+        throw err;
+      }
+      console.error("[analysis] background job failed:", err);
+    }
+  };
 
   if (shouldRunAnalysisSynchronously()) {
     try {
-      await executeAnalysisComputation(projectId, scenarioId, jobId);
+      await withAnalysisGate(projectId, runComputation);
     } catch (err) {
       if (err instanceof StorePersistError) {
         const ws = await getWorkspace(projectId);
@@ -1902,16 +1972,16 @@ export async function runAnalysis(projectId: string, scenarioId: string) {
       }
       throw err;
     }
-  } else {
-    setImmediate(() => {
-      void executeAnalysisComputation(projectId, scenarioId, jobId).catch((err) => {
-        console.error("[analysis] background job failed:", err);
-      });
-    });
+    const latest = await getStore();
+    return workspaceSnapshotFromStore(latest, projectId)!;
   }
 
-  return getWorkspace(projectId);
+  setImmediate(() => {
+    void withAnalysisGate(projectId, runComputation);
   });
+
+  const latest = await getStore();
+  return workspaceSnapshotFromStore(latest, projectId)!;
 }
 
 export async function createScenario(

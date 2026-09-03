@@ -4,8 +4,10 @@ import path from "path";
 import type { AppStore } from "./types";
 import {
   hydrateAnalysisResultsInStore,
+  prepareAnalysisResultsInStore,
   prepareStoreForPersistence,
 } from "./store-persistence";
+import { reconcileInterruptedAnalysisJobsOnBoot } from "./analysis-jobs";
 import { normalizeStoreShape } from "./store-shape";
 import { generateSyntheticCity } from "./seed";
 import {
@@ -486,7 +488,8 @@ async function restoreStoreFromBackup(
 ): Promise<AppStore> {
   const raw = await fs.readFile(pathToBackup, "utf8");
   const store = await parseStoreFile(raw, pathToBackup);
-  hydrateAnalysisResultsInStore(store);
+  reconcileInterruptedAnalysisJobsOnBoot(store);
+  prepareAnalysisResultsInStore(store);
   await upgradeCatalog(store);
   setLastBootRecovery("recovered-backup");
   await writeStorePayload(dir, pathToStore, pathToBackup, store);
@@ -551,7 +554,8 @@ async function readStoreFromPostgresPrimary(): Promise<AppStore> {
     const raw = await loadStorePayloadFromPostgres();
     if (raw !== null) {
       const store = await parseStoreFile(raw, "postgres:planning_store");
-      hydrateAnalysisResultsInStore(store);
+      reconcileInterruptedAnalysisJobsOnBoot(store);
+      prepareAnalysisResultsInStore(store);
       const upgraded = await upgradeCatalog(store);
       setLastBootRecovery("normal");
       markStorageHealthy(dir, undefined, {
@@ -620,7 +624,8 @@ async function readStoreFromDisk(): Promise<AppStore> {
         throw new Error("store.json is empty");
       }
       const store = await parseStoreFile(raw, pathToStore);
-      hydrateAnalysisResultsInStore(store);
+      reconcileInterruptedAnalysisJobsOnBoot(store);
+      prepareAnalysisResultsInStore(store);
       const upgraded = await upgradeCatalog(store);
       setLastBootRecovery("normal");
       markStorageHealthy(dir, undefined, { lastBoot: "normal" });

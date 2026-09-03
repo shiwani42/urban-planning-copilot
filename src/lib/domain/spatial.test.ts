@@ -198,7 +198,7 @@ describe("spatial analysis", () => {
     });
     const top = out.candidates[0];
     assert.ok(top.metrics.some((m) => m.key === "housing_target_gap"));
-    assert.ok(top.provenance.limitations.some((l) => l.includes("incomplete flood")));
+    assert.ok(out.limitations.some((l) => l.includes("incomplete flood")));
     assert.ok(out.aggregateMetrics.some((m) => m.key === "meets_target_count"));
   });
 
@@ -296,9 +296,7 @@ describe("spatial analysis", () => {
     const top = out.candidates[0];
     assert.ok(top.metrics.some((m) => m.key === "school_underserved_pop"));
     assert.ok(!top.metrics.some((m) => m.key === "capacity"));
-    assert.ok(
-      top.provenance.calculations.some((c) => c.name === "school_access_gap")
-    );
+    assert.ok(top.metrics.some((m) => m.key === "school_gap_score"));
     assert.ok(out.limitations.some((l) => /housing production/i.test(l)));
   });
 

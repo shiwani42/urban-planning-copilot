@@ -273,6 +273,8 @@ describe("store persistence", () => {
     );
     assert.ok(result);
     assert.ok(result!.candidates.length > 0);
+    const { hydrateCandidatesInResult } = await import("./store-persistence");
+    hydrateCandidatesInResult(reloaded, result!, [result!.candidates[0]!.id]);
     assert.ok(result!.candidates[0]?.geometry);
   });
 

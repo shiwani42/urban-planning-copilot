@@ -99,7 +99,11 @@ describe("geographic exclusion analysis", () => {
     const without = runSpatialAnalysis({ ...baseInput, selections: [] });
     assert.ok(without.candidates.length > 0, "need baseline candidates");
     const target = without.candidates[0];
-    const tc = target.geometry as GeoJSON.Polygon;
+    const parcelFeature = layers.parcels!.features.find(
+      (f) => String(f.properties?.id ?? f.id) === target.featureIds[0]
+    );
+    assert.ok(parcelFeature?.geometry?.type === "Polygon");
+    const tc = parcelFeature.geometry as GeoJSON.Polygon;
     const tcoords = tc.coordinates[0];
     const twest = Math.min(...tcoords.map((p) => p[0]));
     const teast = Math.max(...tcoords.map((p) => p[0]));

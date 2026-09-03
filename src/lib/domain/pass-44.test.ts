@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
+import { promises as fs } from "fs";
+import path from "path";
+import os from "os";
 import {
   parseCompareScenarioIds,
   parseWorkspacePathTab,
@@ -18,6 +21,19 @@ import { resetStore } from "./store";
 import { invokeTool } from "./webmcp";
 
 describe("pass 44 path tab regressions", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "upc-pass44-"));
+    process.env.DATA_DIR = tmpDir;
+    await resetStore();
+  });
+
+  afterEach(async () => {
+    delete process.env.DATA_DIR;
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
   it("builds compare URLs with scenario ids in the query string", () => {
     assert.equal(
       workspaceTabUrl("proj-1", "compare", {
@@ -84,7 +100,6 @@ describe("pass 44 path tab regressions", () => {
   });
 
   it("list_projects returns catalog entries without 404", async () => {
-    await resetStore();
     const ws = await services.createProject({
       name: "List projects tool",
       objectiveText:

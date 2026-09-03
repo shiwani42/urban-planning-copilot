@@ -72,7 +72,7 @@ export function prepareStoreForPersistence(store: AppStore): AppStore {
   };
 }
 
-function hydrateCandidate(
+export function hydrateCandidate(
   stored: StoredCandidate,
   limitations: string[],
   byId: Map<string, GeoJSON.Feature>
@@ -108,19 +108,85 @@ function hydrateCandidate(
   return normalizeCandidate(base, limitations);
 }
 
-/** Reattach parcel geometries from the catalog after loading store.json */
-export function hydrateAnalysisResultsInStore(store: AppStore): void {
+function asStoredCandidates(candidates: Candidate[]): StoredCandidate[] {
+  return (Array.isArray(candidates) ? candidates : []).map((c) => {
+    if (!("geometry" in c) || !c.geometry) {
+      return c as unknown as StoredCandidate;
+    }
+    return compactCandidate(c);
+  });
+}
+
+/** Normalize analysis rows after load without hydrating every parcel geometry. */
+export function prepareAnalysisResultsInStore(store: AppStore): void {
+  for (const result of store.analysisResults) {
+    const limitations = Array.isArray(result.limitations) ? result.limitations : [];
+    result.limitations = limitations;
+    result.aggregateMetrics = Array.isArray(result.aggregateMetrics) ? result.aggregateMetrics : [];
+    result.candidates = asStoredCandidates(result.candidates).map((stored) =>
+      hydrateCandidate(stored, limitations, new Map())
+    );
+    normalizeAnalysisResult(result);
+  }
+}
+
+/** Reattach parcel geometries from the catalog — use sparingly (memory heavy). */
+export function hydrateAnalysisResultsInStore(
+  store: AppStore,
+  options?: { all?: boolean; limitPerResult?: number }
+): void {
   const byId = parcelFeaturesById(store);
   for (const result of store.analysisResults) {
     const limitations = Array.isArray(result.limitations) ? result.limitations : [];
     result.limitations = limitations;
     result.aggregateMetrics = Array.isArray(result.aggregateMetrics) ? result.aggregateMetrics : [];
-    result.candidates = (Array.isArray(result.candidates)
-      ? (result.candidates as unknown as StoredCandidate[])
-      : []
-    ).map((c) => hydrateCandidate(c, limitations, byId));
+    const stored = asStoredCandidates(result.candidates);
+    const hydrateCount =
+      options?.all === true
+        ? stored.length
+        : Math.min(stored.length, options?.limitPerResult ?? 0);
+    result.candidates = stored.map((c, index) => {
+      if (index < hydrateCount) {
+        return hydrateCandidate(c, limitations, byId);
+      }
+      return hydrateCandidate(c, limitations, new Map());
+    });
     normalizeAnalysisResult(result);
   }
+}
+
+export function hydrateCandidatesInResult(
+  store: AppStore,
+  result: AnalysisResult,
+  candidateIds?: string[]
+): void {
+  const byId = parcelFeaturesById(store);
+  const limitations = Array.isArray(result.limitations) ? result.limitations : [];
+  const idSet = candidateIds?.length ? new Set(candidateIds) : null;
+  result.candidates = asStoredCandidates(result.candidates).map((stored) => {
+    if (idSet && !idSet.has(stored.id)) {
+      return hydrateCandidate(stored, limitations, new Map());
+    }
+    return hydrateCandidate(stored, limitations, byId);
+  });
+}
+
+export function findCandidateInStore(
+  store: AppStore,
+  result: AnalysisResult,
+  candidateId: string,
+  options?: { hydrate?: boolean }
+): Candidate | undefined {
+  const limitations = Array.isArray(result.limitations) ? result.limitations : [];
+  const stored = asStoredCandidates(result.candidates).find(
+    (c) => c.id === candidateId || c.featureIds.includes(candidateId)
+  );
+  if (!stored) return undefined;
+  if (!options?.hydrate) {
+    return hydrateCandidate(stored, limitations, new Map());
+  }
+  const byId = parcelFeaturesById(store);
+  return hydrateCandidate(stored, limitations, byId);
 }
 
 /** Rough serialized size estimate for PASS-17 diagnostics */
