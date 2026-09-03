@@ -64,7 +64,9 @@ function setLastBootRecovery(kind: BootRecoveryKind): void {
   lastBootRecovery = kind;
 }
 
-const LEGACY_RENDER_DATA_DIR = "/opt/render/project/src/data";
+function legacyRenderDataDir(): string {
+  return process.env.LEGACY_DATA_DIR ?? "/opt/render/project/src/data";
+}
 
 function dataDir(): string {
   return process.env.DATA_DIR ?? path.join(process.cwd(), "data");
@@ -282,12 +284,24 @@ export async function migrateStoreFromLegacyPaths(): Promise<boolean> {
     return false;
   }
 
-  const legacyDirs = [
-    LEGACY_RENDER_DATA_DIR,
-    path.join(process.cwd(), "data"),
-  ].filter((dir, index, all) => all.indexOf(dir) === index && dir !== targetDir);
+  const legacyDirs = [legacyRenderDataDir()];
+  const localLegacy = path.join(process.cwd(), "data");
+  if (
+    targetDir === "/var/data" ||
+    targetDir.startsWith("/var/data/") ||
+    targetDir === legacyRenderDataDir() ||
+    targetDir.startsWith(`${legacyRenderDataDir()}/`)
+  ) {
+    if (localLegacy !== targetDir && !legacyDirs.includes(localLegacy)) {
+      legacyDirs.push(localLegacy);
+    }
+  }
 
-  for (const legacyDir of legacyDirs) {
+  const candidates = legacyDirs.filter(
+    (dir, index, all) => all.indexOf(dir) === index && dir !== targetDir
+  );
+
+  for (const legacyDir of candidates) {
     for (const fileName of ["store.json", "store.json.bak"] as const) {
       const legacyPath = path.join(legacyDir, fileName);
       if (!(await fileExists(legacyPath))) continue;

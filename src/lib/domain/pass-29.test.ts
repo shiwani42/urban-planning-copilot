@@ -23,13 +23,11 @@ const HOUSING_OBJECTIVE =
 describe("pass-29 production hardening", () => {
   let tmpDir: string;
   let previousDataDir: string | undefined;
-  let legacyLocalDir: string;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "upc-pass29-"));
     previousDataDir = process.env.DATA_DIR;
     process.env.DATA_DIR = path.join(tmpDir, "var-data");
-    legacyLocalDir = path.join(process.cwd(), "data");
     resetMigrationAttemptedForTests();
     await resetStore();
   });
@@ -39,8 +37,6 @@ describe("pass-29 production hardening", () => {
     await resetStore();
     process.env.DATA_DIR = previousDataDir;
     await fs.rm(tmpDir, { recursive: true, force: true });
-    await fs.rm(path.join(legacyLocalDir, "store.json"), { force: true }).catch(() => undefined);
-    await fs.rm(path.join(legacyLocalDir, "store.json.bak"), { force: true }).catch(() => undefined);
     resetMigrationAttemptedForTests();
   });
 
@@ -91,25 +87,32 @@ describe("pass-29 production hardening", () => {
     assert.match(health.storeReadError ?? "", /ENOENT/);
   });
 
-  it("migrates store.json from legacy local data/ path into DATA_DIR", async () => {
+  it("migrates store.json from legacy Render data path into DATA_DIR", async () => {
+    const legacyDir = path.join(tmpDir, "legacy-render");
+    const previousLegacy = process.env.LEGACY_DATA_DIR;
+    process.env.LEGACY_DATA_DIR = legacyDir;
     await services.createProject({
       name: "Legacy migration",
       objectiveText: HOUSING_OBJECTIVE,
     });
-    const legacyStore = path.join(legacyLocalDir, "store.json");
-    await fs.mkdir(legacyLocalDir, { recursive: true });
+    const legacyStore = path.join(legacyDir, "store.json");
+    await fs.mkdir(legacyDir, { recursive: true });
     await fs.copyFile(getStorePath(), legacyStore);
     await fs.rm(getStorePath(), { force: true });
     resetMigrationAttemptedForTests();
 
-    const migrated = await migrateStoreFromLegacyPaths();
-    assert.equal(migrated, true);
-    assert.equal(await storeFileExists(), true);
-    assert.equal(getLastBootRecovery(), "migrated-from-legacy-path");
+    try {
+      const migrated = await migrateStoreFromLegacyPaths();
+      assert.equal(migrated, true);
+      assert.equal(await storeFileExists(), true);
+      assert.equal(getLastBootRecovery(), "migrated-from-legacy-path");
 
-    const raw = await fs.readFile(getStorePath(), "utf8");
-    const parsed = JSON.parse(raw) as { projects: unknown[] };
-    assert.ok(Array.isArray(parsed.projects));
-    assert.equal(parsed.projects.length, 1);
+      const raw = await fs.readFile(getStorePath(), "utf8");
+      const parsed = JSON.parse(raw) as { projects: unknown[] };
+      assert.ok(Array.isArray(parsed.projects));
+      assert.equal(parsed.projects.length, 1);
+    } finally {
+      process.env.LEGACY_DATA_DIR = previousLegacy;
+    }
   });
 });
