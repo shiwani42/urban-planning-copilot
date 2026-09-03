@@ -55,7 +55,11 @@ body {
   top: 24px;
   bottom: -8px;
   width: 2px;
-  background-color: #e4e2e1;
+  background-color: #005e7d;
+}
+
+.activity-thread-line {
+  background-color: #005e7d;
 }
 
 .logic-line:last-child::before {

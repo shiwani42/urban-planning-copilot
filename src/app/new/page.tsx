@@ -2,32 +2,26 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { assessObjectiveQuality } from "@/lib/domain/objective";
 import { EXPLORE_CONVERT_KEY, type ExploreConvertDraft } from "@/lib/domain/explore";
+import {
+  NEW_PROJECT_EXAMPLES,
+  buildNewProjectPreview,
+  type NewProjectExample,
+} from "@/lib/new-project-preview";
 
 const DRAFT_KEY = "upc-new-project-draft";
 const LOCAL_DRAFT_KEY = "upc-new-project-draft-local";
 
-const EXAMPLES = [
-  {
-    title: "Housing growth",
-    text: "Identify areas capable of accommodating 2,000 additional homes while maximizing transit access and avoiding flood-risk areas.",
-  },
-  {
-    title: "Emergency shelters",
-    text: "Identify three locations for emergency shelters that maximize population coverage, prioritize accessibility, and avoid flood-risk areas.",
-  },
-  {
-    title: "Schools",
-    text: "Identify neighborhoods where a new school would most improve accessibility while avoiding areas already adequately served.",
-  },
-  {
-    title: "Transit gaps",
-    text: "Find neighborhoods with the largest transit accessibility gaps and identify areas where a new transit stop could improve access.",
-  },
-];
+const DATASET_ICONS: Record<string, string> = {
+  Parcels: "real_estate_agent",
+  Zoning: "architecture",
+  Transit: "directions_bus",
+  "Flood risk": "flood",
+  Population: "groups",
+  Schools: "school",
+};
 
 export default function NewProjectPage() {
   const router = useRouter();
@@ -42,6 +36,7 @@ export default function NewProjectPage() {
     kind: "success" | "error";
     message: string;
   } | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const objectiveRef = useRef<HTMLTextAreaElement>(null);
 
@@ -109,6 +104,7 @@ export default function NewProjectPage() {
   }, [name, objective]);
 
   const objectiveQuality = useMemo(() => assessObjectiveQuality(objective), [objective]);
+  const preview = useMemo(() => buildNewProjectPreview(objective), [objective]);
 
   useEffect(() => {
     const trimmed = name.trim().toLowerCase();
@@ -117,26 +113,13 @@ export default function NewProjectPage() {
     );
   }, [name, existingNames]);
 
-  const preview = useMemo(() => {
-    const lower = objective.toLowerCase();
-    const datasets: string[] = ["Parcels"];
-    const analyses: string[] = ["Candidate filtering", "Ranking"];
-    if (/transit|station|bus|rail/.test(lower)) {
-      datasets.push("Transit");
-      analyses.push("Transit proximity");
-    }
-    if (/flood/.test(lower)) {
-      datasets.push("Flood risk");
-      analyses.push("Flood exclusion");
-    }
-    if (/home|housing|unit/.test(lower)) analyses.push("Capacity estimation");
-    if (/shelter|population|school/.test(lower)) {
-      datasets.push("Population");
-      analyses.push("Coverage / accessibility");
-    }
-    if (/school/.test(lower)) datasets.push("Schools");
-    return { datasets, analyses };
-  }, [objective]);
+  function applyExample(ex: NewProjectExample) {
+    setObjective(ex.text);
+    if (!name.trim()) setName(ex.title);
+    setHighlightId(ex.id);
+    setObjectiveError(null);
+    objectiveRef.current?.focus();
+  }
 
   function handleBack() {
     if (name.trim() || objective.trim()) {
@@ -249,206 +232,277 @@ export default function NewProjectPage() {
     }
   }
 
+  const showPopulated = preview.confidence !== "empty";
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <AppHeader active="projects" />
 
-      <div className="border-b border-outline-variant px-section-padding py-3 flex items-center gap-3">
+      <div className="border-b border-outline-variant px-section-padding py-3 flex items-center gap-3 shrink-0">
         <button
           type="button"
           onClick={handleBack}
-          className="text-body-sm text-primary hover:underline"
+          className="text-body-sm text-primary hover:underline flex items-center gap-1"
         >
-          ← Back to projects
+          <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+          Back to projects
         </button>
-        <h1 className="text-headline-md text-on-surface">New planning workspace</h1>
+        <h1 className="text-headline-md text-on-surface flex-1 text-center">New planning workspace</h1>
+        <div className="w-[120px]" aria-hidden />
       </div>
 
-      <main className="flex-1 grid lg:grid-cols-2 gap-px bg-outline-variant">
-        <section className="bg-surface p-8 overflow-y-auto">
-          {submitStatus && (
-            <div
-              role={submitStatus.kind === "error" ? "alert" : "status"}
-              className={`mb-6 px-4 py-3 rounded border text-body-sm ${
-                submitStatus.kind === "error"
-                  ? "border-error bg-error-container/30 text-error"
-                  : "border-secondary bg-secondary-fixed/20 text-secondary"
-              }`}
-            >
-              {submitStatus.message}
-            </div>
-          )}
-          <div className="mb-6">
-            <label
-              htmlFor="project-name"
-              className="font-mono text-data-label text-on-surface-variant uppercase block mb-2"
-            >
-              Project name
-            </label>
-            <input
-              id="project-name"
-              ref={nameRef}
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (nameError) setNameError(null);
-              }}
-              placeholder="e.g. San Francisco Housing Strategy"
-              aria-invalid={Boolean(nameError)}
-              aria-describedby={
-                nameError
-                  ? "project-name-error"
-                  : duplicateNameWarning
-                    ? "project-name-duplicate"
-                    : undefined
-              }
-              className={`w-full border-b bg-transparent py-2 text-body-lg focus:outline-none ${
-                nameError ? "border-error" : "border-outline focus:border-primary"
-              }`}
-            />
-            {nameError && (
-              <p id="project-name-error" role="alert" className="text-body-sm text-error mt-1">
-                {nameError}
-              </p>
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        <main className="flex-1 bg-surface-container-lowest overflow-y-auto flex flex-col">
+          <div className="max-w-4xl mx-auto w-full px-8 lg:px-12 py-10 flex-1 flex flex-col">
+            {submitStatus && (
+              <div
+                role={submitStatus.kind === "error" ? "alert" : "status"}
+                className={`mb-6 px-4 py-3 rounded border text-body-sm ${
+                  submitStatus.kind === "error"
+                    ? "border-error bg-error-container/30 text-error"
+                    : "border-secondary bg-secondary-fixed/20 text-secondary"
+                }`}
+              >
+                {submitStatus.message}
+              </div>
             )}
-            {!nameError && duplicateNameWarning && (
-              <p id="project-name-duplicate" role="status" className="text-body-sm text-secondary mt-1">
-                A project with this name already exists. Consider a unique name to avoid confusion.
-              </p>
-            )}
-          </div>
 
-          <div className="mb-6">
-            <label
-              htmlFor="planning-objective"
-              className="font-mono text-data-label text-on-surface-variant uppercase block mb-2"
-            >
-              Planning objective
-            </label>
-            <textarea
-              id="planning-objective"
-              ref={objectiveRef}
-              value={objective}
-              onChange={(e) => {
-                setObjective(e.target.value);
-                if (objectiveError) setObjectiveError(null);
-              }}
-              rows={5}
-              placeholder="Describe the planning question in natural language…"
-              aria-invalid={Boolean(objectiveError)}
-              aria-describedby={
-                objectiveError
-                  ? "planning-objective-error"
-                  : objectiveQuality.warning
-                    ? "planning-objective-warning"
-                    : undefined
-              }
-              className={`w-full border rounded bg-surface-container-lowest p-3 text-body-sm focus:outline-none mb-2 ${
-                objectiveError
-                  ? "border-error"
-                  : !objectiveQuality.interpretable && objective.trim()
-                    ? "border-secondary"
-                    : "border-outline-variant focus:border-primary"
-              }`}
-            />
+            <h2 className="text-display text-on-surface mb-8">What are you trying to plan?</h2>
+
+            <div className="mb-4">
+              <label
+                htmlFor="project-name"
+                className="font-mono text-data-label text-on-surface-variant uppercase block mb-2 tracking-wider"
+              >
+                Project name
+              </label>
+              <input
+                id="project-name"
+                ref={nameRef}
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (nameError) setNameError(null);
+                }}
+                placeholder="e.g. San Francisco Housing Strategy"
+                aria-invalid={Boolean(nameError)}
+                className={`w-full border-b bg-transparent py-2 text-body-lg focus:outline-none ${
+                  nameError ? "border-error" : "border-outline focus:border-primary"
+                }`}
+              />
+              {nameError && (
+                <p role="alert" className="text-body-sm text-error mt-1">
+                  {nameError}
+                </p>
+              )}
+              {!nameError && duplicateNameWarning && (
+                <p role="status" className="text-body-sm text-secondary mt-1">
+                  A project with this name already exists. Consider a unique name to avoid confusion.
+                </p>
+              )}
+            </div>
+
+            <div className="relative w-full mb-2 group">
+              <label
+                htmlFor="planning-objective"
+                className="font-mono text-data-label text-on-surface-variant block mb-2 uppercase tracking-wider"
+              >
+                Planning objective
+              </label>
+              <textarea
+                id="planning-objective"
+                ref={objectiveRef}
+                value={objective}
+                onChange={(e) => {
+                  setObjective(e.target.value);
+                  setHighlightId(null);
+                  if (objectiveError) setObjectiveError(null);
+                }}
+                rows={4}
+                placeholder="Example: Identify areas where we could accommodate 2,000 additional homes while improving transit access and avoiding flood-risk areas."
+                aria-invalid={Boolean(objectiveError)}
+                className={`w-full bg-surface border-b-2 focus:outline-none focus:ring-0 font-body-lg text-body-lg text-on-surface placeholder-on-surface-variant/50 resize-none pb-4 transition-colors bg-transparent ${
+                  objectiveError
+                    ? "border-error"
+                    : !objectiveQuality.interpretable && objective.trim()
+                      ? "border-secondary"
+                      : "border-outline-variant focus:border-primary"
+                }`}
+              />
+            </div>
+            <p className="text-body-sm text-on-surface-variant mb-2 flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary text-[16px]">info</span>
+              Start with a question. You can refine criteria with the Copilot after the workspace opens.
+            </p>
             {objectiveError && (
-              <p id="planning-objective-error" role="alert" className="text-body-sm text-error">
+              <p role="alert" className="text-body-sm text-error mb-2">
                 {objectiveError}
               </p>
             )}
             {!objectiveError && objective.trim() && objectiveQuality.warning && (
-              <p
-                id="planning-objective-warning"
-                role="status"
-                className="text-body-sm text-secondary"
-              >
+              <p role="status" className="text-body-sm text-secondary mb-4">
                 {objectiveQuality.warning}
               </p>
             )}
-          </div>
 
-          <h2 className="font-mono text-data-label text-on-surface-variant uppercase mb-3">
-            Example questions
-          </h2>
-          <div className="grid sm:grid-cols-2 gap-3 mb-8">
-            {EXAMPLES.map((ex) => (
-              <button
-                key={ex.title}
-                type="button"
-                onClick={() => {
-                  setObjective(ex.text);
-                  if (!name) setName(ex.title);
-                  setObjectiveError(null);
-                }}
-                className="text-left border border-outline-variant p-3 hover:border-primary transition-colors"
-              >
-                <div className="text-body-sm font-medium mb-1">{ex.title}</div>
-                <div className="text-caption text-on-surface-variant line-clamp-3">{ex.text}</div>
-              </button>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            onClick={create}
-            disabled={busy}
-            className="bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium disabled:opacity-50"
-          >
-            {busy ? "Creating…" : "Create workspace"}
-          </button>
-        </section>
-
-        <section className="bg-surface-container-low p-8">
-          <h2 className="text-headline-md text-on-surface mb-6">What I&apos;ll prepare</h2>
-          <div className="space-y-5">
-            <div>
-              <div className="font-mono text-data-label uppercase text-on-surface mb-1">Objective</div>
-              <p className="text-body-sm text-on-surface-variant">
-                {objective || "Enter a planning question to preview the plan."}
-              </p>
-              {objective.trim() && !objectiveQuality.interpretable && (
-                <p className="text-caption text-secondary mt-2">
-                  Low confidence — revise before creating the workspace.
-                </p>
-              )}
-            </div>
-            <div>
-              <div className="font-mono text-data-label uppercase text-on-surface mb-1">Geography</div>
-              <p className="text-body-sm">San Francisco — Mission & SoMa demo area (open data snapshot)</p>
-            </div>
-            <div>
-              <div className="font-mono text-data-label uppercase text-on-surface mb-2">
-                Potential datasets
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {preview.datasets.map((d) => (
-                  <span
-                    key={d}
-                    className="px-2 py-1 bg-surface border border-outline-variant font-mono text-[11px]"
+            <div className="mt-8">
+              <h3 className="font-mono text-data-label text-on-surface-variant uppercase tracking-wider mb-4">
+                Example questions
+              </h3>
+              <div className="grid sm:grid-cols-2 gap-4">
+                {NEW_PROJECT_EXAMPLES.map((ex) => (
+                  <button
+                    key={ex.id}
+                    type="button"
+                    onClick={() => applyExample(ex)}
+                    onMouseEnter={() => setHighlightId(ex.id)}
+                    onMouseLeave={() => setHighlightId(null)}
+                    className={`text-left p-4 border rounded bg-surface transition-all hover:border-primary ${
+                      highlightId === ex.id ? "border-primary shadow-sm" : "border-outline-variant"
+                    }`}
                   >
-                    {d}
-                  </span>
+                    <h4 className="text-body-lg font-medium text-on-surface mb-1">{ex.title}</h4>
+                    <p className="text-body-sm text-on-surface-variant line-clamp-2">{ex.text}</p>
+                  </button>
                 ))}
               </div>
-            </div>
-            <div>
-              <div className="font-mono text-data-label uppercase text-on-surface mb-2">
-                Potential analyses
-              </div>
-              <ul className="space-y-2">
-                {preview.analyses.map((a) => (
-                  <li key={a} className="text-body-sm flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[16px] text-primary">
-                      analytics
-                    </span>
-                    {a}
-                  </li>
-                ))}
-              </ul>
             </div>
           </div>
-        </section>
-      </main>
+
+          <div className="mt-auto border-t border-outline-variant bg-surface-bright/80 backdrop-blur px-8 lg:px-12 py-6 flex flex-wrap items-center justify-between gap-4 shrink-0">
+            <div>
+              <div className="flex flex-wrap items-center gap-3 mb-2">
+                <button
+                  type="button"
+                  onClick={create}
+                  disabled={busy}
+                  className="bg-primary text-on-primary px-6 py-2.5 rounded text-body-sm font-medium hover:bg-primary-container hover:text-on-primary-container disabled:opacity-50"
+                >
+                  {busy ? "Creating…" : "Create workspace"}
+                </button>
+              </div>
+              <p className="text-caption text-outline flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[14px]">shield_person</span>
+                The Copilot will propose an analysis plan before running consequential analyses. You
+                remain in control.
+              </p>
+            </div>
+          </div>
+        </main>
+
+        <aside className="w-full max-w-[400px] border-l border-outline-variant bg-surface-container-low flex flex-col shrink-0 hidden lg:flex">
+          <div className="p-4 border-b border-outline-variant bg-[#F0EEEB] flex items-center justify-between shrink-0">
+            <h2 className="text-headline-md text-on-surface">What I&apos;ll prepare</h2>
+            <span className="material-symbols-outlined text-outline">analytics</span>
+          </div>
+          <div className="flex-1 p-6 overflow-y-auto space-y-8">
+            {!showPopulated ? (
+              <div className="text-center mt-12 opacity-60">
+                <span className="material-symbols-outlined text-[48px] text-outline mb-4 block">
+                  edit_document
+                </span>
+                <p className="text-body-sm text-on-surface-variant">
+                  Start typing or pick an example to see how the Copilot will parse your objective.
+                </p>
+              </div>
+            ) : (
+              <>
+                <section>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="material-symbols-outlined text-primary-container text-[16px]">
+                      flag
+                    </span>
+                    <h3 className="font-mono text-data-label text-on-surface uppercase">Objective</h3>
+                  </div>
+                  <div
+                    className={`p-3 bg-surface border border-outline-variant rounded text-body-sm text-on-surface ${
+                      preview.parsing ? "border-primary-container/40" : ""
+                    }`}
+                  >
+                    {preview.objectiveLine}
+                  </div>
+                  {preview.confidence === "low" && (
+                    <p className="text-caption text-secondary mt-2">
+                      Low confidence — add targets and constraints before creating.
+                    </p>
+                  )}
+                </section>
+
+                <section>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="material-symbols-outlined text-primary-container text-[16px]">
+                      map
+                    </span>
+                    <h3 className="font-mono text-data-label text-on-surface uppercase">Geography</h3>
+                  </div>
+                  <span className="inline-block px-2 py-1 bg-surface-container-high border border-outline rounded font-mono text-data-label text-on-surface text-[11px]">
+                    {preview.geography}
+                  </span>
+                </section>
+
+                <section>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="material-symbols-outlined text-primary-container text-[16px]">
+                      database
+                    </span>
+                    <h3 className="font-mono text-data-label text-on-surface uppercase">
+                      Potential datasets
+                    </h3>
+                  </div>
+                  <ul className="space-y-2">
+                    {preview.datasets.map((d) => (
+                      <li
+                        key={d}
+                        className={`flex items-center gap-3 p-2 bg-surface border border-outline-variant rounded transition-colors ${
+                          highlightId &&
+                          ((highlightId === "housing" && (d === "Parcels" || d === "Zoning")) ||
+                            (highlightId === "transit" && d === "Transit") ||
+                            (highlightId === "climate" && d === "Flood risk") ||
+                            (highlightId === "schools" && d === "Schools"))
+                            ? "border-primary bg-surface-container"
+                            : ""
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-outline text-[18px]">
+                          {DATASET_ICONS[d] ?? "dataset"}
+                        </span>
+                        <span className="text-body-sm text-on-surface">{d}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+
+                <section>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="material-symbols-outlined text-primary-container text-[16px]">
+                      model_training
+                    </span>
+                    <h3 className="font-mono text-data-label text-on-surface uppercase">
+                      Potential analyses
+                    </h3>
+                  </div>
+                  <div className="space-y-3 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-primary-container">
+                    {preview.analyses.map((step, i) => (
+                      <div key={step.label} className="flex items-start gap-3 relative z-10 pl-6">
+                        <div className="absolute left-[7px] top-[12px] w-2 h-2 rounded bg-primary-container ring-4 ring-surface-container-low" />
+                        <div>
+                          <h4 className="font-mono text-data-label text-on-surface mb-1">
+                            {step.label}
+                          </h4>
+                          <p className="text-caption text-on-surface-variant">{step.detail}</p>
+                          {i === 0 && highlightId === "housing" && (
+                            <span className="sr-only">Highlighted for housing example</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </>
+            )}
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }

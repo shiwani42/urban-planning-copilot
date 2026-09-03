@@ -17,7 +17,7 @@ export function describeWorkspaceOutcome(ctx: WorkspaceOutcomeContext): string {
     (entry) => entry.tool !== "navigate" && entry.tool !== "planner"
   );
   if (latestCopilot?.status === "running") {
-    return latestCopilot.summary || "Copilot is running a planning tool…";
+    return latestCopilot.summary || "Copilot is running a planning tool for this scenario…";
   }
   if (latestCopilot?.status === "error") {
     return latestCopilot.summary || "The last copilot action failed — see Agent activity for details.";
