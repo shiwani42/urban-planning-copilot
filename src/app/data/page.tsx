@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { DatasetMeta } from "@/lib/domain/types";
-import { ProvenanceChip } from "@/components/workspace-hooks";
+import { DatasetProvenanceChips } from "@/components/DatasetProvenanceChips";
 import { StorageBanner } from "@/components/StorageBanner";
+import { ServerWakeBanner } from "@/components/ServerWakeBanner";
+import { datasetFreshnessFlags, parcelReferenceFeatureCount } from "@/lib/dataset-freshness";
 
 function matchesSearch(dataset: DatasetMeta, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -43,6 +45,11 @@ export default function DataPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  const parcelReferenceCount = useMemo(
+    () => parcelReferenceFeatureCount(datasets),
+    [datasets]
+  );
 
   const filteredDatasets = useMemo(
     () => datasets.filter((d) => matchesSearch(d, search)),
@@ -94,6 +101,7 @@ export default function DataPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <ServerWakeBanner />
       <StorageBanner />
       <header className="h-14 border-b border-outline-variant px-section-padding flex items-center gap-6">
         <Link href="/" className="font-display text-[18px] font-semibold text-primary">
@@ -184,7 +192,11 @@ export default function DataPage() {
               )}
             </div>
           ) : (
-            filteredDatasets.map((d) => (
+            filteredDatasets.map((d) => {
+              const freshness = datasetFreshnessFlags(d, {
+                referenceFeatureCount: parcelReferenceCount,
+              });
+              return (
               <div key={d.id} className="border border-outline-variant p-4 bg-surface-container-lowest">
                 <div className="flex flex-wrap justify-between gap-3 mb-3">
                   <div>
@@ -194,8 +206,11 @@ export default function DataPage() {
                       {d.dataVintage ? ` · vintage: ${d.dataVintage}` : ""}
                     </p>
                   </div>
-                  <ProvenanceChip kind="source_data" />
+                  <DatasetProvenanceChips dataset={d} datasets={datasets} />
                 </div>
+                {freshness.cautionSummary && (
+                  <p className="text-caption text-secondary mb-2">{freshness.cautionSummary}</p>
+                )}
                 <p className="text-body-sm mb-2">{d.source}</p>
                 <p className="text-caption mb-3">Coverage: {d.coverage}</p>
                 <ul className="text-caption text-on-surface-variant list-disc pl-4 mb-4">
@@ -228,7 +243,8 @@ export default function DataPage() {
                   </p>
                 )}
               </div>
-            ))
+            );
+            })
           )}
         </div>
       </main>

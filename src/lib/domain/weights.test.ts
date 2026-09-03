@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { rebalanceWeights, applyFloodWeightedWeights } from "./weights";
+import {
+  applyFloodWeightedWeights,
+  rebalanceWeights,
+  weightsEqual,
+} from "./weights";
 
 describe("rebalanceWeights", () => {
   const weights = [
@@ -33,5 +37,21 @@ describe("applyFloodWeightedWeights", () => {
     assert.notEqual(Math.round(next[1].weight * 100), 35);
     const sum = next.reduce((s, w) => s + w.weight, 0);
     assert.ok(Math.abs(sum - 1) < 0.001);
+  });
+});
+
+describe("weightsEqual", () => {
+  const base = [
+    { id: "w1", key: "transit", label: "Transit", weight: 0.55 },
+    { id: "w2", key: "housing", label: "Housing", weight: 0.45 },
+  ];
+
+  it("detects percent-level changes", () => {
+    const changed = [
+      { id: "w1", key: "transit", label: "Transit", weight: 0.54 },
+      { id: "w2", key: "housing", label: "Housing", weight: 0.46 },
+    ];
+    assert.equal(weightsEqual(base, changed), false);
+    assert.equal(weightsEqual(base, base.map((w) => ({ ...w }))), true);
   });
 });

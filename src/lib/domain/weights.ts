@@ -37,6 +37,16 @@ export function weightSumPercent(weights: CriterionWeight[]): number {
   return Math.round(weights.reduce((sum, w) => sum + w.weight, 0) * 100);
 }
 
+export function weightsEqual(a: CriterionWeight[], b: CriterionWeight[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (w, i) =>
+      w.id === b[i].id &&
+      w.key === b[i].key &&
+      Math.round(w.weight * 100) === Math.round(b[i].weight * 100)
+  );
+}
+
 const FLOOD_WEIGHT_KEY_MARKERS = ["flood_resilience", "flood_exposure", "flood"];
 
 export const FLOOD_WEIGHTED_BRANCH_FLOOD_PERCENT = 35;
