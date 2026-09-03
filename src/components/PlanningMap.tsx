@@ -218,7 +218,7 @@ export default function PlanningMap({
     <div className="absolute inset-0">
     <div className="absolute inset-0 z-0 bg-surface-container-low" aria-hidden />
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1001] pointer-events-none">
-        <div className="bg-surface/95 border border-outline-variant px-4 py-1.5 rounded-full shadow-sm text-caption text-on-surface-variant font-medium whitespace-nowrap">
+        <div className="bg-surface/95 border border-outline-variant px-4 py-1.5 rounded shadow-sm text-caption text-on-surface-variant font-medium whitespace-nowrap">
           {workspace.project.geographyLabel}
         </div>
       </div>

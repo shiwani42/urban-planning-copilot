@@ -150,6 +150,14 @@ const TAB_PATHS: Tab[] = [
   "report",
 ];
 
+function constraintChipIcon(label: string, datasetKind?: string): string {
+  const lower = label.toLowerCase();
+  if (datasetKind === "transit" || lower.includes("transit")) return "train";
+  if (datasetKind === "flood" || lower.includes("flood")) return "water_drop";
+  if (lower.includes("zoning") || lower.includes("residential")) return "home";
+  return "rule";
+}
+
 class TabErrorBoundary extends Component<
   { tabName: string; children: ReactNode },
   { error: Error | null }
@@ -1415,15 +1423,18 @@ export default function WorkspaceClient({
 
       <div className="bg-surface border-b border-outline-variant px-section-padding py-2 flex flex-wrap items-center gap-3 text-body-sm shrink-0">
         <div className="flex items-center gap-2 shrink-0 min-w-0">
-          <span className="material-symbols-outlined text-outline text-[18px]">flag</span>
-          <span className="text-on-surface-variant">Objective</span>
+          <span className="font-mono text-[10px] uppercase text-on-surface-variant">
+            Planning objective
+          </span>
           <span className="text-outline-variant">·</span>
           <span className="font-medium truncate">
             {housingTarget
-              ? `${housingTarget.toLocaleString()} ${scenario.objective.targetUnit ?? "homes"}`
+              ? `${housingTarget.toLocaleString()} ${scenario.objective.targetUnit ?? "additional homes"}`
               : scenario.objective.targetValue
                 ? `${scenario.objective.targetValue.toLocaleString()} ${scenario.objective.targetUnit ?? ""}`
-                : scenario.objective.intent.replace(/_/g, " ")}
+                : scenario.objective.rawText.length > 72
+                  ? `${scenario.objective.rawText.slice(0, 69)}…`
+                  : scenario.objective.rawText}
           </span>
         </div>
         <div className="flex gap-2 flex-wrap min-w-0">
@@ -1433,9 +1444,12 @@ export default function WorkspaceClient({
             .map((c) => (
             <span
               key={c.id}
-              className="px-2 py-0.5 border border-outline rounded text-caption text-on-surface-variant whitespace-nowrap"
+              className="px-2 py-0.5 border border-outline rounded text-caption text-on-surface-variant whitespace-nowrap inline-flex items-center gap-1"
               title={c.hard ? "Hard constraint (engine-enforced)" : "Soft constraint"}
             >
+              <span className="material-symbols-outlined text-[14px]">
+                {constraintChipIcon(c.label, c.datasetKind)}
+              </span>
               {c.label}
             </span>
           ))}
@@ -2025,6 +2039,46 @@ export default function WorkspaceClient({
               }}
             />
 
+            {selectedCandidate && !drawingActive && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1002] pointer-events-auto">
+                <div className="glass-panel border border-outline-variant rounded px-2 py-1.5 flex items-center gap-1.5 shadow-sm">
+                  <span className="font-mono text-[11px] text-on-surface px-1">
+                    {selectedCandidate.label}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void selectCandidate(selectedCandidate, "evidence")}
+                    className="glass-panel border border-outline-variant rounded px-2 py-1 text-caption inline-flex items-center gap-1 hover:bg-surface-container"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">visibility</span>
+                    Inspect
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void act("exclude_features", {
+                        scenarioId: scenario.id,
+                        featureIds: selectedCandidate.featureIds,
+                        label: `Exclude ${selectedCandidate.label}`,
+                      })
+                    }
+                    className="glass-panel border border-error/40 rounded px-2 py-1 text-caption text-error inline-flex items-center gap-1 hover:bg-error-container/20"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">block</span>
+                    Exclude
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startDraw("include")}
+                    className="glass-panel border border-primary/40 rounded px-2 py-1 text-caption text-primary inline-flex items-center gap-1 hover:bg-primary-fixed/15"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">add</span>
+                    Include
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div
               className="absolute right-4 top-4 flex flex-col gap-2 z-[1000] max-h-[calc(100%-6rem)] overflow-y-auto overflow-x-visible pr-1"
               onClick={(e) => e.stopPropagation()}
@@ -2220,23 +2274,55 @@ export default function WorkspaceClient({
 
           <aside
             id="agent-activity-panel"
-            className="w-[280px] bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0"
+            className={`w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0 ${
+              runningJob || analysisBusy ? "copilot-running-glow" : ""
+            }`}
           >
             <div className="p-3 border-b border-outline-variant bg-surface-container-low shrink-0">
-              <h2 className="text-body-sm font-medium text-on-surface">Agent activity</h2>
-              <p className="text-caption text-on-surface-variant mt-0.5">
-                Tool runs and answers — progress, errors, and outcomes.
-              </p>
-              <div className="flex items-center gap-2 mt-2">
-                <div
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    runningJob ? "bg-primary animate-pulse" : result ? "bg-outline" : "bg-outline-variant"
-                  }`}
-                />
-                <p className="text-caption text-on-surface-variant line-clamp-2">
-                  {inspectorOutcome}
-                </p>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <h2 className="text-body-sm font-medium text-on-surface flex items-center gap-2">
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${
+                        runningJob || analysisBusy
+                          ? "bg-primary-container animate-pulse"
+                          : "bg-outline-variant"
+                      }`}
+                      aria-hidden
+                    />
+                    AI Copilot
+                  </h2>
+                  <p className="text-caption text-on-surface-variant mt-0.5 line-clamp-2">
+                    {inspectorOutcome}
+                  </p>
+                </div>
+                <span className="material-symbols-outlined text-[18px] text-on-surface-variant shrink-0">
+                  smart_toy
+                </span>
               </div>
+              {(runningJob || analysisBusy) && (
+                <div className="flex gap-2 mt-3">
+                  <button
+                    type="button"
+                    disabled
+                    title="Pause is not available for in-flight analysis in this build"
+                    className="flex-1 border border-outline-variant px-2 py-1 rounded text-caption text-on-surface-variant opacity-50"
+                  >
+                    Pause
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAnalysisBusy(false);
+                      setAnalysisProgress(null);
+                      showToast("Analysis continues on the server — refresh to check status.");
+                    }}
+                    className="flex-1 border border-outline-variant px-2 py-1 rounded text-caption hover:bg-surface-container"
+                  >
+                    Stop tracking
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
@@ -2251,7 +2337,7 @@ export default function WorkspaceClient({
                   <div>
                     <div className="flex justify-between items-end mb-4">
                       <h3 className="font-mono text-data-label text-on-surface-variant uppercase">
-                        Structured Analysis Plan
+                        Agent logic feed
                       </h3>
                       <span className="text-caption text-outline">
                         {scenario.analysisPlan.steps.length} steps
@@ -2295,7 +2381,7 @@ export default function WorkspaceClient({
               {(result || runningJob) && (
                 <div>
                   <h3 className="font-mono text-data-label text-on-surface-variant uppercase mb-3 border-b border-outline-variant pb-2">
-                    Agent activity
+                    Findings
                   </h3>
                   <div className="space-y-3">
                     {workspace.activities
@@ -2387,50 +2473,49 @@ export default function WorkspaceClient({
               topCandidateLabel={topCandidate?.label}
               variant="sidebar"
               showActivityFeed={false}
+              commandOnly
               onToolComplete={async () => {
                 await refresh();
               }}
-              className="shrink-0 max-h-[34vh] border-t border-outline-variant min-h-[180px]"
             />
 
-            {assumptionsOpen && (
-              <div className="shrink-0 border-t border-outline-variant bg-surface-container-low p-4 max-h-[40vh] overflow-y-auto">
-                <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-3">
-                  Analysis assumptions
-                </h3>
-                <p className="text-caption text-on-surface-variant mb-3">
-                  Editing assumptions marks results stale until you recalculate.
-                </p>
-                <div className="space-y-3">
-                  {scenario.assumptions.map((a, i) => (
-                    <label key={a.id} className="block text-body-sm">
-                      <span className="text-on-surface-variant">{a.label}</span>
-                      <input
-                        disabled={!a.editable}
-                        className="ml-2 border-b border-outline bg-transparent font-mono w-24"
-                        value={String(a.value)}
-                        onChange={async (e) => {
-                          const next = [...scenario.assumptions];
-                          const raw = e.target.value;
-                          next[i] = {
-                            ...a,
-                            value: Number.isFinite(Number(raw)) ? Number(raw) : raw,
-                          };
-                          await act("update_assumptions", {
-                            scenarioId: scenario.id,
-                            assumptions: next,
-                          });
-                        }}
-                      />
-                      {a.unit && <span className="text-caption ml-1">{a.unit}</span>}
-                      <p className="text-caption text-on-surface-variant">{a.description}</p>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-
             <div className="p-4 border-t border-outline-variant bg-surface-container-lowest flex flex-col gap-3 shrink-0">
+              {assumptionsOpen && (
+                <div className="border border-outline-variant bg-surface-container-low p-4 max-h-[40vh] overflow-y-auto rounded">
+                  <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-3">
+                    Analysis assumptions
+                  </h3>
+                  <p className="text-caption text-on-surface-variant mb-3">
+                    Editing assumptions marks results stale until you recalculate.
+                  </p>
+                  <div className="space-y-3">
+                    {scenario.assumptions.map((a, i) => (
+                      <label key={a.id} className="block text-body-sm">
+                        <span className="text-on-surface-variant">{a.label}</span>
+                        <input
+                          disabled={!a.editable}
+                          className="ml-2 border-b border-outline bg-transparent font-mono w-24"
+                          value={String(a.value)}
+                          onChange={async (e) => {
+                            const next = [...scenario.assumptions];
+                            const raw = e.target.value;
+                            next[i] = {
+                              ...a,
+                              value: Number.isFinite(Number(raw)) ? Number(raw) : raw,
+                            };
+                            await act("update_assumptions", {
+                              scenarioId: scenario.id,
+                              assumptions: next,
+                            });
+                          }}
+                        />
+                        {a.unit && <span className="text-caption ml-1">{a.unit}</span>}
+                        <p className="text-caption text-on-surface-variant">{a.description}</p>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="font-mono text-[11px] text-on-surface-variant flex justify-center gap-2">
                 <span>{enabledDatasetCount} DATASETS</span>·
                 <span>
@@ -2442,7 +2527,7 @@ export default function WorkspaceClient({
               <button
                 onClick={runAnalysis}
                 disabled={busy || analysisBusy}
-                className="w-full bg-primary hover:bg-on-primary-fixed-variant text-on-primary font-medium py-2 px-4 rounded flex justify-center items-center gap-2 disabled:opacity-50"
+                className="w-full bg-primary-container hover:bg-on-primary-fixed-variant text-on-primary font-medium py-2 px-4 rounded flex justify-center items-center gap-2 disabled:opacity-50"
               >
                 {(analysisBusy || (busy && analysisProgress)) && (
                   <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
@@ -3199,7 +3284,7 @@ function ResultsDrawer(props: {
 
   return (
     <div
-      className={`absolute bottom-0 left-[300px] right-[280px] max-h-[min(52vh,560px)] z-[1010] ${
+      className={`absolute bottom-0 left-sidebar-width right-inspector-width max-h-[min(52vh,560px)] z-[1010] ${
         props.drawingActive ? "pointer-events-none" : "pointer-events-none"
       }`}
     >
@@ -4979,7 +5064,7 @@ function WorkspaceLoadingSkeleton({
             </div>
           </div>
         </div>
-        <aside className="hidden lg:flex w-[300px] shrink-0 border-l border-outline-variant flex-col bg-surface-container-lowest">
+        <aside className="hidden lg:flex w-inspector-width shrink-0 border-l border-outline-variant flex-col bg-surface-container-lowest">
           <div className="p-4 border-b border-outline-variant space-y-2">
             <div className="h-5 w-40 bg-surface-variant rounded animate-pulse" />
             <div className="h-3 w-full bg-surface-variant/70 rounded animate-pulse" />

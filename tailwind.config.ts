@@ -57,8 +57,8 @@ const config: Config = {
       },
       spacing: {
         "panel-gap": "1px",
-        "sidebar-width": "300px",
-        "inspector-width": "300px",
+        "sidebar-width": "360px",
+        "inspector-width": "320px",
         "element-gap": "0.75rem",
         "section-padding": "1.5rem",
       },

@@ -6,15 +6,20 @@ import { useRouter } from "next/navigation";
 import { AppHeader } from "@/components/AppHeader";
 import { StorageBanner } from "@/components/StorageBanner";
 import { PlannerGreeting } from "@/components/PlannerGreeting";
-import { ProvenanceChip } from "@/components/workspace-hooks";
-import { formatRelativeTime, projectRecencyIso } from "@/lib/format";
+import { ActionRequiredKindChip } from "@/components/workspace-hooks";
+import { formatRelativeTime, formatLocaleTime, projectRecencyIso } from "@/lib/format";
+import {
+  analysisStatusPresentation,
+  continueCardActivity,
+  scenarioChipLabel,
+} from "@/lib/home-dashboard";
+import type { RecentActivityRow, RecentAnalysisRow } from "@/lib/domain/types";
 import {
   getRecentProjectHints,
   type RecentProjectHint,
 } from "@/lib/project-recency";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
 import { fetchJsonWithRetry } from "@/lib/fetch-json";
-import { UrbanPlanningCopilot } from "@/components/UrbanPlanningCopilot";
 import { projectStatusLine, projectStatusTone } from "@/lib/project-status";
 import { useStorageStatus } from "@/lib/storage-status";
 
@@ -35,6 +40,7 @@ type Project = {
   shortlistCount?: number;
   scenarioCount?: number;
   scenarioSummary?: string;
+  activeScenarioName?: string;
 };
 
 const SHOW_WEBMCP_UI = process.env.NEXT_PUBLIC_SHOW_WEBMCP_UI === "true";
@@ -104,6 +110,8 @@ export default function HomePage() {
   const router = useRouter();
   const allSectionRef = useRef<HTMLElement>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [recentAnalyses, setRecentAnalyses] = useState<RecentAnalysisRow[]>([]);
+  const [recentActivity, setRecentActivity] = useState<RecentActivityRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -124,10 +132,14 @@ export default function HomePage() {
     try {
       const { data } = await fetchJsonWithRetry<{
         projects?: Project[];
+        recentAnalyses?: RecentAnalysisRow[];
+        recentActivity?: RecentActivityRow[];
         storage?: { status?: string };
         error?: string;
       }>("/api/projects", { cache: "no-store" }, { label: "Load projects" });
       setProjects(data.projects ?? []);
+      setRecentAnalyses(data.recentAnalyses ?? []);
+      setRecentActivity(data.recentActivity ?? []);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(
@@ -224,7 +236,11 @@ export default function HomePage() {
   }, [filteredProjects, continueProjectIds, continueProjects.length, search]);
 
   const actionItems = useMemo(() => {
-    const items: Array<{ label: string; projectId: string; kind: string }> = [];
+    const items: Array<{
+      label: string;
+      projectId: string;
+      kind: "manual" | "data" | "ai";
+    }> = [];
     for (const p of projects) {
       if (!p.actionRequiredLabel) continue;
       items.push({
@@ -410,6 +426,189 @@ export default function HomePage() {
     recoveryChecked &&
     recoverableIds.length === 0;
 
+  function continueActivityStyles(kind: "ai" | "data" | "manual") {
+    switch (kind) {
+      case "ai":
+        return {
+          border: "border-primary/30",
+          accent: "bg-primary-container",
+          icon: "smart_toy",
+          iconClass: "text-primary-container",
+        };
+      case "data":
+        return {
+          border: "border-outline-variant/60",
+          accent: "bg-outline",
+          icon: "database",
+          iconClass: "text-outline",
+        };
+      default:
+        return {
+          border: "border-secondary/40",
+          accent: "bg-secondary-container",
+          icon: "person",
+          iconClass: "text-secondary",
+        };
+    }
+  }
+
+  function renderContinueCard(project: Project) {
+    const activity = continueCardActivity(project);
+    const styles = continueActivityStyles(activity.kind);
+    const subtitle =
+      project.scenarioSummary ??
+      project.geographyLabel ??
+      project.activeScenarioStatus ??
+      "Planning workspace";
+    const chip = scenarioChipLabel(project.activeScenarioName ?? project.approvedScenarioName);
+
+    if (renamingId === project.id) {
+      return (
+        <div
+          key={project.id}
+          className="min-w-[280px] w-[280px] shrink-0 border border-outline-variant bg-surface-container-lowest p-4"
+        >
+          {renderProjectCard(project, "continue")}
+        </div>
+      );
+    }
+
+    return (
+      <article
+        key={project.id}
+        className="min-w-[280px] w-[280px] shrink-0 group relative focus-within:ring-2 focus-within:ring-primary/40 rounded"
+      >
+        <button
+          type="button"
+          onClick={() => openProject(project.id)}
+          disabled={busyId === project.id}
+          className="w-full text-left border border-outline-variant bg-surface-container-lowest hover:border-primary/50 transition-colors overflow-hidden flex flex-col disabled:opacity-50 focus-ring rounded"
+        >
+          <div className="h-[120px] w-full bg-surface-container-low border-b border-outline-variant relative">
+            <div
+              className="absolute inset-0 opacity-90"
+              style={{
+                background:
+                  "linear-gradient(135deg, #e8eef0 0%, #c1e8ff 45%, #f0eded 100%)",
+              }}
+              aria-hidden
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-surface/80 to-transparent" />
+            <span className="absolute top-2 right-2 bg-surface border border-outline-variant px-2 py-0.5 rounded font-mono text-[10px] text-on-surface shadow-sm">
+              {chip}
+            </span>
+            <span className="absolute bottom-2 left-2 font-mono text-[10px] text-on-surface-variant uppercase">
+              {project.geographyLabel}
+            </span>
+          </div>
+          <div className="p-4 flex-1 flex flex-col">
+            <h4 className="text-headline-md text-on-surface mb-1">{project.name}</h4>
+            <p className="text-caption text-on-surface-variant mb-3 line-clamp-2">{subtitle}</p>
+            <div
+              className={`mt-auto bg-surface-container p-3 rounded border ${styles.border} relative overflow-hidden`}
+            >
+              <div className={`absolute left-0 top-0 bottom-0 w-1 ${styles.accent}`} />
+              <div className="flex items-start gap-2 pl-1">
+                <span
+                  className={`material-symbols-outlined text-[16px] mt-0.5 ${styles.iconClass}`}
+                >
+                  {styles.icon}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-caption text-on-surface-variant line-clamp-2">
+                    {activity.text}
+                  </p>
+                  <p className="font-mono text-[10px] text-outline mt-1 uppercase">
+                    {activity.when}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </button>
+        <div className="absolute top-2 left-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity">
+          {renderProjectActions(project)}
+        </div>
+      </article>
+    );
+  }
+
+  function renderRecentAnalysesTable() {
+    return (
+      <section className="mb-10">
+        <div className="flex items-center justify-between mb-4 border-b border-outline-variant pb-2">
+          <h2 className="text-headline-md text-on-surface">Recent Analyses</h2>
+        </div>
+        {recentAnalyses.length === 0 ? (
+          <div className="border border-outline-variant bg-surface-container-lowest p-6 text-body-sm text-on-surface-variant">
+            Run analysis in a workspace to see completed and in-progress runs here.
+          </div>
+        ) : (
+          <div className="border border-outline-variant bg-surface-container-lowest overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[640px]">
+              <thead>
+                <tr className="bg-surface-container-low border-b border-outline-variant font-mono text-data-label text-on-surface-variant">
+                  <th className="py-3 px-4 font-normal">Analysis name</th>
+                  <th className="py-3 px-4 font-normal">Project</th>
+                  <th className="py-3 px-4 font-normal">Status</th>
+                  <th className="py-3 px-4 font-normal hidden sm:table-cell">Result</th>
+                  <th className="py-3 px-4 font-normal text-right">Timestamp</th>
+                </tr>
+              </thead>
+              <tbody className="text-body-sm">
+                {recentAnalyses.map((row) => {
+                  const status = analysisStatusPresentation(row.status);
+                  return (
+                    <tr
+                      key={row.id}
+                      className="border-b border-outline-variant last:border-b-0 hover:bg-surface-container-low transition-colors"
+                    >
+                      <td className="py-3 px-4 text-on-surface font-medium">
+                        <button
+                          type="button"
+                          onClick={() => openProject(row.projectId)}
+                          className="text-left hover:text-primary inline-flex items-center gap-2"
+                        >
+                          <span className="material-symbols-outlined text-[16px] text-outline">
+                            analytics
+                          </span>
+                          {row.analysisName}
+                        </button>
+                      </td>
+                      <td className="py-3 px-4 text-on-surface-variant">{row.projectName}</td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] font-medium ${status.className}`}
+                        >
+                          <span className={status.dotClassName} aria-hidden />
+                          {status.label}
+                        </span>
+                      </td>
+                      <td
+                        className={`py-3 px-4 hidden sm:table-cell ${
+                          row.status === "failed"
+                            ? "text-error"
+                            : row.status === "running"
+                              ? "text-outline italic"
+                              : "text-on-surface-variant"
+                        }`}
+                      >
+                        {row.result}
+                      </td>
+                      <td className="py-3 px-4 text-on-surface-variant text-right font-mono text-[11px]">
+                        {formatLocaleTime(row.timestamp)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    );
+  }
+
   function renderProjectCard(project: Project, variant: "continue" | "all") {
     const isRenaming = renamingId === project.id;
     const statusLine = projectStatusLine(project);
@@ -544,8 +743,7 @@ export default function HomePage() {
               <div className="flex-1 min-w-0">
                 <PlannerGreeting className="text-display text-on-surface mb-2" />
                 <p className="text-body-sm text-on-surface-variant max-w-2xl">
-                  Pick up where you left off or start a new study. Search and{" "}
-                  <span className="text-on-surface">+ New planning project</span> stay in the header.
+                  Continue your planning work or start a new analysis.
                 </p>
               </div>
               <div className="relative w-full sm:w-64 shrink-0">
@@ -600,7 +798,8 @@ export default function HomePage() {
                 {continueProjects.length > 0 && !search.trim() && (
                   <section className="mb-10">
                     <div className="flex items-center justify-between gap-4 mb-4">
-                      <h3 className="font-mono text-data-label uppercase text-on-surface-variant">
+                      <h3 className="font-mono text-data-label uppercase text-on-surface-variant flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[16px]">schedule</span>
                         Continue
                       </h3>
                       {sortedProjects.length > CONTINUE_LIMIT && (
@@ -616,10 +815,12 @@ export default function HomePage() {
                       )}
                     </div>
                     <div className="flex gap-3 overflow-x-auto pb-2 -mx-section-padding px-section-padding scroll-px-section-padding">
-                      {continueProjects.map((p) => renderProjectCard(p, "continue"))}
+                      {continueProjects.map((p) => renderContinueCard(p))}
                     </div>
                   </section>
                 )}
+
+                {!loading && !error && renderRecentAnalysesTable()}
 
                 <section ref={allSectionRef} id="all-projects">
                   <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
@@ -752,33 +953,69 @@ export default function HomePage() {
           </div>
 
           <aside className="w-full lg:w-80 shrink-0 space-y-6">
-            <UrbanPlanningCopilot
-              variant="home"
-              onToolComplete={() => void loadProjects()}
-              className="border border-outline-variant bg-surface-container-lowest min-h-[360px] max-h-[65vh]"
-            />
-
-            {actionItems.length > 0 && (
-              <section className="border border-secondary/40 bg-secondary-fixed/10 p-4">
-                <h3 className="font-mono text-data-label uppercase text-secondary mb-3 flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[16px]">warning</span>
-                  Action required
-                </h3>
+            <section className="border border-outline-variant bg-surface-container-lowest p-5 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-secondary-container to-primary-container" />
+              <h3 className="text-headline-md text-on-surface mb-4 flex items-center gap-2">
+                <span className="material-symbols-outlined text-secondary">priority_high</span>
+                Action required
+              </h3>
+              {actionItems.length === 0 ? (
+                <p className="text-body-sm text-on-surface-variant">
+                  No pending reviews — open a project to run analysis or record decisions.
+                </p>
+              ) : (
                 <ul className="space-y-3">
                   {actionItems.map((item) => (
                     <li key={item.projectId}>
                       <button
+                        type="button"
                         onClick={() => router.push(`/workspace/${item.projectId}`)}
-                        className="text-left w-full text-body-sm hover:text-primary"
+                        className="w-full text-left border border-outline-variant hover:border-primary/40 bg-surface-container-low p-3 rounded transition-colors"
                       >
-                        {item.kind === "ai" && (
-                          <ProvenanceChip kind="copilot_recommendation" />
-                        )}
-                        {item.kind === "manual" && (
-                          <ProvenanceChip kind="planner_decision" />
-                        )}
-                        <span className="block mt-1">{item.label}</span>
+                        <div className="flex gap-3">
+                          <span className="material-symbols-outlined text-[20px] shrink-0 text-on-surface-variant">
+                            {item.kind === "ai"
+                              ? "smart_toy"
+                              : item.kind === "data"
+                                ? "warning"
+                                : "how_to_reg"}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-body-sm font-medium text-on-surface">
+                              {item.label}
+                            </p>
+                            <div className="mt-2">
+                              <ActionRequiredKindChip kind={item.kind} />
+                            </div>
+                          </div>
+                        </div>
                       </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {recentActivity.length > 0 && (
+              <section className="border border-outline-variant bg-surface-container-lowest p-5">
+                <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-4">
+                  Recent system activity
+                </h3>
+                <ul className="space-y-3">
+                  {recentActivity.map((event) => (
+                    <li key={event.id} className="flex gap-3 text-body-sm">
+                      <span
+                        className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${
+                          event.actor === "agent" ? "bg-primary-container" : "border border-outline"
+                        }`}
+                        aria-hidden
+                      />
+                      <div className="min-w-0">
+                        <p className="text-on-surface-variant leading-snug">{event.summary}</p>
+                        <p className="font-mono text-[10px] text-outline mt-1">
+                          {formatLocaleTime(event.timestamp)}
+                        </p>
+                      </div>
                     </li>
                   ))}
                 </ul>

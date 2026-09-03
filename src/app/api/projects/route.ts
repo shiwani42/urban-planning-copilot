@@ -8,13 +8,18 @@ export async function GET() {
     const storage = await collectStorageDiagnostics({ includeProjectCount: true });
 
     if (!storage.storeExists) {
-      return { projects: [], storage };
+      return {
+        projects: [],
+        recentAnalyses: [],
+        recentActivity: [],
+        storage,
+      };
     }
 
-    const projects = await services.listProjects();
+    const dashboard = await services.listHomeDashboard();
     return {
-      projects,
-      storage: { ...storage, projectCount: projects.length },
+      ...dashboard,
+      storage: { ...storage, projectCount: dashboard.projects.length },
     };
   });
 }
