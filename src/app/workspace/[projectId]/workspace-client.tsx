@@ -297,7 +297,6 @@ export default function WorkspaceClient({
   const [resultsFilter, setResultsFilter] = useState<ResultsFilterState>(DEFAULT_RESULTS_FILTER);
   const weightsPanelRef = useRef<HTMLElement | null>(null);
   const compareTabEnteredRef = useRef(false);
-  const scenarioDeepLinkRef = useRef<string | null>(null);
 
   const applyCompareFromPayload = useCallback(
     (ids: string[], data: CompareScenariosToolPayload) => {
@@ -456,6 +455,37 @@ export default function WorkspaceClient({
     candidates,
     scenario?.id,
   ]);
+
+  const copilotExclusionContext = useMemo(() => {
+    if (drawMode === "exclude" && drawClicks.length >= 3 && scenario) {
+      return {
+        exclusionRing: drawClicks,
+        exclusionLabel: uniqueGeographicLabel(
+          scenario.geographicSelections,
+          "exclusion",
+          finishLabelDraft || undefined
+        ),
+        selectedParcel: null,
+      };
+    }
+    if (selectedCandidate && drawMode === "none") {
+      return {
+        exclusionRing: null,
+        exclusionLabel: null,
+        selectedParcel: {
+          featureIds: selectedCandidate.featureIds,
+          label: selectedCandidate.label,
+        },
+      };
+    }
+    return { exclusionRing: null, exclusionLabel: null, selectedParcel: null };
+  }, [
+    drawMode,
+    drawClicks,
+    finishLabelDraft,
+    scenario,
+    selectedCandidate,
+  ]);
   const decisionReason = scenario ? (decisionReasonByScenario[scenario.id] ?? "") : "";
   const runningJob = workspace?.analysisJobs.find(
     (j) => j.scenarioId === scenario?.id && j.status === "running"
@@ -565,9 +595,11 @@ export default function WorkspaceClient({
   }, [toast]);
 
   useEffect(() => {
-    setWebMcpBrowserContext({ projectId, scenarioId: scenario?.id });
+    const activeId = workspace?.project.activeScenarioId ?? scenario?.id;
+    if (!activeId) return;
+    setWebMcpBrowserContext({ projectId, scenarioId: activeId });
     return () => clearWebMcpBrowserContext(["projectId", "scenarioId"]);
-  }, [projectId, scenario?.id]);
+  }, [projectId, workspace?.project.activeScenarioId, scenario?.id]);
 
   useEffect(() => {
     setPendingPlannerActions(listPendingPlannerActions(projectId));
@@ -581,23 +613,30 @@ export default function WorkspaceClient({
   useEffect(() => {
     const targetId = searchParams.get("scenarioId");
     if (!targetId || !workspace) return;
-    if (scenarioDeepLinkRef.current === targetId) return;
     if (!workspace.scenarios.some((s) => s.id === targetId)) return;
-    if (workspace.project.activeScenarioId === targetId) {
-      scenarioDeepLinkRef.current = targetId;
-      return;
-    }
-    scenarioDeepLinkRef.current = targetId;
-    void act("activate_scenario", { scenarioId: targetId }).catch(() => {
-      scenarioDeepLinkRef.current = null;
-    });
-  }, [searchParams, workspace, act]);
+    if (workspace.project.activeScenarioId === targetId) return;
+    void act("activate_scenario", { scenarioId: targetId }).catch(() => undefined);
+  }, [searchParams, workspace?.project.activeScenarioId, workspace?.scenarios, act]);
 
   useEffect(() => {
     return onWorkspaceMutated((detail) => {
       if (detail.projectId && detail.projectId !== projectId) return;
+      if (detail.activeScenarioId) {
+        setWebMcpBrowserContext({ projectId, scenarioId: detail.activeScenarioId });
+      }
       if (detail.criteriaStale) setCriteriaStaleHint(true);
       if (detail.resumeNote?.match(/stale|recalculate/i)) setCriteriaStaleHint(true);
+      if (
+        detail.tool === "exclude_map_area" ||
+        detail.tool === "exclude_features"
+      ) {
+        setDrawMode("none");
+        setDrawClicks([]);
+        setEditingSelectionId(null);
+        setShowFinishLabel(false);
+        setFinishLabelDraft("");
+        setCriteriaStaleHint(true);
+      }
       if (detail.openTab === "compare" && detail.compareScenarioIds && detail.compareScenarioIds.length >= 2) {
         compareTabEnteredRef.current = true;
         const ids = detail.compareScenarioIds;
@@ -2556,6 +2595,9 @@ export default function WorkspaceClient({
               analyzedScenarioIds={analyzedScenarios.map((s) => s.id)}
               topCandidateId={topCandidate?.id}
               topCandidateLabel={topCandidate?.label}
+              exclusionRing={copilotExclusionContext.exclusionRing}
+              exclusionLabel={copilotExclusionContext.exclusionLabel}
+              selectedParcel={copilotExclusionContext.selectedParcel}
               variant="sidebar"
               showActivityFeed={false}
               commandOnly

@@ -311,6 +311,27 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
   },
   {
     layer: "action",
+    name: "exclude_features",
+    description:
+      "Exclude selected map parcels by feature id (same as map parcel Exclude toolbar); marks results stale.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
+        featureIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Parcel feature ids from map selection",
+        },
+        label: { type: "string", description: "Constraint label shown in activity" },
+      },
+      required: ["featureIds"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
     name: "exclude_map_area",
     description: "Add a human/agent geographic exclusion polygon; marks results stale.",
     inputSchema: {
