@@ -9,6 +9,7 @@ import {
   EXPLORE_CONVERT_KEY,
   EXPLORE_SESSION_KEY,
   buildExploreConvertDraft,
+  exploreObjectiveTextForProject,
   type ExploreAnalysisType,
   type ExploreCandidateRow,
   type ExploreInvestigationResult,
@@ -204,20 +205,51 @@ export default function ExplorePage() {
     setConvertBusy(true);
     try {
       const draft = buildExploreConvertDraft(result);
-      sessionStorage.setItem(EXPLORE_CONVERT_KEY, JSON.stringify(draft));
-      sessionStorage.setItem(
-        "upc-new-project-draft",
-        JSON.stringify({
+      const objectiveText = exploreObjectiveTextForProject(draft);
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           name: draft.suggestedName,
-          objective: draft.objective,
-        })
-      );
-      await router.push("/new?from=explore");
+          objectiveText,
+          geographyLabel: "San Francisco — Mission & SoMa demo area",
+          mode: "planning",
+          fromExplore: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message =
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to create planning workspace from Explore findings.";
+        throw new Error(message);
+      }
+      const projectId = data?.project?.id as string | undefined;
+      if (!projectId) {
+        throw new Error(
+          "Workspace was created but the server response did not include a project id."
+        );
+      }
+      const verify = await fetch(`/api/projects/${projectId}`, { cache: "no-store" });
+      if (!verify.ok) {
+        throw new Error(
+          `Workspace was not saved on the server (project ${projectId} not found). Retry when storage is healthy.`
+        );
+      }
+      try {
+        sessionStorage.removeItem(EXPLORE_CONVERT_KEY);
+        sessionStorage.removeItem("upc-new-project-draft");
+        sessionStorage.removeItem(EXPLORE_SESSION_KEY);
+      } catch {
+        /* ignore */
+      }
+      await router.push(`/workspace/${projectId}`);
     } catch (e) {
       const message =
         e instanceof Error
           ? e.message
-          : "Could not open the planning workspace form. Check browser storage settings.";
+          : "Could not create a planning workspace from these findings.";
       setConvertError(message);
       setConvertBusy(false);
     }
@@ -372,7 +404,7 @@ export default function ExplorePage() {
                     disabled={convertBusy}
                     className="text-body-sm text-primary-container hover:underline disabled:opacity-50"
                   >
-                    {convertBusy ? "Opening workspace form…" : "Convert to planning project →"}
+                    {convertBusy ? "Creating workspace…" : "Convert to planning project →"}
                   </button>
                 ) : (
                   <span className="text-caption text-on-surface-variant">

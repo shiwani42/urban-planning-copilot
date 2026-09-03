@@ -524,7 +524,7 @@ export function summarizeToolResult(
         payload.metricsIdentical ? " — ranking metrics are identical across branches." : "."
       }`;
     }
-    return "Scenario comparison ready — open the Compare tab for the full table.";
+    return "Opened Compare tab with scenario metrics.";
   }
 
   if (tool === "exclude_map_area" && result && typeof result === "object") {

@@ -1,5 +1,27 @@
+import type {
+  CompareTableRow,
+  HousingTargetProgress,
+  ScenarioInputsDiff,
+} from "@/lib/domain/compare";
+import type { WorkspaceTab } from "@/lib/workspace-tabs";
+
 /** Browser event bus so WebMCP tool mutations refresh open workspace UI without reload. */
 export const WORKSPACE_MUTATED_EVENT = "upc:workspace-mutated";
+
+export type CompareScenariosToolPayload = {
+  status?: "ready" | "incomplete" | string;
+  message?: string;
+  comparison?: Array<Record<string, string | number>> | null;
+  tableRows?: CompareTableRow[] | null;
+  inputsDiff?: ScenarioInputsDiff | null;
+  housingTargets?: Array<{
+    scenarioId: string;
+    name: string;
+    progress: HousingTargetProgress | null;
+  }> | null;
+  metricsIdentical?: boolean;
+  insights?: Array<{ heading: string; body: string }> | null;
+};
 
 export type WorkspaceMutatedDetail = {
   projectId?: string;
@@ -7,6 +29,12 @@ export type WorkspaceMutatedDetail = {
   resumeNote?: string;
   criteriaStale?: boolean;
   mapViewport?: { center: [number, number]; zoom: number };
+  /** Open a workspace tab after a read-only planner tool (e.g. compare). */
+  openTab?: WorkspaceTab;
+  compareScenarioIds?: string[];
+  comparePayload?: CompareScenariosToolPayload;
+  /** Active scenario after branch creation — keeps copilot context aligned. */
+  activeScenarioId?: string;
 };
 
 export function notifyWorkspaceMutated(detail?: WorkspaceMutatedDetail): void {
@@ -48,6 +76,33 @@ export const WORKSPACE_MUTATING_TOOLS = new Set([
   "generate_report",
 ]);
 
+export function compareScenariosToolDetail(
+  args: Record<string, unknown>,
+  result: unknown,
+  projectId?: string
+): WorkspaceMutatedDetail | null {
+  if (!Array.isArray(args.scenarioIds) || args.scenarioIds.length < 2) return null;
+  const scenarioIds = args.scenarioIds.filter((id): id is string => typeof id === "string");
+  if (scenarioIds.length < 2) return null;
+  const payload = (result ?? {}) as CompareScenariosToolPayload;
+  return {
+    tool: "compare_scenarios",
+    projectId:
+      projectId ??
+      (typeof args.projectId === "string" ? args.projectId : undefined) ??
+      (result &&
+      typeof result === "object" &&
+      result !== null &&
+      "projectId" in result &&
+      typeof (result as { projectId?: unknown }).projectId === "string"
+        ? (result as { projectId: string }).projectId
+        : undefined),
+    openTab: "compare",
+    compareScenarioIds: scenarioIds,
+    comparePayload: payload,
+  };
+}
+
 export function mutationDetailFromToolResult(
   name: string,
   args: Record<string, unknown>,
@@ -70,18 +125,20 @@ export function mutationDetailFromToolResult(
   const criteriaStale =
     payload.criteriaStale === true ||
     (typeof note === "string" && /stale|recalculate/i.test(note));
-  return {
+  const resolvedProjectId =
+    projectId ??
+    (typeof args.projectId === "string" ? args.projectId : undefined) ??
+    (result &&
+    typeof result === "object" &&
+    result !== null &&
+    "projectId" in result &&
+    typeof (result as { projectId?: unknown }).projectId === "string"
+      ? (result as { projectId: string }).projectId
+      : undefined);
+
+  const detail: WorkspaceMutatedDetail = {
     tool: name,
-    projectId:
-      projectId ??
-      (typeof args.projectId === "string" ? args.projectId : undefined) ??
-      (result &&
-      typeof result === "object" &&
-      result !== null &&
-      "projectId" in result &&
-      typeof (result as { projectId?: unknown }).projectId === "string"
-        ? (result as { projectId: string }).projectId
-        : undefined),
+    projectId: resolvedProjectId,
     resumeNote: note,
     criteriaStale,
     mapViewport:
@@ -94,4 +151,28 @@ export function mutationDetailFromToolResult(
           }
         : undefined,
   };
+
+  if (name === "create_scenario_branch") {
+    const activeScenarioId = (result as { activeScenarioId?: string } | null)?.activeScenarioId;
+    if (activeScenarioId) {
+      detail.activeScenarioId = activeScenarioId;
+    }
+  }
+
+  return detail;
+}
+
+export function workspaceToolEventDetail(
+  name: string,
+  args: Record<string, unknown>,
+  result: unknown,
+  projectId?: string
+): WorkspaceMutatedDetail | null {
+  const mutation = mutationDetailFromToolResult(name, args, result, projectId);
+  const compare =
+    name === "compare_scenarios"
+      ? compareScenariosToolDetail(args, result, projectId ?? mutation?.projectId)
+      : null;
+  if (!mutation && !compare) return null;
+  return { ...(mutation ?? {}), ...(compare ?? {}) };
 }

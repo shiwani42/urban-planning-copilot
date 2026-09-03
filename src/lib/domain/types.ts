@@ -450,6 +450,8 @@ export interface ProjectListItem {
   scenarioSummary?: string;
   /** Active scenario branch name for Continue cards. */
   activeScenarioName?: string;
+  /** Active scenario id for deep links from home. */
+  activeScenarioId?: string;
 }
 
 export interface RecentAnalysisRow {
@@ -457,6 +459,7 @@ export interface RecentAnalysisRow {
   analysisName: string;
   projectId: string;
   projectName: string;
+  scenarioId: string;
   status: "completed" | "running" | "failed" | "stale";
   result: string;
   timestamp: string;

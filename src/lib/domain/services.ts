@@ -411,6 +411,7 @@ export function listRecentAnalyses(store: AppStore, limit = 8): RecentAnalysisRo
         analysisName: job.currentStep ?? "Analysis run",
         projectId: project.id,
         projectName: project.name,
+        scenarioId: scenario.id,
         status: "running",
         result: "Processing…",
         timestamp: job.startedAt,
@@ -427,6 +428,7 @@ export function listRecentAnalyses(store: AppStore, limit = 8): RecentAnalysisRo
           analysisName: "Analysis run",
           projectId: project.id,
           projectName: project.name,
+          scenarioId: scenario.id,
           status: "failed",
           result: job.error ?? "Data missing",
           timestamp: job.completedAt ?? job.startedAt,
@@ -448,6 +450,7 @@ export function listRecentAnalyses(store: AppStore, limit = 8): RecentAnalysisRo
       analysisName: analysisDisplayName(scenario, result),
       projectId: project.id,
       projectName: project.name,
+      scenarioId: scenario.id,
       status,
       result: resultLabelForRow(result),
       timestamp: result.completedAt ?? result.createdAt,
@@ -573,6 +576,7 @@ export async function listProjects(): Promise<ProjectListItem[]> {
         activeScenarioStatus: summary.activeScenarioStatus,
         activeScenarioNote: summary.activeScenarioNote,
         activeScenarioName: active?.name,
+        activeScenarioId: active?.id,
         actionRequiredLabel: summary.actionRequiredLabel,
         actionRequiredKind: summary.actionRequiredKind,
         shortlistCount: summary.shortlistCount,
@@ -609,6 +613,7 @@ export async function listHomeDashboard(): Promise<{
         activeScenarioStatus: summary.activeScenarioStatus,
         activeScenarioNote: summary.activeScenarioNote,
         activeScenarioName: active?.name,
+        activeScenarioId: active?.id,
         actionRequiredLabel: summary.actionRequiredLabel,
         actionRequiredKind: summary.actionRequiredKind,
         shortlistCount: summary.shortlistCount,
@@ -751,6 +756,7 @@ export async function createProject(input: {
   objectiveText: string;
   geographyLabel?: string;
   mode?: "explore" | "planning";
+  fromExplore?: boolean;
 }): Promise<WorkspaceSnapshot & { duplicateNameWarning?: boolean }> {
   const trimmedObjective = assertCreateObjectiveText(input.objectiveText);
   const trimmedName = assertProjectName(input.name);
@@ -806,6 +812,18 @@ export async function createProject(input: {
       summary: `Created project "${project.name}"`,
       inputs: { objective: input.objectiveText },
     });
+    if (input.fromExplore) {
+      project.resumeNote =
+        "Converted from Explore scratch findings — review the analysis plan, then run analysis.";
+      logActivity(store, {
+        projectId: project.id,
+        scenarioId: scenario.id,
+        actor: "human",
+        category: "objective",
+        action: "convert_from_explore",
+        summary: "Converted scratch Explore findings into this planning workspace",
+      });
+    }
     logActivity(store, {
       projectId: project.id,
       scenarioId: scenario.id,

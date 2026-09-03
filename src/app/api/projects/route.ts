@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
       objectiveText: body.objectiveText as string,
       geographyLabel: body.geographyLabel as string | undefined,
       mode: body.mode as "explore" | "planning" | undefined,
+      fromExplore: body.fromExplore === true,
     })
   );
 }

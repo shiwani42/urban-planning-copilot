@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppHeader } from "@/components/AppHeader";
 import { assessObjectiveQuality } from "@/lib/domain/objective";
-import { EXPLORE_CONVERT_KEY, type ExploreConvertDraft } from "@/lib/domain/explore";
+import { EXPLORE_CONVERT_KEY, exploreObjectiveTextForProject, type ExploreConvertDraft } from "@/lib/domain/explore";
 import {
   NEW_PROJECT_EXAMPLES,
   buildNewProjectPreview,
@@ -67,10 +67,7 @@ export default function NewProjectPage() {
         const explore = JSON.parse(exploreRaw) as ExploreConvertDraft;
         if (explore.suggestedName) setName(explore.suggestedName);
         if (explore.objective) {
-          const findingsNote = explore.summary
-            ? `\n\n--- Scratch findings (${explore.analysisType.replace(/_/g, " ")}, ${explore.totalCandidates} areas) ---\n${explore.summary}`
-            : "";
-          setObjective(explore.objective + findingsNote);
+          setObjective(exploreObjectiveTextForProject(explore));
         }
       }
     } catch {
