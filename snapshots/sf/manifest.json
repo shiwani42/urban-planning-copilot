@@ -36,21 +36,21 @@
       "kind": "parcels",
       "featureCount": 2365,
       "vintage": "2026-04-23T03:55:00.000",
-      "path": "/workspace/data/sf/parcels.geojson.gz",
+      "path": "snapshots/sf/parcels.geojson.gz",
       "bytes": 1233519
     },
     "transit": {
       "kind": "transit",
       "featureCount": 103,
       "vintage": "2026-04-08T12:59:47.000",
-      "path": "data/sf/transit.geojson.gz",
+      "path": "snapshots/sf/transit.geojson.gz",
       "bytes": 21227
     },
     "flood": {
       "kind": "flood",
       "featureCount": 1,
       "vintage": "2022-07-01T00:00:00.000",
-      "path": "/workspace/data/sf/flood.geojson.gz",
+      "path": "snapshots/sf/flood.geojson.gz",
       "bytes": 3477
     }
   }

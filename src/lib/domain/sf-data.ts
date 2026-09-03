@@ -7,10 +7,11 @@ import path from "path";
 import type { DatasetMeta } from "./types";
 import { generateSyntheticCity } from "./seed";
 import { GEOGRAPHY_LABEL, STUDY_BOUNDS } from "./study-bounds";
+import { getSfSnapshotsDir } from "./snapshot-paths";
 
 export { GEOGRAPHY_LABEL, STUDY_BOUNDS };
 
-const SF_DIR = path.join(process.cwd(), "data", "sf");
+const SF_DIR = getSfSnapshotsDir();
 
 const SOURCE_URLS = {
   parcels: "https://data.sfgov.org/d/acdm-wktn",

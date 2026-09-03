@@ -12,11 +12,11 @@ Configure an optional API key via `NEXT_PUBLIC_CARTO_API_KEY` (free at [carto.co
 
 ## City open data (PDDL snapshots)
 
-Refresh with `npm run ingest:sf`. Outputs live in `data/sf/` (gzipped GeoJSON).
+Refresh with `npm run ingest:sf`. Outputs live in `snapshots/sf/` (gzipped GeoJSON). Runtime workspace catalog (`store.json`) lives only in `DATA_DIR` (e.g. `/var/data` on Render).
 
 | Dataset | Source | License | Vintage (snapshot) |
 |---------|--------|---------|-------------------|
-| Active parcels | [data.sfgov.org/d/acdm-wktn](https://data.sfgov.org/d/acdm-wktn) | PDDL | See `data/sf/manifest.json` (`data_as_of` from source) |
+| Active parcels | [data.sfgov.org/d/acdm-wktn](https://data.sfgov.org/d/acdm-wktn) | PDDL | See `snapshots/sf/manifest.json` (`data_as_of` from source) |
 | Muni stops | [Muni Stops (i28k-bkz6)](https://data.sfgov.org/Transportation/Muni-Stops/i28k-bkz6) | PDDL | See manifest |
 | 100-year storm flood | [SFPUC flood risk (jzu3-4yxp)](https://data.sfgov.org/Public-Safety/100-Year-Storm-Flood-Risk-Zone-July-2022-/jzu3-4yxp) | PDDL | July 2022 model (see manifest) |
 

@@ -55,8 +55,17 @@ export function getLastBootRecovery(): BootRecoveryKind {
   return lastBootRecovery;
 }
 
+export function resetMigrationAttemptedForTests(): void {
+  migrationAttempted = false;
+  lastBootRecovery = "normal";
+}
+
 function setLastBootRecovery(kind: BootRecoveryKind): void {
   lastBootRecovery = kind;
+}
+
+function legacyRenderDataDir(): string {
+  return process.env.LEGACY_DATA_DIR ?? "/opt/render/project/src/data";
 }
 
 function dataDir(): string {
@@ -122,6 +131,7 @@ let memoryDataDir: string | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 let updateChain: Promise<AppStore> = Promise.resolve(null as unknown as AppStore);
 let persistFailureInjector: (() => void) | null = null;
+let migrationAttempted = false;
 
 export class StorePersistError extends Error {
   readonly code = "STORE_PERSIST_FAILED" as const;
@@ -137,6 +147,27 @@ export class StorePersistError extends Error {
 /** Test hook — throw before renaming tmp → store.json */
 export function setPersistFailureInjector(fn: (() => void) | null): void {
   persistFailureInjector = fn;
+}
+
+export async function storeFileExists(): Promise<boolean> {
+  return fileExists(storePath());
+}
+
+/** Read project count from disk without bootstrapping or persisting an empty store. */
+export async function peekStoreProjectCount(): Promise<number> {
+  const pathToStore = storePath();
+  if (!(await fileExists(pathToStore))) {
+    return 0;
+  }
+  const raw = await fs.readFile(pathToStore, "utf8");
+  if (!raw.trim()) {
+    throw new Error("store.json is empty");
+  }
+  const parsed = JSON.parse(raw) as { projects?: unknown };
+  if (!Array.isArray(parsed.projects)) {
+    throw new Error("Refusing to read store.json: projects field is not an array");
+  }
+  return parsed.projects.length;
 }
 
 async function fileExists(file: string): Promise<boolean> {
@@ -240,6 +271,60 @@ async function parseStoreFile(raw: string, source: string): Promise<AppStore> {
     );
   }
   return normalized;
+}
+
+/**
+ * Copy store.json (or .bak) from the legacy Render mount into DATA_DIR when the
+ * new path is empty. Old files are kept until the copy parses successfully.
+ */
+export async function migrateStoreFromLegacyPaths(): Promise<boolean> {
+  const targetDir = dataDir();
+  const targetStore = path.join(targetDir, "store.json");
+  if (await fileExists(targetStore)) {
+    return false;
+  }
+
+  const legacyDirs = [legacyRenderDataDir()];
+  const localLegacy = path.join(process.cwd(), "data");
+  if (
+    targetDir === "/var/data" ||
+    targetDir.startsWith("/var/data/") ||
+    targetDir === legacyRenderDataDir() ||
+    targetDir.startsWith(`${legacyRenderDataDir()}/`)
+  ) {
+    if (localLegacy !== targetDir && !legacyDirs.includes(localLegacy)) {
+      legacyDirs.push(localLegacy);
+    }
+  }
+
+  const candidates = legacyDirs.filter(
+    (dir, index, all) => all.indexOf(dir) === index && dir !== targetDir
+  );
+
+  for (const legacyDir of candidates) {
+    for (const fileName of ["store.json", "store.json.bak"] as const) {
+      const legacyPath = path.join(legacyDir, fileName);
+      if (!(await fileExists(legacyPath))) continue;
+      try {
+        const raw = await fs.readFile(legacyPath, "utf8");
+        if (!raw.trim()) continue;
+        await parseStoreFile(raw, legacyPath);
+        await fs.mkdir(targetDir, { recursive: true });
+        const destName =
+          fileName === "store.json.bak" ? "store.json.bak" : "store.json";
+        const destPath = path.join(targetDir, destName);
+        await fs.copyFile(legacyPath, destPath);
+        if (destName === "store.json") {
+          setLastBootRecovery("migrated-from-legacy-path");
+          return true;
+        }
+      } catch {
+        /* try next legacy candidate */
+      }
+    }
+  }
+
+  return false;
 }
 
 async function upgradeCatalog(store: AppStore): Promise<boolean> {
@@ -365,9 +450,16 @@ async function restoreStoreFromBackup(
   return store;
 }
 
+async function ensureMigrated(): Promise<void> {
+  if (migrationAttempted) return;
+  migrationAttempted = true;
+  await migrateStoreFromLegacyPaths();
+}
+
 async function readStoreFromDisk(): Promise<AppStore> {
   const dir = dataDir();
-  await verifyWritableDataDir(dir);
+  await ensureMigrated();
+
   const pathToStore = storePath();
   const pathToBackup = backupPath();
 
@@ -397,6 +489,7 @@ async function readStoreFromDisk(): Promise<AppStore> {
           /* fall through */
         }
       }
+      setLastBootRecovery("empty-after-missing-file");
       markStorageDegraded(
         dir,
         primaryErr instanceof Error ? primaryErr.message : String(primaryErr)
@@ -619,6 +712,7 @@ export async function updateStore(
 export async function resetStore(): Promise<AppStore> {
   memory = null;
   memoryDataDir = null;
+  migrationAttempted = false;
   resetWriteQueues();
   setLastBootRecovery("first-run");
   const store = await buildDefaultStore();
@@ -644,7 +738,17 @@ export async function refreshStorageHealthProbe(): Promise<StorageHealth> {
   const dir = dataDir();
   try {
     await verifyWritableDataDir(dir);
-    markStorageHealthy(dir, undefined, { writeProbeOk: true });
+    await ensureMigrated();
+    const exists = await storeFileExists();
+    if (!exists) {
+      setLastBootRecovery("empty-after-missing-file");
+      markStorageDegraded(dir, "store.json missing", {
+        writeProbeOk: true,
+        lastBoot: "empty-after-missing-file",
+      });
+    } else {
+      markStorageHealthy(dir, undefined, { writeProbeOk: true });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     markStorageDegraded(dir, `Write probe failed: ${message}`, { writeProbeOk: false });
