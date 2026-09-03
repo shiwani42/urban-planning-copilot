@@ -15,6 +15,7 @@ import {
   scenarioChipLabel,
 } from "@/lib/home-dashboard";
 import { pickContinueProjects } from "@/lib/home-continue";
+import { projectMapThumbSrc } from "@/lib/project-map-thumb";
 import type { RecentActivityRow, RecentAnalysisRow } from "@/lib/domain/types";
 import {
   getRecentProjectHints,
@@ -519,15 +520,12 @@ export default function HomePage() {
           className="w-full text-left border border-outline-variant bg-surface-container-lowest hover:border-primary/50 transition-colors overflow-hidden flex flex-col disabled:opacity-50 focus-ring rounded"
         >
           <div className="h-[120px] w-full bg-surface-container-low border-b border-outline-variant relative">
-            <div
-              className="absolute inset-0 opacity-90"
-              style={{
-                background:
-                  "linear-gradient(135deg, #e8eef0 0%, #c1e8ff 45%, #f0eded 100%)",
-              }}
-              aria-hidden
+            <img
+              src={projectMapThumbSrc(project.geographyLabel)}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-surface/80 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-surface/85 via-surface/15 to-transparent" />
             <span className="absolute top-2 right-2 bg-surface border border-outline-variant px-2 py-0.5 rounded font-mono text-[10px] text-on-surface shadow-sm">
               {chip}
             </span>

@@ -7,6 +7,7 @@ Urban Planning Copilot serves **checked-in snapshots** of San Francisco open dat
 | Layer | Provider | License / terms |
 |-------|----------|-----------------|
 | Voyager (default) | CARTO + OpenStreetMap | © OpenStreetMap contributors, © CARTO — [Carto attributions](https://carto.com/attributions) |
+| Project card thumbnail | Esri World Street Map (checked-in still of Mission/SoMa) | © Esri, © OpenStreetMap contributors — static file in `public/maps/`, not loaded from a tile CDN at runtime |
 
 Configure an optional API key via `NEXT_PUBLIC_CARTO_API_KEY` (free at [carto.com/basemaps/apikey](https://carto.com/basemaps/apikey)). Without a key, tiles are loaded from the Carto public CDN — not `tile.openstreetmap.org`.
 
