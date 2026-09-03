@@ -59,7 +59,7 @@ type Project = {
 };
 
 const SHOW_WEBMCP_UI = process.env.NEXT_PUBLIC_SHOW_WEBMCP_UI === "true";
-const CONTINUE_LIMIT = 1;
+const CONTINUE_LIMIT = 3;
 
 function matchesSearch(project: Project, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -90,20 +90,49 @@ function ProjectSkeleton({ cards = 4 }: { cards?: number }) {
 
 function ContinueSkeleton() {
   return (
-    <div className="flex gap-3 overflow-x-auto pb-2 -mx-section-padding px-section-padding">
+    <div className="flex gap-6 overflow-x-auto pb-4 -mx-section-padding px-section-padding scroll-px-section-padding">
       {Array.from({ length: 3 }).map((_, i) => (
         <div
           key={i}
-          className="min-w-[240px] w-[240px] shrink-0 border border-outline-variant bg-surface-container-lowest p-4 animate-pulse"
+          className="min-w-[340px] w-[340px] shrink-0 border border-outline-variant bg-surface-container-lowest overflow-hidden animate-pulse"
           aria-hidden="true"
         >
-          <div className="h-5 bg-surface-container rounded w-3/4 mb-2" />
-          <div className="h-3 bg-surface-container rounded w-1/2 mb-3" />
-          <div className="h-4 bg-surface-container rounded w-full" />
+          <div className="h-[140px] bg-surface-container border-b border-outline-variant" />
+          <div className="p-5">
+            <div className="h-5 bg-surface-container rounded w-3/4 mb-2" />
+            <div className="h-3 bg-surface-container rounded w-1/2 mb-4" />
+            <div className="h-16 bg-surface-container rounded w-full" />
+          </div>
         </div>
       ))}
     </div>
   );
+}
+
+function actionRequiredStyles(kind: "manual" | "data" | "ai") {
+  switch (kind) {
+    case "ai":
+      return {
+        hover: "hover:border-primary/50",
+        accent: "bg-primary",
+        icon: "smart_toy",
+        iconClass: "text-primary",
+      };
+    case "data":
+      return {
+        hover: "hover:border-error/50",
+        accent: "bg-error",
+        icon: "warning",
+        iconClass: "text-error",
+      };
+    default:
+      return {
+        hover: "hover:border-secondary/50",
+        accent: "bg-secondary",
+        icon: "how_to_reg",
+        iconClass: "text-secondary",
+      };
+  }
 }
 
 function projectStatusClass(tone: ReturnType<typeof projectStatusTone>): string {
@@ -270,6 +299,7 @@ export default function HomePage() {
   const actionItems = useMemo(() => {
     const items: Array<{
       label: string;
+      detail?: string;
       projectId: string;
       kind: "manual" | "data" | "ai";
     }> = [];
@@ -277,6 +307,7 @@ export default function HomePage() {
       if (!p.actionRequiredLabel) continue;
       items.push({
         label: p.actionRequiredLabel,
+        detail: p.activeScenarioNote ?? p.resumeNote ?? p.geographyLabel,
         projectId: p.id,
         kind: p.actionRequiredKind ?? "manual",
       });
@@ -500,7 +531,7 @@ export default function HomePage() {
       return (
         <div
           key={project.id}
-          className="min-w-[280px] w-[280px] shrink-0 border border-outline-variant bg-surface-container-lowest p-4"
+          className="min-w-[340px] w-[340px] shrink-0 border border-outline-variant bg-surface-container-lowest p-5 rounded"
         >
           {renderProjectCard(project, "continue")}
         </div>
@@ -510,17 +541,17 @@ export default function HomePage() {
     return (
       <article
         key={project.id}
-        className="min-w-[280px] w-[280px] shrink-0 group relative focus-within:ring-2 focus-within:ring-primary/40 rounded"
+        className="min-w-[340px] w-[340px] shrink-0 group relative focus-within:ring-2 focus-within:ring-primary/40 rounded"
       >
         <button
           type="button"
           onClick={() => openProject(project.id, project.activeScenarioId)}
           disabled={busyId === project.id}
-          className="w-full text-left border border-outline-variant bg-surface-container-lowest hover:border-primary/50 transition-colors overflow-hidden flex flex-col disabled:opacity-50 focus-ring rounded"
+          className="w-full text-left border border-outline-variant bg-surface-container-lowest hover:border-outline transition-colors overflow-hidden flex flex-col disabled:opacity-50 focus-ring rounded relative"
         >
-          <div className="h-[120px] w-full bg-surface-container-low border-b border-outline-variant relative">
+          <div className="h-[140px] w-full bg-surface-container-low border-b border-outline-variant relative">
             <div
-              className="absolute inset-0 opacity-90"
+              className="absolute inset-0 opacity-80 group-hover:opacity-100 transition-opacity"
               style={{
                 background:
                   "linear-gradient(135deg, #e8eef0 0%, #c1e8ff 45%, #f0eded 100%)",
@@ -528,16 +559,16 @@ export default function HomePage() {
               aria-hidden
             />
             <div className="absolute inset-0 bg-gradient-to-t from-surface/80 to-transparent" />
-            <span className="absolute top-2 right-2 bg-surface border border-outline-variant px-2 py-0.5 rounded font-mono text-[10px] text-on-surface shadow-sm">
+            <span className="absolute top-3 right-3 bg-surface border border-outline-variant px-2 py-0.5 rounded font-mono text-[10px] text-on-surface shadow-sm z-[1]">
               {chip}
             </span>
-            <span className="absolute bottom-2 left-2 font-mono text-[10px] text-on-surface-variant uppercase">
+            <span className="absolute bottom-2 left-2 font-mono text-[10px] text-on-surface-variant uppercase z-[1]">
               {project.geographyLabel}
             </span>
           </div>
-          <div className="p-4 flex-1 flex flex-col">
+          <div className="p-5 flex-1 flex flex-col">
             <h4 className="text-headline-md text-on-surface mb-1">{project.name}</h4>
-            <p className="text-caption text-on-surface-variant mb-3 line-clamp-2">{subtitle}</p>
+            <p className="text-body-sm text-on-surface-variant mb-4 line-clamp-2">{subtitle}</p>
             <div
               className={`mt-auto bg-surface-container p-3 rounded border ${styles.border} relative overflow-hidden`}
             >
@@ -559,8 +590,17 @@ export default function HomePage() {
               </div>
             </div>
           </div>
+          <div
+            className="absolute inset-0 bg-surface/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center justify-center pointer-events-none z-10"
+            aria-hidden
+          >
+            <span className="bg-surface border border-outline-variant px-4 py-2 rounded shadow-sm font-mono text-data-label text-on-surface flex items-center gap-2">
+              Open project
+              <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+            </span>
+          </div>
         </button>
-        <div className="absolute top-2 left-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity">
+        <div className="absolute top-3 left-3 z-20 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity">
           {renderProjectActions(project)}
         </div>
       </article>
@@ -849,7 +889,7 @@ export default function HomePage() {
                         </button>
                       )}
                     </div>
-                    <div className="flex gap-3 overflow-x-auto pb-2 -mx-section-padding px-section-padding scroll-px-section-padding">
+                    <div className="flex gap-6 overflow-x-auto pb-4 -mx-section-padding px-section-padding scroll-px-section-padding">
                       {continueProjects.map((p) => renderContinueCard(p))}
                     </div>
                   </section>
@@ -1018,61 +1058,81 @@ export default function HomePage() {
                   No pending reviews — open a project to run analysis or record decisions.
                 </p>
               ) : (
-                <ul className="space-y-3">
-                  {actionItems.map((item) => (
-                    <li key={item.projectId}>
-                      <button
-                        type="button"
-                        onClick={() => router.push(`/workspace/${item.projectId}`)}
-                        className="w-full text-left border border-outline-variant hover:border-primary/40 bg-surface-container-low p-3 rounded transition-colors"
-                      >
-                        <div className="flex gap-3">
-                          <span className="material-symbols-outlined text-[20px] shrink-0 text-on-surface-variant">
-                            {item.kind === "ai"
-                              ? "smart_toy"
-                              : item.kind === "data"
-                                ? "warning"
-                                : "how_to_reg"}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="text-body-sm font-medium text-on-surface">
-                              {item.label}
-                            </p>
-                            <div className="mt-2">
-                              <ActionRequiredKindChip kind={item.kind} />
+                <ul className="flex flex-col gap-3">
+                  {actionItems.map((item) => {
+                    const styles = actionRequiredStyles(item.kind);
+                    return (
+                      <li key={item.projectId}>
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/workspace/${item.projectId}`)}
+                          className={`w-full text-left border border-outline-variant ${styles.hover} bg-surface-container-low p-3 rounded transition-colors relative overflow-hidden`}
+                        >
+                          <div
+                            className={`absolute top-0 left-0 right-0 h-1 ${styles.accent}`}
+                            aria-hidden
+                          />
+                          <div className="flex gap-3 mt-1">
+                            <span
+                              className={`material-symbols-outlined text-[20px] shrink-0 mt-0.5 ${styles.iconClass}`}
+                            >
+                              {styles.icon}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-body-sm font-medium text-on-surface">
+                                {item.label}
+                              </p>
+                              {item.detail && (
+                                <p className="text-caption text-on-surface-variant mt-0.5 line-clamp-2">
+                                  {item.detail}
+                                </p>
+                              )}
+                              <div className="flex items-center gap-2 mt-2">
+                                <ActionRequiredKindChip kind={item.kind} />
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </button>
-                    </li>
-                  ))}
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </section>
 
             {recentActivity.length > 0 && (
               <section className="border border-outline-variant bg-surface-container-lowest p-5">
-                <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-4">
+                <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-4 border-b border-outline-variant pb-2">
                   Recent system activity
                 </h3>
-                <ul className="space-y-3">
-                  {recentActivity.map((event) => (
-                    <li key={event.id} className="flex gap-3 text-body-sm">
-                      <span
-                        className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${
-                          event.actor === "agent" ? "bg-primary-container" : "border border-outline"
-                        }`}
-                        aria-hidden
-                      />
-                      <div className="min-w-0">
-                        <p className="text-on-surface-variant leading-snug">{event.summary}</p>
-                        <p className="font-mono text-[10px] text-outline mt-1">
-                          {formatLocaleTime(event.timestamp)}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                <div className="relative pl-4">
+                  <div
+                    className="absolute left-[7px] top-2 bottom-2 w-px activity-thread-line"
+                    aria-hidden
+                  />
+                  <ul className="space-y-4 relative">
+                    {recentActivity.map((event) => {
+                      const dotClass =
+                        event.actor === "agent"
+                          ? "bg-primary-container"
+                          : "bg-surface border border-outline";
+                      return (
+                        <li key={event.id} className="relative pl-1">
+                          <div
+                            className={`absolute -left-[13px] top-1 w-2 h-2 rounded-full ring-4 ring-surface-container-lowest ${dotClass}`}
+                            aria-hidden
+                          />
+                          <p className="font-mono text-[10px] text-outline mb-1">
+                            {formatLocaleTime(event.timestamp)}
+                          </p>
+                          <p className="text-caption text-on-surface leading-snug">
+                            {event.summary}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               </section>
             )}
 
