@@ -68,7 +68,7 @@ Full guide: [`webmcp/README.md`](./webmcp/README.md)
 - Leaflet / React-Leaflet for map rendering
 - Turf.js for deterministic spatial analysis (server-side)
 - WebMCP semantic tools (`webmcp/schema.json`, 21 journey tools)
-- JSON persistence under `DATA_DIR` (`store.json`; `/var/data` on Render with persistent disk). Git-tracked SF snapshots live in `snapshots/sf/`.
+- JSON persistence under `DATA_DIR` (`store.json` locally). On Render, set `DATABASE_URL` to a Neon Postgres URI so the catalog survives deploys on the free plan (no persistent disk required). Git-tracked SF snapshots live in `snapshots/sf/`.
 
 ## Run locally
 
@@ -99,7 +99,7 @@ npm run build
 ## Data & persistence
 
 - Initial geography is **synthetic** seed data (clearly labeled in UI and reports).
-- On Render, a **1 GB persistent disk** mounts at `data/` so projects survive restarts and deploys within the same service instance.
+- On Render free, set **`DATABASE_URL`** to the pooled URI for Neon project **`falling-darkness-05470105`** (`production` branch) so projects survive deploys; `store.json` remains a local/dev fallback when unset. See `neon.ts` and `docs/passes/PASS-34.md`.
 - `npm run seed` creates demo projects when the store is empty (also runs on Render start).
 - Disabling or missing required datasets (e.g. flood) causes analysis to **fail closed** — no fabricated results.
 

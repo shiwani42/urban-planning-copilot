@@ -19,5 +19,7 @@ services:
         value: production
       - key: DATA_DIR
         value: /var/data
+      - key: DATABASE_URL
+        sync: false
       - key: NEXT_PUBLIC_CARTO_API_KEY
         sync: false

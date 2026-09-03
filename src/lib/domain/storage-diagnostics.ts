@@ -1,4 +1,5 @@
 import {
+  getActivePersistBackend,
   getConfiguredDataDir,
   getLastBootRecovery,
   getStorePath,
@@ -7,6 +8,7 @@ import {
   storeFileExists,
 } from "./store";
 import type { StorageHealth } from "./storage-health";
+import { isPostgresConfigured } from "./store-postgres";
 
 export type StorageDiagnostics = StorageHealth & {
   storeExists: boolean;
@@ -25,32 +27,41 @@ export async function collectStorageDiagnostics(options?: {
   const storePath = getStorePath();
   const storeExists = await storeFileExists();
   const lastBoot = getLastBootRecovery();
+  const persistBackend = health.persistBackend ?? getActivePersistBackend();
 
   let projectCount = 0;
   let storeReadError: string | undefined;
 
-  if (!storeExists) {
-    storeReadError = `ENOENT: no such file or directory, access '${storePath}'`;
-  } else if (options?.includeProjectCount) {
+  if (options?.includeProjectCount) {
     try {
       projectCount = await peekStoreProjectCount();
     } catch (err) {
-      storeReadError =
-        err instanceof Error ? err.message : String(err);
+      storeReadError = err instanceof Error ? err.message : String(err);
     }
   }
 
+  if (!isPostgresConfigured() && !storeExists) {
+    storeReadError =
+      storeReadError ??
+      `ENOENT: no such file or directory, access '${storePath}'`;
+  }
+
   const status =
-    health.writeProbeOk === false
+    health.writeProbeOk === false || health.postgresOk === false
       ? "degraded"
-      : !storeExists
-        ? "degraded"
-        : storeReadError
+      : persistBackend === "postgres"
+        ? storeReadError
           ? "degraded"
-          : health.status;
+          : health.status
+        : !storeExists
+          ? "degraded"
+          : storeReadError
+            ? "degraded"
+            : health.status;
 
   return {
     ...health,
+    persistBackend,
     status,
     dataDir,
     configuredDataDir: dataDir,

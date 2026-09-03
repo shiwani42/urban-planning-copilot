@@ -42,7 +42,7 @@ async function main() {
     return;
   }
 
-  if (health.lastBoot === "empty-after-missing-file") {
+  if (health.lastBoot === "empty-after-missing-file" && !process.env.DATABASE_URL?.trim()) {
     console.error(
       "[seed] WARNING — boot refused to write an empty catalog; waiting for disk before seeding."
     );
