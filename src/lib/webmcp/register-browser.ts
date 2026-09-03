@@ -12,6 +12,11 @@ import { formatToolErrorMessage } from "@/lib/domain/tool-errors";
 import type { ToolErrorPayload } from "@/lib/domain/tool-errors";
 import { parseToolArguments } from "@/lib/domain/webmcp-validation";
 import { resolvePlanningToolAlias } from "@/lib/webmcp/tool-aliases";
+import {
+  assertBrowserToolProductState,
+  webMcpToolError,
+  webMcpToolOk,
+} from "@/lib/webmcp/tool-result";
 import { isPendingPlannerResult } from "@/lib/domain/human-gated-tools";
 import {
   registerPendingPlannerAction,
@@ -45,15 +50,6 @@ async function api(path: string, init?: RequestInit): Promise<unknown> {
     );
   }
   return data;
-}
-
-function truncate(value: unknown, max = 1400): string {
-  const text = typeof value === "string" ? value : JSON.stringify(value);
-  return text.length <= max ? text : `${text.slice(0, max)}…`;
-}
-
-function ok(payload: unknown) {
-  return { content: [{ type: "text" as const, text: truncate(payload) }] };
 }
 
 function mergeArgsWithBrowserContext(rawArgs: Record<string, unknown>) {
@@ -126,6 +122,7 @@ async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
     throw new Error(message);
   }
   const result = data.result ?? data;
+  assertBrowserToolProductState(name, result);
 
   if (isPendingPlannerResult(result)) {
     const projectId =
@@ -217,8 +214,13 @@ export async function registerPlanningWebMcpTools(): Promise<WebMcpRegistration>
     inputSchema: meta.inputSchema,
     annotations: meta.annotations,
     execute: async (input) => {
-      const result = await invokeMcpTool(meta.name, parseToolArguments(input));
-      return ok(result);
+      try {
+        const result = await invokeMcpTool(meta.name, parseToolArguments(input));
+        return webMcpToolOk(result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return webMcpToolError(message);
+      }
     },
   }));
 
@@ -228,7 +230,13 @@ export async function registerPlanningWebMcpTools(): Promise<WebMcpRegistration>
       description: "List saved planning projects on the server.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true },
-      execute: async (input) => ok(await invokeMcpTool("list_projects", parseToolArguments(input))),
+      execute: async (input) => {
+        try {
+          return webMcpToolOk(await invokeMcpTool("list_projects", parseToolArguments(input)));
+        } catch (err) {
+          return webMcpToolError(err instanceof Error ? err.message : String(err));
+        }
+      },
     },
     {
       name: "load_project",
@@ -245,7 +253,13 @@ export async function registerPlanningWebMcpTools(): Promise<WebMcpRegistration>
         additionalProperties: false,
       },
       annotations: { readOnlyHint: true },
-      execute: async (input) => ok(await invokeMcpTool("load_project", parseToolArguments(input))),
+      execute: async (input) => {
+        try {
+          return webMcpToolOk(await invokeMcpTool("load_project", parseToolArguments(input)));
+        } catch (err) {
+          return webMcpToolError(err instanceof Error ? err.message : String(err));
+        }
+      },
     },
     {
       name: "exclude_from_selection",
@@ -255,8 +269,15 @@ export async function registerPlanningWebMcpTools(): Promise<WebMcpRegistration>
           type: "object",
           properties: {},
         },
-      execute: async (input) =>
-        ok(await invokeMcpTool("exclude_from_selection", parseToolArguments(input))),
+      execute: async (input) => {
+        try {
+          return webMcpToolOk(
+            await invokeMcpTool("exclude_from_selection", parseToolArguments(input))
+          );
+        } catch (err) {
+          return webMcpToolError(err instanceof Error ? err.message : String(err));
+        }
+      },
     },
   ];
 

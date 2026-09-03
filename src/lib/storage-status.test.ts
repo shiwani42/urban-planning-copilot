@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   projectsPersistReliably,
+  shouldShowEphemeralStorageBanner,
   shouldShowStorageUnavailableBanner,
   storageReliabilityIssue,
   type ClientStorageStatus,
@@ -15,22 +16,25 @@ describe("storage-status banner gating", () => {
       onPersistentMount: true,
       writeProbeOk: true,
       persistBackend: "postgres",
+      postgresOk: true,
       storeExists: true,
     };
     assert.equal(shouldShowStorageUnavailableBanner(storage), false);
+    assert.equal(shouldShowEphemeralStorageBanner(storage), false);
     assert.equal(projectsPersistReliably(storage), true);
   });
 
-  it("shows banner when file backend is active", () => {
+  it("shows ephemeral banner when file backend is active", () => {
     const storage: ClientStorageStatus = {
       status: "healthy",
       writeProbeOk: true,
       persistBackend: "file",
       storeExists: true,
     };
-    assert.equal(shouldShowStorageUnavailableBanner(storage), true);
+    assert.equal(shouldShowStorageUnavailableBanner(storage), false);
+    assert.equal(shouldShowEphemeralStorageBanner(storage), true);
     assert.equal(projectsPersistReliably(storage), false);
-    assert.match(storageReliabilityIssue(storage) ?? "", /ephemeral file storage/i);
+    assert.equal(storageReliabilityIssue(storage), null);
   });
 
   it("shows banner when write probe failed on persistent mount", () => {
@@ -39,13 +43,16 @@ describe("storage-status banner gating", () => {
       onPersistentMount: true,
       writeProbeOk: false,
       persistBackend: "postgres",
+      postgresOk: false,
       message: "Write probe failed: EACCES",
     };
     assert.equal(shouldShowStorageUnavailableBanner(storage), true);
+    assert.equal(shouldShowEphemeralStorageBanner(storage), false);
   });
 
   it("does not show banner while loading", () => {
     assert.equal(shouldShowStorageUnavailableBanner({ status: "loading" }), false);
+    assert.equal(shouldShowEphemeralStorageBanner({ status: "loading" }), false);
   });
 
   it("shows banner on health fetch error", () => {
@@ -56,6 +63,40 @@ describe("storage-status banner gating", () => {
       }),
       true
     );
+  });
+
+  it("hides ephemeral banner when postgres is active", () => {
+    assert.equal(
+      shouldShowEphemeralStorageBanner({
+        status: "healthy",
+        persistBackend: "postgres",
+        postgresOk: true,
+      }),
+      false
+    );
+  });
+
+  it("shows ephemeral banner for file backend", () => {
+    assert.equal(
+      shouldShowEphemeralStorageBanner({
+        status: "healthy",
+        persistBackend: "file",
+        writeProbeOk: true,
+      }),
+      true
+    );
+  });
+
+  it("shows unavailable banner when postgres probe fails", () => {
+    const storage: ClientStorageStatus = {
+      status: "degraded",
+      persistBackend: "postgres",
+      postgresOk: false,
+      writeProbeOk: false,
+      message: "Postgres write probe failed",
+    };
+    assert.equal(shouldShowEphemeralStorageBanner(storage), false);
+    assert.equal(shouldShowStorageUnavailableBanner(storage), true);
   });
 });
 

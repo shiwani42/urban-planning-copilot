@@ -26,6 +26,8 @@ import {
 import { getToolMeta, PLANNING_TOOL_META } from "./tool-definitions";
 import type { ToolErrorPayload } from "@/lib/domain/tool-errors";
 import { ToolError } from "@/lib/domain/tool-errors";
+import { parseMapCenter } from "@/lib/domain/map-center";
+import { resolveObjectiveTextWithGeography } from "@/lib/domain/objective-geography";
 import { resolvePlanningToolAlias } from "./tool-aliases";
 
 function isKnownPlanningToolName(name: string): boolean {
@@ -40,6 +42,29 @@ function activeContext(ws: WorkspaceLike) {
     ws.scenarios.find((s) => s.id === ws.project.activeScenarioId) ?? ws.scenarios[0];
   const result = ws.analysisResults.find((r) => r.id === scenario?.latestResultId);
   return { scenario, result };
+}
+
+const ANALYSIS_POLL_MS = 500;
+const ANALYSIS_POLL_TIMEOUT_MS = 120_000;
+
+async function waitForAnalysisCompletion(projectId: string, scenarioId: string) {
+  const started = Date.now();
+  while (Date.now() - started < ANALYSIS_POLL_TIMEOUT_MS) {
+    const status = await services.getAnalysisRunStatus(projectId, scenarioId);
+    if (status.status === "completed") return status;
+    if (status.status === "failed") {
+      throw new ToolError("ANALYSIS_FAILED", status.error ?? "Analysis failed", "scenarioId");
+    }
+    if (status.status === "none" || status.status === "not_found") {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, ANALYSIS_POLL_MS));
+  }
+  throw new ToolError(
+    "ANALYSIS_TIMEOUT",
+    "Analysis did not finish in time — retry run_analysis",
+    "scenarioId"
+  );
 }
 
 const FORBIDDEN = new Set([
@@ -126,6 +151,13 @@ export async function executePlanningTool(
       const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
       const scenario = ws.scenarios.find((s) => s.id === scenarioId) ?? activeContext(ws).scenario;
       const result = ws.analysisResults.find((r) => r.id === scenario?.latestResultId);
+      if (!result) {
+        throw new ToolError(
+          "NO_ANALYSIS",
+          "No analysis results for this scenario — run_analysis first",
+          "scenarioId"
+        );
+      }
       const limit = Number(input.limit ?? 10);
       return {
         stale: result?.stale ?? false,
@@ -201,9 +233,13 @@ export async function executePlanningTool(
         input.proposalId as string | undefined
       );
     case "start_planning_project": {
+      const objectiveText = resolveObjectiveTextWithGeography(
+        String(input.objectiveText ?? ""),
+        typeof input.geographyLabel === "string" ? input.geographyLabel : undefined
+      );
       const ws = await services.createProject({
         name: input.name as string,
-        objectiveText: input.objectiveText as string,
+        objectiveText,
         geographyLabel: input.geographyLabel as string | undefined,
       });
       const projectId = ws.project.id;
@@ -281,16 +317,11 @@ export async function executePlanningTool(
       const projectId = resolveProjectId(input, context);
       const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
       await services.requireProject(projectId);
+      await services.reconcileStaleRunningAnalysisJobs(projectId, scenarioId);
 
       const inFlight = await services.getAnalysisRunStatus(projectId, scenarioId);
       if (inFlight.status === "running") {
-        return {
-          status: "running",
-          message: "Analysis in progress — wait for completion before retrying",
-          jobId: inFlight.jobId,
-          progress: inFlight.progress,
-          currentStep: inFlight.currentStep,
-        };
+        return waitForAnalysisCompletion(projectId, scenarioId);
       }
 
       try {
@@ -305,15 +336,21 @@ export async function executePlanningTool(
 
       const status = await services.getAnalysisRunStatus(projectId, scenarioId);
       if (status.status === "completed") {
+        if ((status.candidateCount ?? 0) < 1) {
+          throw new ToolError(
+            "ANALYSIS_EMPTY",
+            "Analysis completed but returned no candidates",
+            "scenarioId"
+          );
+        }
         return status;
       }
       if (status.status === "failed") {
-        return {
-          status: "failed",
-          error: status.error,
-          summary: null,
-          candidateCount: 0,
-        };
+        throw new ToolError(
+          "ANALYSIS_FAILED",
+          status.error ?? "Analysis failed",
+          "scenarioId"
+        );
       }
       throw new ToolError("ANALYSIS_FAILED", "Analysis did not complete", "scenarioId");
     }
@@ -445,19 +482,7 @@ export async function executePlanningTool(
     }
     case "set_map_view": {
       const projectId = resolveProjectId(input, context);
-      const centerInput = input.center as number[] | undefined;
-      if (!Array.isArray(centerInput) || centerInput.length < 2) {
-        throw new ToolError(
-          "INVALID_INPUT",
-          "center must be [lng, lat]",
-          "center"
-        );
-      }
-      const lng = Number(centerInput[0]);
-      const lat = Number(centerInput[1]);
-      if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
-        throw new ToolError("INVALID_INPUT", "center must contain finite numbers", "center");
-      }
+      const [lng, lat] = parseMapCenter(input.center);
       const zoom = input.zoom == null ? undefined : Number(input.zoom);
       if (zoom != null && (!Number.isFinite(zoom) || zoom < 1 || zoom > 20)) {
         throw new ToolError("INVALID_INPUT", "zoom must be between 1 and 20", "zoom");

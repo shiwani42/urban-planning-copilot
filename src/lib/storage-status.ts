@@ -10,6 +10,7 @@ export type ClientStorageStatus = {
   onPersistentMount?: boolean;
   writeProbeOk?: boolean;
   persistBackend?: PersistBackend;
+  postgresOk?: boolean;
   projectCount?: number;
   storeExists?: boolean;
   lastBoot?: string;
@@ -24,6 +25,7 @@ type HealthPayload = {
     onPersistentMount?: boolean;
     writeProbeOk?: boolean;
     persistBackend?: PersistBackend;
+    postgresOk?: boolean;
     projectCount?: number;
     storeExists?: boolean;
     lastBoot?: string;
@@ -38,6 +40,7 @@ export function projectsPersistReliably(storage: ClientStorageStatus | null): bo
   if (storage.status === "error" || storage.status === "degraded") return false;
   if (storage.writeProbeOk === false) return false;
   if (storage.persistBackend === "file") return false;
+  if (storage.postgresOk === false) return false;
   if (storage.storeExists === false) return false;
   if (storage.lastBoot === "empty-after-missing-file") return false;
   return storage.status === "healthy";
@@ -52,8 +55,11 @@ export function storageReliabilityIssue(storage: ClientStorageStatus | null): st
   if (storage.writeProbeOk === false) {
     return storage.message ?? "Workspace storage write probe failed.";
   }
-  if (storage.persistBackend === "file") {
-    return "Workspace catalog uses ephemeral file storage — projects are lost when this server instance restarts. Set DATABASE_URL for durable Postgres storage.";
+  if (storage.persistBackend === "postgres") {
+    if (storage.postgresOk === false) {
+      return storage.message ?? "Postgres storage is unavailable.";
+    }
+    return null;
   }
   if (storage.lastBoot === "empty-after-missing-file" || storage.storeExists === false) {
     return "Workspace catalog is missing or was reset after a deploy — saved projects may not be available.";
@@ -69,11 +75,14 @@ function normalizeHealthPayload(data: HealthPayload): ClientStorageStatus {
   const topStatus = data.status ?? storage.status ?? "unknown";
   const writeProbeOk = storage.writeProbeOk;
   const onPersistentMount = storage.onPersistentMount;
+  const persistBackend = storage.persistBackend;
+  const postgresOk = storage.postgresOk;
 
   const base = {
     onPersistentMount,
     writeProbeOk,
-    persistBackend: storage.persistBackend,
+    persistBackend,
+    postgresOk,
     projectCount: storage.projectCount,
     storeExists: storage.storeExists,
     lastBoot: storage.lastBoot,
@@ -92,11 +101,9 @@ function normalizeHealthPayload(data: HealthPayload): ClientStorageStatus {
   if (storage.persistBackend === "file") {
     return {
       ...base,
-      status: "degraded",
+      status: topStatus === "healthy" ? "healthy" : "degraded",
       writeProbeOk: writeProbeOk ?? true,
-      message:
-        base.message ??
-        "Workspace catalog uses ephemeral file storage — projects are lost when this server instance restarts.",
+      message: base.message,
     };
   }
 
@@ -138,6 +145,23 @@ export function shouldShowStorageUnavailableBanner(
   if (!storage || storage.status === "loading") return false;
   return storageReliabilityIssue(storage) !== null;
 }
+
+/** Honest file-backend notice — hidden when Neon Postgres is the active durable store. */
+export function shouldShowEphemeralStorageBanner(
+  storage: ClientStorageStatus | null
+): boolean {
+  if (!storage || storage.status === "loading") return false;
+  if (storage.persistBackend === "postgres" && storage.postgresOk !== false) {
+    return false;
+  }
+  if (storage.persistBackend === "file") {
+    return storage.status === "healthy" || storage.status === "degraded" || storage.status === "unknown";
+  }
+  return false;
+}
+
+export const EPHEMERAL_STORAGE_BANNER_MESSAGE =
+  "Workspace catalog uses ephemeral file storage — projects are lost when this server instance restarts. Set DATABASE_URL for durable Postgres storage.";
 
 export function useStorageStatus(): ClientStorageStatus & { refresh: () => void } {
   const [storage, setStorage] = useState<ClientStorageStatus>({ status: "loading" });
