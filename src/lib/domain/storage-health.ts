@@ -2,6 +2,7 @@ export type BootRecoveryKind =
   | "first-run"
   | "recovered-backup"
   | "empty-after-missing-file"
+  | "migrated-from-legacy-path"
   | "normal";
 
 export type StorageHealth = {
@@ -19,8 +20,19 @@ export type StorageHealth = {
 
 const healthByDir = new Map<string, StorageHealth>();
 
+const PERSISTENT_MOUNT_PREFIXES = [
+  "/var/data",
+  process.env.RENDER_DATA_DIR_PREFIX ?? "/opt/render/project/src/data",
+];
+
 export function getRenderDiskPrefix(): string {
-  return process.env.RENDER_DATA_DIR_PREFIX ?? "/opt/render/project/src/data";
+  return process.env.RENDER_DATA_DIR_PREFIX ?? "/var/data";
+}
+
+function onPersistentMount(dataDir: string): boolean {
+  return PERSISTENT_MOUNT_PREFIXES.some(
+    (prefix) => dataDir === prefix || dataDir.startsWith(`${prefix}/`)
+  );
 }
 
 export function markStorageHealthy(
@@ -33,7 +45,7 @@ export function markStorageHealthy(
     status: "healthy",
     dataDir,
     configuredDataDir: dataDir,
-    onPersistentMount: dataDir.startsWith(getRenderDiskPrefix()),
+    onPersistentMount: onPersistentMount(dataDir),
     writeProbeOk: options?.writeProbeOk ?? true,
     lastBoot: options?.lastBoot ?? previous?.lastBoot ?? "normal",
     message,
@@ -51,7 +63,7 @@ export function markStorageDegraded(
     status: "degraded",
     dataDir,
     configuredDataDir: dataDir,
-    onPersistentMount: dataDir.startsWith(getRenderDiskPrefix()),
+    onPersistentMount: onPersistentMount(dataDir),
     writeProbeOk: options?.writeProbeOk ?? false,
     lastBoot: options?.lastBoot ?? previous?.lastBoot ?? "normal",
     message,
@@ -65,7 +77,7 @@ export function getStorageHealth(dataDir: string): StorageHealth {
       status: "unknown",
       dataDir,
       configuredDataDir: dataDir,
-      onPersistentMount: dataDir.startsWith(getRenderDiskPrefix()),
+      onPersistentMount: onPersistentMount(dataDir),
       checkedAt: new Date().toISOString(),
     }
   );

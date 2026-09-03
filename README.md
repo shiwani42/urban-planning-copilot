@@ -68,7 +68,7 @@ Full guide: [`webmcp/README.md`](./webmcp/README.md)
 - Leaflet / React-Leaflet for map rendering
 - Turf.js for deterministic spatial analysis (server-side)
 - WebMCP semantic tools (`webmcp/schema.json`, 21 journey tools)
-- JSON persistence under `data/store.json` (Render persistent disk)
+- JSON persistence under `DATA_DIR` (`store.json`; `/var/data` on Render with persistent disk). Git-tracked SF snapshots live in `snapshots/sf/`.
 
 ## Run locally
 

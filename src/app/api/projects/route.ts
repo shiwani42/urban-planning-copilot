@@ -1,12 +1,21 @@
 import { NextRequest } from "next/server";
 import * as services from "@/lib/domain/services";
-import { readStorageHealth } from "@/lib/domain/store";
+import { collectStorageDiagnostics } from "@/lib/domain/storage-diagnostics";
 import { apiError, runApiHandler } from "@/lib/api-route";
 
 export async function GET() {
   return runApiHandler(async () => {
+    const storage = await collectStorageDiagnostics({ includeProjectCount: true });
+
+    if (!storage.storeExists) {
+      return { projects: [], storage };
+    }
+
     const projects = await services.listProjects();
-    return { projects, storage: readStorageHealth() };
+    return {
+      projects,
+      storage: { ...storage, projectCount: projects.length },
+    };
   });
 }
 

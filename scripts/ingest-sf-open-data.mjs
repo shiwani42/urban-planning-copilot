@@ -16,7 +16,7 @@ import { fileURLToPath } from "url";
 import * as turf from "@turf/turf";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const OUT_DIR = path.join(ROOT, "data", "sf");
+const OUT_DIR = path.join(ROOT, "snapshots", "sf");
 
 /** Demo AOI: Mission + SoMa core (not live-filtered at runtime). */
 export const DEMO_AOI = {
@@ -250,7 +250,7 @@ async function ingestParcels() {
     type: "FeatureCollection",
     features,
   });
-  const relPath = path.join("data", "sf", "parcels.geojson.gz");
+  const relPath = path.join("snapshots", "sf", "parcels.geojson.gz");
   return { kind: "parcels", featureCount: features.length, vintage, path: relPath, bytes: file.bytes };
 }
 
@@ -270,7 +270,7 @@ async function ingestTransit() {
     type: "FeatureCollection",
     features,
   });
-  const relPath = path.join("data", "sf", "transit.geojson.gz");
+  const relPath = path.join("snapshots", "sf", "transit.geojson.gz");
   return { kind: "transit", featureCount: features.length, vintage, path: relPath, bytes: file.bytes };
 }
 
@@ -297,7 +297,7 @@ async function ingestFlood() {
     type: "FeatureCollection",
     features,
   });
-  const relPath = path.join("data", "sf", "flood.geojson.gz");
+  const relPath = path.join("snapshots", "sf", "flood.geojson.gz");
   return { kind: "flood", featureCount: features.length, vintage, path: relPath, bytes: file.bytes };
 }
 
