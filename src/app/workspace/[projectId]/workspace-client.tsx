@@ -97,8 +97,10 @@ import { layerSwatch } from "@/lib/domain/layer-styles";
 import {
   applyFloodWeightedWeights,
   isFloodWeightedBranchName,
+  mergeWeightDraftFromServer,
   rebalanceWeights,
   weightsEqual,
+  type WeightDraftSyncState,
 } from "@/lib/domain/weights";
 import {
   buildCompareTableRows,
@@ -330,6 +332,7 @@ export default function WorkspaceClient({
   const [highlightWeightsPanel, setHighlightWeightsPanel] = useState(false);
   const [resultsFilter, setResultsFilter] = useState<ResultsFilterState>(DEFAULT_RESULTS_FILTER);
   const weightsPanelRef = useRef<HTMLElement | null>(null);
+  const weightSyncRef = useRef<WeightDraftSyncState | null>(null);
   const compareTabEnteredRef = useRef(false);
 
   const applyCompareFromPayload = useCallback(
@@ -639,14 +642,28 @@ export default function WorkspaceClient({
   }, [scenario?.id, scenario?.latestResultId]);
 
   useEffect(() => {
-    if (scenario) setWeightDraft(scenario.weights);
-  }, [scenario?.id, scenario?.updatedAt]);
+    if (!scenario) {
+      weightSyncRef.current = null;
+      setWeightDraft(null);
+      return;
+    }
+    setWeightDraft((prev) => {
+      const merged = mergeWeightDraftFromServer(
+        prev,
+        scenario.id,
+        scenario.weights,
+        weightSyncRef.current
+      );
+      weightSyncRef.current = merged.sync;
+      return merged.draft;
+    });
+  }, [scenario?.id, scenario?.weights, scenario?.updatedAt]);
 
   useEffect(() => {
     if (!scenario) return;
     setTransitDraftText({});
     setTransitThresholdWarning(null);
-  }, [scenario?.id, scenario?.updatedAt]);
+  }, [scenario?.id]);
 
   useEffect(() => {
     if (tab !== "compare") {
