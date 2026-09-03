@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { rebalanceWeights } from "./weights";
+import { rebalanceWeights, applyFloodWeightedWeights } from "./weights";
 
 describe("rebalanceWeights", () => {
   const weights = [
@@ -14,6 +14,23 @@ describe("rebalanceWeights", () => {
     assert.equal(Math.round(next[2].weight * 100), 50);
     assert.equal(Math.round(next[0].weight * 100), 28);
     assert.equal(Math.round(next[1].weight * 100), 22);
+    const sum = next.reduce((s, w) => s + w.weight, 0);
+    assert.ok(Math.abs(sum - 1) < 0.001);
+  });
+});
+
+describe("applyFloodWeightedWeights", () => {
+  const housingWeights = [
+    { id: "w1", key: "transit", label: "Transit accessibility", weight: 0.45 },
+    { id: "w2", key: "capacity", label: "Housing capacity", weight: 0.35 },
+    { id: "w3", key: "flood_resilience", label: "Flood resilience", weight: 0.2 },
+  ];
+
+  it("raises flood weight to 35% and rebalances siblings", () => {
+    const next = applyFloodWeightedWeights(housingWeights);
+    assert.equal(Math.round(next[2].weight * 100), 35);
+    assert.notEqual(Math.round(next[0].weight * 100), 45);
+    assert.notEqual(Math.round(next[1].weight * 100), 35);
     const sum = next.reduce((s, w) => s + w.weight, 0);
     assert.ok(Math.abs(sum - 1) < 0.001);
   });

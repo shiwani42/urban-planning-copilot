@@ -109,18 +109,34 @@ export function housingGoalSummary(input: {
   target?: number;
   totalCapacity?: number;
   targetGapMetric?: { value: number; method?: string; unit?: string };
+  candidateCount?: number;
+  topSiteCapacity?: number;
 }): string | null {
-  const { target, totalCapacity, targetGapMetric } = input;
-  if (target == null || totalCapacity == null) return null;
-  const gap = target - totalCapacity;
-  const pct = Math.round((totalCapacity / target) * 100);
-  if (gap <= 0) {
-    return `Estimated ${totalCapacity.toLocaleString()} homes (${pct}% of ${target.toLocaleString()}-home goal) — meets target.`;
+  const { target, totalCapacity, targetGapMetric, candidateCount = 0, topSiteCapacity } =
+    input;
+  if (target == null || target <= 0) return null;
+
+  if (totalCapacity != null) {
+    const gap = target - totalCapacity;
+    const pct = Math.round((totalCapacity / target) * 100);
+    if (gap <= 0) {
+      return `Estimated ${totalCapacity.toLocaleString()} homes (${pct}% of ${target.toLocaleString()}-home goal) — meets target.`;
+    }
+    const gapNote = targetGapMetric
+      ? ` (${targetGapMetric.method ?? "aggregate shortfall"})`
+      : "";
+    return `Estimated ${totalCapacity.toLocaleString()} homes (${pct}% of ${target.toLocaleString()}-home goal) — ${gap.toLocaleString()} short${gapNote}.`;
   }
-  const gapNote = targetGapMetric
-    ? ` (${targetGapMetric.method ?? "aggregate shortfall"})`
-    : "";
-  return `Estimated ${totalCapacity.toLocaleString()} homes (${pct}% of ${target.toLocaleString()}-home goal) — ${gap.toLocaleString()} short${gapNote}.`;
+
+  if (candidateCount > 0) {
+    if (topSiteCapacity != null) {
+      const pct = Math.round((topSiteCapacity / target) * 100);
+      return `Housing target: ${target.toLocaleString()} homes — top site ~${topSiteCapacity.toLocaleString()} homes (${pct}% of goal).`;
+    }
+    return `Housing target: ${target.toLocaleString()} homes — ${candidateCount} candidate${candidateCount === 1 ? "" : "s"} ranked; see yield gap below.`;
+  }
+
+  return null;
 }
 
 export function headlineMetric(

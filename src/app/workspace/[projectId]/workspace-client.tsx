@@ -70,7 +70,11 @@ import {
 import { filterAnalysisCaveats } from "@/lib/domain/caveats";
 import { objectiveTitleMismatchWarning } from "@/lib/objective-display";
 import { layerSwatch } from "@/lib/domain/layer-styles";
-import { rebalanceWeights } from "@/lib/domain/weights";
+import {
+  applyFloodWeightedWeights,
+  isFloodWeightedBranchName,
+  rebalanceWeights,
+} from "@/lib/domain/weights";
 import {
   buildCompareTableRows,
   RANK_SCORE_EXPLANATION,
@@ -95,6 +99,15 @@ import {
   type ResultsFilterState,
 } from "@/lib/domain/results-filter";
 import { computeYieldGap, type YieldGapSummary } from "@/lib/domain/yield-gap";
+import {
+  resolveHousingTarget,
+  topSiteCapacityFromResult,
+  totalCapacityFromResult,
+} from "@/lib/domain/housing-target";
+import {
+  firstUnanalyzedScenarioName,
+  scenarioHasComparableAnalysis,
+} from "@/lib/domain/scenario-resolution";
 import type { MapDrawMode } from "@/components/PlanningMap";
 import { resolveWorkspaceTab, type WorkspaceTab } from "@/lib/workspace-tabs";
 
@@ -452,7 +465,7 @@ export default function WorkspaceClient({
   useEffect(() => {
     if (tab !== "compare" || !workspace) return;
     const withResults = workspace.scenarios.filter((s) =>
-      workspace.analysisResults.some((r) => r.id === s.latestResultId)
+      scenarioHasComparableAnalysis(s, workspace.analysisResults)
     );
     if (withResults.length >= 2) {
       setCompareIds(withResults.map((s) => s.id));
@@ -462,14 +475,29 @@ export default function WorkspaceClient({
     const parent = scenario.parentScenarioId
       ? workspace.scenarios.find((s) => s.id === scenario.parentScenarioId)
       : undefined;
-    const ids = new Set<string>([scenario.id]);
-    if (parent) ids.add(parent.id);
+    const ids = new Set<string>();
+    if (scenarioHasComparableAnalysis(scenario, workspace.analysisResults)) {
+      ids.add(scenario.id);
+    }
+    if (parent && scenarioHasComparableAnalysis(parent, workspace.analysisResults)) {
+      ids.add(parent.id);
+    }
     if (ids.size >= 2) {
       setCompareIds([...ids]);
-    } else if (compareIds.length === 0) {
-      setCompareIds([scenario.id]);
+    } else if (compareIds.length === 0 && withResults.length > 0) {
+      setCompareIds(withResults.map((s) => s.id));
     }
   }, [tab, workspace, scenario?.id, scenario?.parentScenarioId, compareIds.length]);
+
+  useEffect(() => {
+    if (!workspace || tab !== "compare") return;
+    setCompareIds((prev) =>
+      prev.filter((id) => {
+        const item = workspace.scenarios.find((s) => s.id === id);
+        return item && scenarioHasComparableAnalysis(item, workspace.analysisResults);
+      })
+    );
+  }, [workspace, tab, workspace?.analysisResults.length]);
 
   useEffect(() => {
     if (tab === "results") setDrawerOpen(true);
@@ -645,11 +673,22 @@ export default function WorkspaceClient({
 
   const weightSumRounded = Math.round(weightSum);
 
-  const housingTarget =
-    scenario?.objective.intent === "housing_capacity"
-      ? scenario.objective.targetValue
-      : undefined;
-  const totalCapacity = aggregateMetricValue(result, "total_capacity");
+  const housingTarget = useMemo(() => {
+    if (!scenario || !workspace) return undefined;
+    return resolveHousingTarget({
+      intent: scenario.objective.intent,
+      objectiveTarget: scenario.objective.targetValue,
+      objectiveRawText: scenario.objective.rawText,
+      projectName: workspace.project.name,
+    });
+  }, [
+    scenario?.objective.intent,
+    scenario?.objective.targetValue,
+    scenario?.objective.rawText,
+    workspace?.project.name,
+  ]);
+  const totalCapacity = totalCapacityFromResult(result);
+  const topSiteCapacity = topSiteCapacityFromResult(result);
   const enabledDatasetCount =
     scenario?.enabledDatasetIds.filter((id) =>
       workspace?.datasets.some((d) => d.id === id && d.enabled)
@@ -666,13 +705,36 @@ export default function WorkspaceClient({
 
   const yieldGap = useMemo((): YieldGapSummary | null => {
     if (!housingTarget || !result?.candidates.length) return null;
-    if (scenario?.objective.intent !== "housing_capacity") return null;
+    if (!isHousingIntent(scenario?.objective.intent ?? "housing_capacity")) return null;
     return computeYieldGap({
       target: housingTarget,
       candidates: result.candidates,
       shortlist,
     });
   }, [housingTarget, result?.candidates, scenario?.objective.intent, shortlist]);
+
+  const housingGoalLine = useMemo(() => {
+    if (!housingTarget || !result?.candidates.length) return null;
+    return housingGoalSummary({
+      target: housingTarget,
+      totalCapacity,
+      targetGapMetric: analysisAggregateMetrics(result).find((m) => m.key === "housing_target_gap"),
+      candidateCount: result.candidates.length,
+      topSiteCapacity,
+    });
+  }, [housingTarget, result, totalCapacity, topSiteCapacity]);
+
+  const analyzedScenarios = useMemo(() => {
+    if (!workspace) return [];
+    return workspace.scenarios.filter((s) =>
+      scenarioHasComparableAnalysis(s, workspace.analysisResults)
+    );
+  }, [workspace]);
+
+  const resolvedShortlistCount = useMemo(
+    () => shortlist.filter((entry) => entry.candidate && !entry.missing).length,
+    [shortlist]
+  );
 
   function constraintFunnelDetail(constraintLabel: string): string | null {
     if (!result?.stepLogs) return null;
@@ -933,8 +995,11 @@ export default function WorkspaceClient({
       setDuplicateDialogOpen(false);
       setTab("workspace");
       setHighlightWeightsPanel(true);
+      const floodNote = isFloodWeightedBranchName(name)
+        ? " Flood weights were increased — run analysis to see a new ranking."
+        : " Adjust priorities below (e.g. flood weight), then run analysis.";
       showToast(
-        `Created "${name}" — analysis and decision were not copied. Adjust priorities below (e.g. flood weight), then run analysis.`
+        `Now viewing "${name}" — analysis not run yet.${floodNote}`
       );
     } catch (e) {
       showToast(
@@ -1131,9 +1196,12 @@ export default function WorkspaceClient({
             >
               Scenario: {scenario.name}
             </span>
-            {shortlist.length > 0 && (
-              <span className="shrink-0 ml-2 px-2 py-0.5 rounded border border-[#815504] text-[#815504] text-caption font-medium">
-                Shortlist: {shortlist.length}
+            {resolvedShortlistCount > 0 && (
+              <span
+                className="shrink-0 ml-2 px-2 py-0.5 rounded border border-[#815504] text-[#815504] text-caption font-medium"
+                title={`Shortlist pins for scenario “${scenario.name}”`}
+              >
+                Shortlist ({scenario.name}): {resolvedShortlistCount}
               </span>
             )}
           </nav>
@@ -1291,9 +1359,11 @@ export default function WorkspaceClient({
           <span className="text-on-surface-variant">Objective</span>
           <span className="text-outline-variant">·</span>
           <span className="font-medium truncate">
-            {scenario.objective.targetValue
-              ? `${scenario.objective.targetValue.toLocaleString()} ${scenario.objective.targetUnit ?? ""}`
-              : scenario.objective.intent.replace(/_/g, " ")}
+            {housingTarget
+              ? `${housingTarget.toLocaleString()} ${scenario.objective.targetUnit ?? "homes"}`
+              : scenario.objective.targetValue
+                ? `${scenario.objective.targetValue.toLocaleString()} ${scenario.objective.targetUnit ?? ""}`
+                : scenario.objective.intent.replace(/_/g, " ")}
           </span>
         </div>
         <div className="flex gap-2 flex-wrap min-w-0">
@@ -1457,6 +1527,11 @@ export default function WorkspaceClient({
                   </h3>
                 </div>
                 <p className="text-body-sm leading-relaxed">{scenario.objective.rawText}</p>
+                {housingTarget != null && isHousingIntent(scenario.objective.intent) && (
+                  <p className="text-body-sm font-medium text-primary mt-2">
+                    Housing target: {housingTarget.toLocaleString()} homes
+                  </p>
+                )}
                 <p className="text-caption text-on-surface-variant mt-2">
                   Intent: {scenario.objective.intent.replace(/_/g, " ")} · confidence{" "}
                   {Math.round(scenario.objective.confidence * 100)}%
@@ -1687,7 +1762,14 @@ export default function WorkspaceClient({
                 </div>
                 {highlightWeightsPanel && (
                   <p className="text-body-sm text-primary mb-3" role="status">
-                    New scenario branch — change priority weights here before running analysis.
+                    {isFloodWeightedBranchName(scenario.name)
+                      ? "Flood-weighted branch — priorities were shifted toward flood resilience. Run analysis to see a new ranking."
+                      : "New scenario branch — change priority weights here before running analysis."}
+                  </p>
+                )}
+                {!hasAnyResult && (
+                  <p className="text-caption text-on-surface-variant mb-3" role="status">
+                    No analysis on this branch yet — weights are saved but rankings will not change until you run analysis.
                   </p>
                 )}
                 {weightSumRounded !== 100 && (
@@ -2248,12 +2330,42 @@ export default function WorkspaceClient({
               projectId={projectId}
               scenarioId={scenario.id}
               scenarioCount={workspace.scenarios.length}
+              analyzedScenarioCount={analyzedScenarios.length}
+              unanalyzedScenarioName={
+                scenario && !scenarioHasComparableAnalysis(scenario, workspace.analysisResults)
+                  ? scenario.name
+                  : firstUnanalyzedScenarioName(workspace.scenarios, workspace.analysisResults)
+              }
               scenarioIds={workspace.scenarios.map((s) => s.id)}
+              analyzedScenarioIds={analyzedScenarios.map((s) => s.id)}
               topCandidateId={topCandidate?.id}
               topCandidateLabel={topCandidate?.label}
               variant="sidebar"
               showActivityFeed={false}
-              onToolComplete={() => void refresh()}
+              onToolComplete={async () => {
+                const previousScenarioId = scenario.id;
+                const updated = await refresh();
+                const activeId = updated?.project.activeScenarioId;
+                const activeScenario = updated?.scenarios.find((s) => s.id === activeId);
+                const latestBranch = listCopilotActivity().find(
+                  (entry) =>
+                    entry.tool === "create_scenario_branch" &&
+                    entry.status === "success" &&
+                    Date.now() - new Date(entry.timestamp).getTime() < 15000
+                );
+                if (
+                  latestBranch &&
+                  activeScenario &&
+                  activeScenario.id !== previousScenarioId &&
+                  !activeScenario.latestResultId
+                ) {
+                  setTab("workspace");
+                  setHighlightWeightsPanel(isFloodWeightedBranchName(activeScenario.name));
+                  showToast(
+                    `Now viewing “${activeScenario.name}” — analysis not run yet. Run analysis when ready.`
+                  );
+                }
+              }}
               className="shrink-0 max-h-[42vh] border-t border-outline-variant min-h-[220px]"
             />
 
@@ -2447,6 +2559,7 @@ export default function WorkspaceClient({
           onInspectDataset={(datasetId) => openDatasetInspect(datasetId)}
           floodCoverageDetail={floodCoverageDetail}
           yieldGap={yieldGap}
+          housingGoalLine={housingGoalLine}
           onStartExcludeDraw={() => startDraw("exclude")}
           onInspectFloodDataset={() => {
             const flood = workspace.datasets.find((d) => d.kind === "flood");
@@ -2520,19 +2633,11 @@ export default function WorkspaceClient({
           error={compareError}
           hint={compareHint}
           onHint={setCompareHint}
-          onRunAnalysis={async (scenarioId) => {
+          onRunAnalysis={async (scenarioId, scenarioName) => {
             await act("activate_scenario", { scenarioId });
             setTab("workspace");
-            const sc = workspace.scenarios.find((s) => s.id === scenarioId);
-            const steps = sc?.analysisPlan?.steps.length ?? 4;
-            setAnalysisProgress(`Running analysis (0/${steps} steps)…`);
-            try {
-              await act("run_analysis", { scenarioId });
-              setAnalysisProgress(null);
-              setCompareHint(null);
-            } catch {
-              setAnalysisProgress(null);
-            }
+            setCompareHint(`Run analysis on “${scenarioName}” to include it in comparison.`);
+            showToast(`Now viewing “${scenarioName}” — run analysis when ready.`);
           }}
           onCompare={async () => {
             const ids = [...compareIds];
@@ -2562,10 +2667,19 @@ export default function WorkspaceClient({
                 setCompareTableRows(null);
                 setCompareHousingTargets(null);
                 setCompareMetricsIdentical(false);
-                setCompareHint(
+                const recovery =
                   typeof data.message === "string"
-                    ? data.message
-                    : "Run analysis first for selected scenarios."
+                    ? data.message.replace(/^Run analysis first for:\s*/i, "")
+                    : "";
+                setCompareHint(
+                  recovery
+                    ? recovery
+                        .split(",")
+                        .map((name) => name.trim())
+                        .filter(Boolean)
+                        .map((name) => `Run analysis on ${name}`)
+                        .join(" · ")
+                    : "Run analysis on each selected branch before comparing."
                 );
               } else {
                 setComparison(data.comparison ?? null);
@@ -2601,6 +2715,7 @@ export default function WorkspaceClient({
           topCandidate={topCandidate}
           shortlist={shortlist}
           yieldGap={yieldGap}
+          housingGoalLine={housingGoalLine}
           shortlistedFeatureIds={shortlistedFeatureIds}
           layerData={layerData}
           onSelectShortlist={(candidateId) => {
@@ -2796,13 +2911,14 @@ function ShortlistPanel(props: {
 }
 
 function YieldGapBanner({ gap }: { gap: YieldGapSummary }) {
-  if (!gap.needsWarning) return null;
+  const tone = gap.needsWarning
+    ? "border-error/40 bg-error-container/15 text-error"
+    : "border-primary-fixed/40 bg-primary-fixed/10 text-on-surface";
   return (
-    <div
-      role="status"
-      className="mb-3 border border-error/40 bg-error-container/15 text-error text-caption px-3 py-2 rounded"
-    >
-      <p className="font-medium text-body-sm mb-1">Yield gap — {gap.headline}</p>
+    <div role="status" className={`mb-3 border text-caption px-3 py-2 rounded ${tone}`}>
+      <p className="font-medium text-body-sm mb-1">
+        {gap.needsWarning ? "Yield gap" : "Housing yield"} — {gap.headline}
+      </p>
       <p>{gap.detail}</p>
     </div>
   );
@@ -2972,6 +3088,7 @@ function ResultsDrawer(props: {
   onInspectDataset: (datasetId: string) => void;
   floodCoverageDetail?: FloodCoverageDetail | null;
   yieldGap?: YieldGapSummary | null;
+  housingGoalLine?: string | null;
   onStartExcludeDraw?: () => void;
   onInspectFloodDataset?: () => void;
   onSelect: (c: Candidate) => void;
@@ -3108,6 +3225,9 @@ function ResultsDrawer(props: {
               />
             )}
             {props.yieldGap && <YieldGapBanner gap={props.yieldGap} />}
+            {props.housingGoalLine && !props.yieldGap && (
+              <p className="text-body-sm text-on-surface-variant mb-3">{props.housingGoalLine}</p>
+            )}
             {!result ? (
               <p className="text-body-sm text-on-surface-variant">No results yet.</p>
             ) : result.status === "failed" ? (
@@ -3664,11 +3784,27 @@ function CompareView(props: {
   error?: string | null;
   hint?: string | null;
   onHint: (msg: string | null) => void;
-  onRunAnalysis: (scenarioId: string) => Promise<void>;
+  onRunAnalysis: (scenarioId: string, scenarioName: string) => Promise<void>;
   onCompare: () => Promise<void>;
   onPrefer: (id: string) => Promise<void>;
 }) {
   const { workspace } = props;
+
+  function scenarioIsComparable(scenarioId: string): boolean {
+    const scenario = workspace.scenarios.find((s) => s.id === scenarioId);
+    return scenario
+      ? scenarioHasComparableAnalysis(scenario, workspace.analysisResults)
+      : false;
+  }
+
+  const selectedUnanalyzed = props.compareIds
+    .map((id) => workspace.scenarios.find((s) => s.id === id))
+    .filter((scenario): scenario is WorkspaceSnapshot["scenarios"][0] => Boolean(scenario))
+    .filter((scenario) => !scenarioHasComparableAnalysis(scenario, workspace.analysisResults));
+
+  const comparableSelectedCount = props.compareIds.filter((id) =>
+    scenarioIsComparable(id)
+  ).length;
   const scenarioNames =
     props.comparison?.map((row) => String(row.name)) ??
     props.compareIds
@@ -3676,11 +3812,18 @@ function CompareView(props: {
       .filter((n): n is string => Boolean(n));
 
   function toggleScenario(id: string) {
+    const scenario = workspace.scenarios.find((s) => s.id === id);
+    if (scenario && !scenarioHasComparableAnalysis(scenario, workspace.analysisResults)) {
+      props.onHint(
+        `“${scenario.name}” has no analysis results yet — run analysis on this branch before comparing.`
+      );
+      return;
+    }
     props.setCompareIds((prev) => {
       const on = prev.includes(id);
       if (on) {
         if (prev.length <= 2) {
-          props.onHint("Keep at least two scenarios selected to compare.");
+          props.onHint("Keep at least two analyzed scenarios selected to compare.");
           return prev;
         }
         props.onHint(null);
@@ -3715,37 +3858,61 @@ function CompareView(props: {
       <div className="flex flex-wrap gap-3 mb-2" role="group" aria-label="Scenarios to compare">
         {props.workspace.scenarios.map((s) => {
           const on = props.compareIds.includes(s.id);
-          const hasResult = Boolean(s.latestResultId);
+          const hasResult = scenarioHasComparableAnalysis(s, workspace.analysisResults);
           return (
             <div key={s.id} className="flex items-center gap-1">
               <button
                 type="button"
                 aria-pressed={on}
+                disabled={!hasResult}
                 aria-label={`${on ? "Deselect" : "Select"} scenario ${s.name}`}
                 onClick={() => toggleScenario(s.id)}
                 className={`px-3 py-1.5 border text-body-sm transition-colors ${
                   on ? "border-primary bg-primary-fixed/30 text-primary" : "border-outline-variant"
-                } ${!hasResult ? "opacity-60" : ""}`}
+                } ${!hasResult ? "opacity-60 cursor-not-allowed" : ""}`}
               >
                 {s.name}
                 {!hasResult && (
-                  <span className="ml-1 text-caption text-on-surface-variant">(no results)</span>
+                  <span className="ml-1 text-caption text-on-surface-variant">(no analysis)</span>
                 )}
                 {on && <span className="ml-2 font-mono text-[10px]">selected</span>}
               </button>
               {!hasResult && (
                 <button
                   type="button"
-                  onClick={() => void props.onRunAnalysis(s.id)}
+                  onClick={() => void props.onRunAnalysis(s.id, s.name)}
                   className="px-2 py-1.5 border border-primary text-primary text-caption rounded hover:bg-primary-fixed/20"
                 >
-                  Run
+                  Run analysis on {s.name}
                 </button>
               )}
             </div>
           );
         })}
       </div>
+      {selectedUnanalyzed.length > 0 && (
+        <div
+          className="mb-4 border border-secondary/40 bg-secondary-fixed/10 px-4 py-3 rounded space-y-2"
+          role="status"
+        >
+          <p className="text-body-sm text-secondary">
+            These selected branches do not have completed analysis yet and cannot be compared:
+          </p>
+          <ul className="text-body-sm list-disc pl-5 space-y-1">
+            {selectedUnanalyzed.map((scenario) => (
+              <li key={scenario.id}>
+                <button
+                  type="button"
+                  className="text-primary underline"
+                  onClick={() => void props.onRunAnalysis(scenario.id, scenario.name)}
+                >
+                  Run analysis on {scenario.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {props.hint && (
         <p className="text-caption text-secondary mb-3" role="status">
           {props.hint}
@@ -3766,7 +3933,7 @@ function CompareView(props: {
       )}
       <button
         type="button"
-        disabled={props.compareIds.length < 2 || props.busy}
+        disabled={comparableSelectedCount < 2 || props.busy}
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -3774,7 +3941,9 @@ function CompareView(props: {
         }}
         className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40 mb-4"
       >
-        {props.busy ? "Comparing…" : `Compare selected (${props.compareIds.length})`}
+        {props.busy
+          ? "Comparing…"
+          : `Compare selected (${comparableSelectedCount} analyzed)`}
       </button>
       {props.error && (
         <p className="text-body-sm text-error mb-4" role="alert">
@@ -3907,6 +4076,7 @@ function DecisionView(props: {
   topCandidate: Candidate | null;
   shortlist: ResolvedShortlistEntry[];
   yieldGap?: YieldGapSummary | null;
+  housingGoalLine?: string | null;
   shortlistedFeatureIds: Set<string>;
   layerData: Record<string, GeoJSON.FeatureCollection>;
   onSelectShortlist: (candidateId: string) => void;
@@ -3953,15 +4123,12 @@ function DecisionView(props: {
           Analysis complete with {result!.candidates.length} candidates — ready for your decision.
         </p>
       )}
-      {result && scenario.objective.intent === "housing_capacity" && (
+      {result && isHousingIntent(scenario.objective.intent) && (
         <p className="text-body-sm font-medium text-primary mb-4 border border-primary-fixed/40 bg-primary-fixed/10 px-3 py-2 rounded">
-          {housingGoalSummary({
-            target: scenario.objective.targetValue,
-            totalCapacity: aggregateMetricValue(result, "total_capacity"),
-            targetGapMetric: analysisAggregateMetrics(result).find(
-              (m) => m.key === "housing_target_gap"
-            ),
-          }) ?? "Housing target metrics unavailable — recalculate analysis."}
+          {props.housingGoalLine ??
+            (result.candidates.length > 0
+              ? "Housing target metrics are loading from ranked candidates."
+              : "Run analysis to evaluate housing target progress.")}
         </p>
       )}
       {props.yieldGap && <YieldGapBanner gap={props.yieldGap} />}
@@ -4349,13 +4516,20 @@ function ReportView(props: {
     props.workspace.reports.find((r) => r.id === props.selectedReportId) ?? scenarioReports[0];
   const canGenerate = Boolean(props.result && !props.result.stale);
   const housingGoal =
-    props.result && props.scenario.objective.intent === "housing_capacity"
+    props.result && isHousingIntent(props.scenario.objective.intent)
       ? housingGoalSummary({
-          target: props.scenario.objective.targetValue,
-          totalCapacity: aggregateMetricValue(props.result, "total_capacity"),
+          target: resolveHousingTarget({
+            intent: props.scenario.objective.intent,
+            objectiveTarget: props.scenario.objective.targetValue,
+            objectiveRawText: props.scenario.objective.rawText,
+            projectName: props.workspace.project.name,
+          }),
+          totalCapacity: totalCapacityFromResult(props.result),
           targetGapMetric: analysisAggregateMetrics(props.result).find(
             (m) => m.key === "housing_target_gap"
           ),
+          candidateCount: props.result.candidates.length,
+          topSiteCapacity: topSiteCapacityFromResult(props.result),
         })
       : null;
 

@@ -10,7 +10,10 @@ export type PlannerSuggestion = {
 export type PlannerRouteContext = {
   hasProject: boolean;
   scenarioCount?: number;
+  analyzedScenarioCount?: number;
+  unanalyzedScenarioName?: string;
   scenarioIds?: string[];
+  analyzedScenarioIds?: string[];
   topCandidateId?: string;
   topCandidateLabel?: string;
 };
@@ -111,12 +114,21 @@ export function plannerSuggestions(context: PlannerRouteContext | boolean): Plan
   const ctx = typeof context === "boolean" ? { hasProject: context } : context;
   if (!ctx.hasProject) return HOME_SUGGESTIONS;
 
-  const scenarioCount = ctx.scenarioCount ?? 0;
-  const scenarioSuggestion =
-    scenarioCount >= 2 ? COMPARE_SUGGESTION : FLOOD_BRANCH_SUGGESTION;
+  const analyzedScenarioCount = ctx.analyzedScenarioCount ?? 0;
+  const branchSuggestion =
+    analyzedScenarioCount >= 2
+      ? COMPARE_SUGGESTION
+      : ctx.unanalyzedScenarioName
+        ? {
+            id: "run-analysis-branch",
+            label: `Run analysis on ${ctx.unanalyzedScenarioName}`,
+            tool: "run_analysis",
+            requiresProject: true,
+          }
+        : FLOOD_BRANCH_SUGGESTION;
   return [
     PIN_TOP_SUGGESTION,
-    scenarioSuggestion,
+    branchSuggestion,
     EXCLUDE_AREA_SUGGESTION,
     ...WORKSPACE_SUGGESTIONS_BASE.filter((s) => s.id !== "run-analysis"),
     {
@@ -322,21 +334,26 @@ function routeCompare(q: string, ctx: PlannerRouteContext): PlannerQueryRoute | 
   const blocked = requiresOpenProject(ctx);
   if (blocked) return blocked;
 
-  const scenarioCount = ctx.scenarioCount ?? 0;
-  if (scenarioCount < 2) {
+  const analyzedScenarioCount = ctx.analyzedScenarioCount ?? 0;
+  if (analyzedScenarioCount < 2) {
+    const branchName = ctx.unanalyzedScenarioName;
     return {
       kind: "message",
       message:
-        "Compare needs at least two scenarios. You only have one branch right now — try “Create a Flood-weighted branch” or duplicate the active scenario, run analysis on each branch, then ask to compare.",
+        analyzedScenarioCount === 0
+          ? "Compare needs at least two analyzed scenarios. Run analysis on the active branch first, then create another scenario (for example a flood-weighted branch) and analyze it before comparing."
+          : branchName
+            ? `Compare needs at least two analyzed scenarios. Run analysis on “${branchName}” (or another branch without results), then compare again.`
+            : "Compare needs at least two analyzed scenarios — run analysis on each branch you want to compare first.",
     };
   }
 
-  const scenarioIds = ctx.scenarioIds ?? [];
+  const scenarioIds = ctx.analyzedScenarioIds ?? ctx.scenarioIds ?? [];
   if (scenarioIds.length < 2) {
     return {
       kind: "message",
       message:
-        "I need two scenario ids to compare. Open the Compare tab to pick branches, or create another scenario first.",
+        "I need two analyzed scenario ids to compare. Open the Compare tab to pick branches that have completed analysis.",
     };
   }
 
@@ -458,9 +475,20 @@ export function summarizeToolResult(
   }
 
   if (tool === "create_scenario_branch" && result && typeof result === "object") {
-    const payload = result as { name?: string; message?: string; note?: string };
+    const payload = result as {
+      name?: string;
+      message?: string;
+      note?: string;
+      floodWeighted?: boolean;
+      weightsSummary?: string;
+    };
     if (payload.name) {
-      return `Created scenario branch “${payload.name}”. Run analysis on the new branch to rank sites.`;
+      const weightNote = payload.floodWeighted
+        ? payload.weightsSummary
+          ? ` Weights shifted (${payload.weightsSummary}) — run analysis to see a new ranking.`
+          : " Flood weights were increased — run analysis to see a new ranking."
+        : " Run analysis on the new branch to rank sites.";
+      return `Created scenario branch “${payload.name}”. Now viewing this branch — analysis not run yet.${weightNote}`;
     }
     if (payload.message) return payload.message;
     if (payload.note) return payload.note;

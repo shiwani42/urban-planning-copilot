@@ -19,7 +19,18 @@ const workspaceCtx = {
 const multiScenarioCtx = {
   ...workspaceCtx,
   scenarioCount: 2,
+  analyzedScenarioCount: 2,
   scenarioIds: ["sc-a", "sc-b"],
+  analyzedScenarioIds: ["sc-a", "sc-b"],
+};
+
+const oneAnalyzedScenarioCtx = {
+  ...workspaceCtx,
+  scenarioCount: 2,
+  analyzedScenarioCount: 1,
+  scenarioIds: ["sc-a", "sc-b"],
+  analyzedScenarioIds: ["sc-a"],
+  unanalyzedScenarioName: "Flood-weighted branch",
 };
 
 describe("planner query routing", () => {
@@ -82,12 +93,21 @@ describe("planner query routing", () => {
     }
   });
 
+  it("compare with one analyzed scenario explains run-analysis recovery", () => {
+    const route = routePlannerQuery("compare scenarios", oneAnalyzedScenarioCtx);
+    assert.equal(route.kind, "message");
+    if (route.kind === "message") {
+      assert.match(route.message, /two analyzed scenarios/i);
+      assert.match(route.message, /Flood-weighted branch/i);
+    }
+  });
+
   it("compare with one scenario explains the requirement", () => {
     const route = routePlannerQuery("compare scenarios", workspaceCtx);
     assert.equal(route.kind, "message");
     if (route.kind === "message") {
-      assert.match(route.message, /two scenarios/i);
-      assert.match(route.message, /Flood-weighted branch/i);
+      assert.match(route.message, /two analyzed scenarios/i);
+      assert.match(route.message, /flood-weighted branch/i);
     }
   });
 
@@ -120,13 +140,19 @@ describe("planner query routing", () => {
     assert.ok(suggestions.every((s) => s.requiresProject));
   });
 
+  it("offers run-analysis chip when a branch lacks analysis", () => {
+    const suggestions = plannerSuggestions(oneAnalyzedScenarioCtx);
+    assert.ok(suggestions.some((s) => s.label.includes("Run analysis on Flood-weighted branch")));
+    assert.ok(!suggestions.some((s) => s.tool === "compare_scenarios"));
+  });
+
   it("offers flood branch instead of compare with one scenario", () => {
     const suggestions = plannerSuggestions(workspaceCtx);
     assert.ok(suggestions.some((s) => s.label.includes("Flood-weighted branch")));
     assert.ok(!suggestions.some((s) => s.tool === "compare_scenarios"));
   });
 
-  it("offers compare when two scenarios exist", () => {
+  it("offers compare when two analyzed scenarios exist", () => {
     const suggestions = plannerSuggestions(multiScenarioCtx);
     assert.ok(suggestions.some((s) => s.tool === "compare_scenarios"));
   });

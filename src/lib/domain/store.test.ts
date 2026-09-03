@@ -122,6 +122,32 @@ describe("store persistence", () => {
     assert.ok(branchResult!.candidates.length > 0);
   });
 
+  it("flood-weighted branch shifts persisted weights toward flood resilience", async () => {
+    const ws = await services.createProject({
+      name: "Flood branch weights",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const baselineId = ws.project.activeScenarioId!;
+    const baseline = ws.scenarios.find((s) => s.id === baselineId)!;
+    const baselineFlood = Math.round(
+      (baseline.weights.find((w) => w.key.includes("flood"))?.weight ?? 0) * 100
+    );
+
+    const branched = await services.createScenario(
+      ws.project.id,
+      "Flood-weighted branch",
+      baselineId
+    );
+    const branch = branched.scenarios.find((s) => s.name === "Flood-weighted branch")!;
+    const branchFlood = Math.round(
+      (branch.weights.find((w) => w.key.includes("flood"))?.weight ?? 0) * 100
+    );
+
+    assert.equal(branchFlood, 35);
+    assert.ok(branchFlood > baselineFlood);
+    assert.match(branched.project.resumeNote ?? "", /flood-weighted/i);
+  });
+
   it("scenario branch does not inherit parent decision or resume note", async () => {
     const ws = await services.createProject({
       name: "Branch decision reset",
