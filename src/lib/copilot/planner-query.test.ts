@@ -42,6 +42,15 @@ describe("planner query routing", () => {
     }
   });
 
+  it("empty command uses planner language", () => {
+    const route = routePlannerQuery("   ", workspaceCtx);
+    assert.equal(route.kind, "message");
+    if (route.kind === "message") {
+      assert.match(route.message, /Command this study/);
+      assert.doesNotMatch(route.message, /^Ask /);
+    }
+  });
+
   it("routes run analysis when a project is open", () => {
     const route = routePlannerQuery("please run analysis now", workspaceCtx);
     assert.equal(route.kind, "tool");

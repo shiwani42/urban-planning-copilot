@@ -6,11 +6,13 @@ import { summarizeToolResult } from "../copilot/planner-query";
 import {
   ANALYSIS_RUNNING_FEED,
   COPILOT_ACTION_FAILED,
+  COPILOT_EMPTY_COMMAND,
   DRAWING_MAP_HINT,
   EXCLUDE_AREA_HELP,
   FINDINGS_EMPTY_OUTCOME,
   FINDINGS_PLAN_INTRO,
   LAYERS_SCORE_NOTE,
+  PIN_NEEDS_ANALYSIS,
 } from "../planner-copy";
 
 test("findings copy is planner language, not a first-person chat", () => {
@@ -18,6 +20,8 @@ test("findings copy is planner language, not a first-person chat", () => {
   assert.doesNotMatch(FINDINGS_PLAN_INTRO, /\bbefore I run\b/i);
   assert.match(FINDINGS_PLAN_INTRO, /analysis plan/i);
   assert.match(FINDINGS_EMPTY_OUTCOME, /Findings/);
+  assert.doesNotMatch(PIN_NEEDS_ANALYSIS, /\bI can\b/i);
+  assert.doesNotMatch(COPILOT_EMPTY_COMMAND, /^Ask /);
 });
 
 test("drawing copy tells planners the map will not pan", () => {

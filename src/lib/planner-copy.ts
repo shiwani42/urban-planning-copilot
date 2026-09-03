@@ -126,6 +126,18 @@ export const LAYERS_SCORE_NOTE =
 export const ZONING_OVERLAY_LABEL = "Zoning (from parcels)";
 export const ZONING_RESIDENTIAL_SWATCH = "Residential zoning";
 export const ZONING_OTHER_SWATCH = "Other zoning";
+export const COPILOT_STUDY_SUBTITLE =
+  "Commands update this study — plan, feed, and findings.";
+export const COPILOT_EMPTY_COMMAND =
+  "Command this study — for example “run analysis”, “pin the top site”, or “create a flood-weighted branch”.";
+export const COPILOT_UNKNOWN_COMMAND =
+  "Use a suggestion or a tool below — commands update this study.";
+export const COPILOT_NO_PROJECT_COMMAND =
+  "Without an open project, list datasets or start a new study from the header. Open a workspace for analysis.";
+export const PIN_NEEDS_ANALYSIS =
+  "Run analysis first so candidates can be ranked, then pin or shortlist the top site.";
+export const EXPLORE_QUESTION_PLACEHOLDER =
+  "Transit gaps, school access, flood exposure, or housing siting…";
 
 export const RANKING_STALE_FALLBACK =
   "Ranking may not match the current objective — recalculate before deciding.";
@@ -192,6 +204,12 @@ export function allPlannerCopyStrings(): string[] {
     ZONING_OVERLAY_LABEL,
     ZONING_RESIDENTIAL_SWATCH,
     ZONING_OTHER_SWATCH,
+    COPILOT_STUDY_SUBTITLE,
+    COPILOT_EMPTY_COMMAND,
+    COPILOT_UNKNOWN_COMMAND,
+    COPILOT_NO_PROJECT_COMMAND,
+    PIN_NEEDS_ANALYSIS,
+    EXPLORE_QUESTION_PLACEHOLDER,
     RANKING_STALE_FALLBACK,
     SHORTLIST_SAVE_FAILED,
     CLIENT_STUDY_CONTINUE_NAME,

@@ -25,7 +25,13 @@ import {
   toolLabel,
 } from "@/lib/copilot/tool-groups";
 import { formatLocaleTime } from "@/lib/format";
-import { COPILOT_PANEL_FOOTER, COPILOT_HOME_PLACEHOLDER, COPILOT_FEED_HEADING } from "@/lib/planner-copy";
+import {
+  COPILOT_PANEL_FOOTER,
+  COPILOT_HOME_PLACEHOLDER,
+  COPILOT_FEED_HEADING,
+  COPILOT_STUDY_SUBTITLE,
+  PIN_NEEDS_ANALYSIS,
+} from "@/lib/planner-copy";
 import { notifyWorkspaceMutated } from "@/lib/workspace-sync";
 import type { WorkspaceTab } from "@/lib/workspace-tabs";
 
@@ -203,8 +209,7 @@ export function UrbanPlanningCopilot({
         if (topCandidateId) {
           mergedArgs.candidateId = topCandidateId;
         } else {
-          const message =
-            "Run analysis first so I can rank candidates, then ask to pin or shortlist the top site.";
+          const message = PIN_NEEDS_ANALYSIS;
           appendCopilotActivity({
             tool: "planner",
             query: userQuery,
@@ -455,7 +460,7 @@ export function UrbanPlanningCopilot({
             </h2>
             <p className="text-caption text-on-surface-variant mt-0.5">
               {hasProject
-                ? "Commands update this study. Plan, feed, and findings live here — not a chat thread."
+                ? COPILOT_STUDY_SUBTITLE
                 : "Start a project from the header or explore open data."}
             </p>
           </div>

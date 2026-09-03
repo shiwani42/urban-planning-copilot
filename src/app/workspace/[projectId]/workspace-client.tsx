@@ -5341,7 +5341,7 @@ function DecisionView(props: {
         </div>
       </div>
 
-      <aside className="hidden lg:flex flex-1 min-w-[300px] max-w-[50%] flex-col border-l border-outline-variant bg-surface-container-low min-h-0">
+      <aside className="hidden lg:flex flex-1 min-w-[320px] max-w-[50%] flex-col border-l border-outline-variant bg-surface-container-low min-h-0">
         <div className="p-4 border-b border-outline-variant shrink-0">
           <h4 className="font-mono text-data-label uppercase text-on-surface-variant">
             Scenario map
