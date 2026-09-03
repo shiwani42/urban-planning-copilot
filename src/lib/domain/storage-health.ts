@@ -1,3 +1,9 @@
+export type BootRecoveryKind =
+  | "first-run"
+  | "recovered-backup"
+  | "empty-after-missing-file"
+  | "normal";
+
 export type StorageHealth = {
   status: "healthy" | "degraded" | "unknown";
   dataDir: string;
@@ -5,25 +11,31 @@ export type StorageHealth = {
   onPersistentMount: boolean;
   /** Latest write-probe outcome — false when the data dir is not writable. */
   writeProbeOk?: boolean;
+  /** How the in-process store was bootstrapped — surfaces deploy/mount recovery. */
+  lastBoot?: BootRecoveryKind;
   message?: string;
   checkedAt: string;
 };
 
 const healthByDir = new Map<string, StorageHealth>();
 
-const RENDER_DISK_PREFIX = "/opt/render/project/src/data";
+export function getRenderDiskPrefix(): string {
+  return process.env.RENDER_DATA_DIR_PREFIX ?? "/opt/render/project/src/data";
+}
 
 export function markStorageHealthy(
   dataDir: string,
   message?: string,
-  options?: { writeProbeOk?: boolean }
+  options?: { writeProbeOk?: boolean; lastBoot?: BootRecoveryKind }
 ): void {
+  const previous = healthByDir.get(dataDir);
   healthByDir.set(dataDir, {
     status: "healthy",
     dataDir,
     configuredDataDir: dataDir,
-    onPersistentMount: dataDir.startsWith(RENDER_DISK_PREFIX),
+    onPersistentMount: dataDir.startsWith(getRenderDiskPrefix()),
     writeProbeOk: options?.writeProbeOk ?? true,
+    lastBoot: options?.lastBoot ?? previous?.lastBoot ?? "normal",
     message,
     checkedAt: new Date().toISOString(),
   });
@@ -32,14 +44,16 @@ export function markStorageHealthy(
 export function markStorageDegraded(
   dataDir: string,
   message: string,
-  options?: { writeProbeOk?: boolean }
+  options?: { writeProbeOk?: boolean; lastBoot?: BootRecoveryKind }
 ): void {
+  const previous = healthByDir.get(dataDir);
   healthByDir.set(dataDir, {
     status: "degraded",
     dataDir,
     configuredDataDir: dataDir,
-    onPersistentMount: dataDir.startsWith(RENDER_DISK_PREFIX),
+    onPersistentMount: dataDir.startsWith(getRenderDiskPrefix()),
     writeProbeOk: options?.writeProbeOk ?? false,
+    lastBoot: options?.lastBoot ?? previous?.lastBoot ?? "normal",
     message,
     checkedAt: new Date().toISOString(),
   });
@@ -51,7 +65,7 @@ export function getStorageHealth(dataDir: string): StorageHealth {
       status: "unknown",
       dataDir,
       configuredDataDir: dataDir,
-      onPersistentMount: dataDir.startsWith(RENDER_DISK_PREFIX),
+      onPersistentMount: dataDir.startsWith(getRenderDiskPrefix()),
       checkedAt: new Date().toISOString(),
     }
   );

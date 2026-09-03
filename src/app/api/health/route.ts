@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import {
   getConfiguredDataDir,
+  getLastBootRecovery,
   getStorePath,
   refreshStorageHealthProbe,
   reloadStoreFromDisk,
@@ -43,6 +44,7 @@ export async function GET() {
         storeExists,
         projectCount,
         storePath,
+        lastBoot: getLastBootRecovery(),
         ...(storeReadError ? { storeReadError } : {}),
       },
     };

@@ -408,12 +408,26 @@ export function projectNameTaken(
   );
 }
 
-function assertProjectName(name: string) {
+function assertProjectName(name: unknown) {
+  if (typeof name !== "string" || !name.trim()) {
+    throw new Error("Project name is required.");
+  }
   const trimmed = name.trim();
   if (trimmed.length < 2) {
     throw new Error("Project name must be at least 2 characters.");
   }
   return trimmed;
+}
+
+function assertCreateObjectiveText(objectiveText: unknown) {
+  if (typeof objectiveText !== "string" || !objectiveText.trim()) {
+    throw new Error("Planning objective is required.");
+  }
+  const quality = assessObjectiveQuality(objectiveText);
+  if (!quality.interpretable) {
+    throw new Error(quality.warning ?? "Planning objective is not interpretable.");
+  }
+  return objectiveText.trim();
 }
 
 export async function listProjects(): Promise<ProjectListItem[]> {
@@ -485,6 +499,10 @@ export async function renameProject(projectId: string, name: string): Promise<Pr
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
+  const storeBefore = await getStore();
+  const deletingLastProject =
+    storeBefore.projects.length === 1 &&
+    storeBefore.projects.some((p) => p.id === projectId);
   await updateStore((store) => {
     const idx = store.projects.findIndex((p) => p.id === projectId);
     if (idx < 0) throw new Error("Project not found");
@@ -500,7 +518,7 @@ export async function deleteProject(projectId: string): Promise<void> {
     store.analysisJobs = store.analysisJobs.filter((j) => !scenarioIds.has(j.scenarioId));
     store.analysisResults = store.analysisResults.filter((r) => !scenarioIds.has(r.scenarioId));
     store.reports = store.reports.filter((r) => r.projectId !== projectId);
-  });
+  }, deletingLastProject ? { allowEmptyCatalog: true } : undefined);
 }
 
 function workspaceSnapshotFromStore(
@@ -569,17 +587,17 @@ export async function createProject(input: {
   geographyLabel?: string;
   mode?: "explore" | "planning";
 }): Promise<WorkspaceSnapshot & { duplicateNameWarning?: boolean }> {
-  const quality = assessObjectiveQuality(input.objectiveText);
-  if (!quality.interpretable) {
-    throw new Error(quality.warning ?? "Planning objective is not interpretable.");
-  }
+  const trimmedObjective = assertCreateObjectiveText(input.objectiveText);
   const trimmedName = assertProjectName(input.name);
   const storeBefore = await getStore();
   const duplicateNameWarning = projectNameTaken(storeBefore, trimmedName);
   let projectId = "";
   const storeAfter = await updateStore((store) => {
-    const geographyLabel = input.geographyLabel ?? "Study area";
-    const parsed = parseForStore(store, input.objectiveText, geographyLabel);
+    const geographyLabel =
+      typeof input.geographyLabel === "string" && input.geographyLabel.trim()
+        ? input.geographyLabel.trim()
+        : "Study area";
+    const parsed = parseForStore(store, trimmedObjective, geographyLabel);
     const project: Project = {
       id: nanoid(),
       name: trimmedName,

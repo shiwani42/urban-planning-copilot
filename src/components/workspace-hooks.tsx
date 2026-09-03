@@ -37,6 +37,10 @@ function phaseLabel(elapsedMs: number): string {
   return workspaceLoadPhaseLabel(elapsedMs);
 }
 
+function isNotFoundError(message: string): boolean {
+  return /not found/i.test(message);
+}
+
 export type WorkspaceLoadState = {
   workspace: WorkspaceSnapshot | null;
   loading: boolean;
@@ -45,6 +49,9 @@ export type WorkspaceLoadState = {
   loadPhase: string;
   elapsedMs: number;
   isRetrying: boolean;
+  refreshing: boolean;
+  projectNotFound: boolean;
+  lastFetchAt: string | null;
   refresh: () => Promise<WorkspaceSnapshot | null>;
   act: (action: string, body?: Record<string, unknown>) => Promise<Record<string, unknown>>;
   clearError: () => void;
@@ -59,6 +66,9 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
   const [loadPhase, setLoadPhase] = useState<string>(LOAD_PHASES[0].label);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [projectNotFound, setProjectNotFound] = useState(false);
+  const [lastFetchAt, setLastFetchAt] = useState<string | null>(null);
   const workspaceRef = useRef<WorkspaceSnapshot | null>(null);
   const loadAttemptRef = useRef(0);
 
@@ -66,17 +76,39 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
     workspaceRef.current = workspace;
   }, [workspace]);
 
+  const handleFetchFailure = useCallback((message: string) => {
+    setLastFetchAt(new Date().toISOString());
+    if (isNotFoundError(message)) {
+      setProjectNotFound(true);
+      setWorkspace(null);
+      workspaceRef.current = null;
+    }
+    setError(message);
+  }, []);
+
   const refresh = useCallback(async () => {
-    const { data } = await fetchJsonWithRetry<WorkspaceSnapshot>(
-      `/api/projects/${projectId}`,
-      { cache: "no-store" },
-      { label: "Load project", retries: 3 }
-    );
-    setWorkspace(data);
-    workspaceRef.current = data;
-    setError(null);
-    return data;
-  }, [projectId]);
+    setRefreshing(true);
+    setProjectNotFound(false);
+    try {
+      const { data } = await fetchJsonWithRetry<WorkspaceSnapshot>(
+        `/api/projects/${projectId}`,
+        { cache: "no-store" },
+        { label: "Load project", retries: 3 }
+      );
+      setWorkspace(data);
+      workspaceRef.current = data;
+      setError(null);
+      setProjectNotFound(false);
+      setLastFetchAt(new Date().toISOString());
+      return data;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      handleFetchFailure(message);
+      return null;
+    } finally {
+      setRefreshing(false);
+    }
+  }, [projectId, handleFetchFailure]);
 
   const clearError = useCallback(() => setError(null), []);
 
@@ -85,6 +117,7 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
     setLoading(true);
     setError(null);
     setIsRetrying(false);
+    setProjectNotFound(false);
     setElapsedMs(0);
     setLoadPhase(LOAD_PHASES[0].label);
 
@@ -106,11 +139,14 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
     }, LOAD_TIMEOUT_MS);
 
     try {
-      await refresh();
+      const data = await refresh();
+      if (!data && loadAttemptRef.current === attempt) {
+        setWorkspace(null);
+      }
     } catch (e) {
       if (loadAttemptRef.current !== attempt) return;
       const message = e instanceof Error ? e.message : String(e);
-      setError(message);
+      handleFetchFailure(message);
       if (!workspaceRef.current) {
         setWorkspace(null);
       }
@@ -122,7 +158,7 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
         setIsRetrying(false);
       }
     }
-  }, [refresh]);
+  }, [refresh, handleFetchFailure]);
 
   useEffect(() => {
     void loadWorkspace();
@@ -133,10 +169,10 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
       if (detail.projectId && detail.projectId !== projectId) return;
       refresh().catch((e) => {
         const message = e instanceof Error ? e.message : String(e);
-        setError(message);
+        handleFetchFailure(message);
       });
     });
-  }, [projectId, refresh]);
+  }, [projectId, refresh, handleFetchFailure]);
 
   const act = useCallback(
     async (action: string, body: Record<string, unknown> = {}) => {
@@ -156,7 +192,7 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
         } catch (refreshErr) {
           const message =
             refreshErr instanceof Error ? refreshErr.message : String(refreshErr);
-          setError(message);
+          handleFetchFailure(message);
         }
         return data;
       } catch (e) {
@@ -166,17 +202,17 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
             await refresh();
             setError(null);
           } catch {
-            setError(message);
+            handleFetchFailure(message);
           }
         } else {
-          setError(message);
+          handleFetchFailure(message);
         }
         throw e;
       } finally {
         setBusy(false);
       }
     },
-    [projectId, refresh]
+    [projectId, refresh, handleFetchFailure]
   );
 
   return {
@@ -188,6 +224,9 @@ export function useWorkspace(projectId: string): WorkspaceLoadState {
     loadPhase,
     elapsedMs,
     isRetrying,
+    refreshing,
+    projectNotFound,
+    lastFetchAt,
     refresh,
     act,
     clearError,

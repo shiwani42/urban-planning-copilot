@@ -5,8 +5,10 @@ import path from "path";
 import os from "os";
 import * as services from "./services";
 import {
+  clearStoreCache,
   getStorePath,
   getStore,
+  getLastBootRecovery,
   reloadStoreFromDisk,
   resetStore,
   updateStore,
@@ -438,6 +440,54 @@ describe("store persistence", () => {
     };
     await corrupt();
     await assert.rejects(() => reloadStoreFromDisk(), /projects field is not an array/);
+  });
+
+  it("refuses to persist empty catalog over non-empty disk store", async () => {
+    await services.createProject({
+      name: "Must not be wiped",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    let caught: unknown;
+    try {
+      await updateStore((store) => {
+        store.projects = [];
+        store.scenarios = [];
+      });
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught instanceof StorePersistError);
+    assert.match((caught as Error).message, /Refusing to persist empty catalog/);
+    const reloaded = await reloadStoreFromDisk();
+    assert.equal(reloaded.projects.length, 1);
+    assert.equal(reloaded.projects[0]?.name, "Must not be wiped");
+  });
+
+  it("does not write empty catalog on persistent mount when store files are missing", async () => {
+    const previousRetry = process.env.STORE_DISK_READ_RETRY_MS;
+    const previousPrefix = process.env.RENDER_DATA_DIR_PREFIX;
+    process.env.STORE_DISK_READ_RETRY_MS = "0";
+    const renderRoot = path.join(tmpDir, "render-disk");
+    process.env.RENDER_DATA_DIR_PREFIX = renderRoot;
+    const persistentDir = path.join(renderRoot, `upc-test-${Date.now()}`);
+    await fs.mkdir(persistentDir, { recursive: true });
+    process.env.DATA_DIR = persistentDir;
+    clearStoreCache();
+    try {
+      const store = await reloadStoreFromDisk();
+      assert.equal(store.projects.length, 0);
+      assert.equal(getLastBootRecovery(), "empty-after-missing-file");
+      assert.equal(
+        await fs
+          .access(path.join(persistentDir, "store.json"))
+          .then(() => true)
+          .catch(() => false),
+        false
+      );
+    } finally {
+      process.env.STORE_DISK_READ_RETRY_MS = previousRetry;
+      process.env.RENDER_DATA_DIR_PREFIX = previousPrefix;
+    }
   });
 
   it("upgrades store missing newer fields without clearing projects", async () => {

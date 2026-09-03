@@ -8,7 +8,7 @@ import {
   getStore,
   getStorePath,
   persist,
-  reloadStoreFromDisk,
+  waitForStableStoreRead,
   refreshStorageHealthProbe,
 } from "../src/lib/domain/store";
 import * as services from "../src/lib/domain/services";
@@ -16,7 +16,7 @@ import * as services from "../src/lib/domain/services";
 const EXPECTED_DEMO_PROJECTS = 3;
 
 async function verifyPersistedProjectCount(minimum: number): Promise<number> {
-  const store = await reloadStoreFromDisk();
+  const store = await waitForStableStoreRead();
   const count = store.projects.length;
   if (count < minimum) {
     throw new Error(
@@ -36,10 +36,16 @@ async function main() {
     process.exit(0);
   }
 
-  const store = await reloadStoreFromDisk();
+  const store = await waitForStableStoreRead();
   if (store.projects.length > 0) {
     console.log(`[seed] Store already has ${store.projects.length} project(s) — skipping seed.`);
     return;
+  }
+
+  if (health.lastBoot === "empty-after-missing-file") {
+    console.error(
+      "[seed] WARNING — boot refused to write an empty catalog; waiting for disk before seeding."
+    );
   }
 
   console.log("[seed] Seeding demo projects…");

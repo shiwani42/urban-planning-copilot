@@ -77,6 +77,25 @@ describe("project list services", () => {
     assert.equal((await services.listProjects()).length, 2);
   });
 
+  it("rejects create when name or objective is missing", async () => {
+    await assert.rejects(
+      () =>
+        services.createProject({
+          name: undefined as unknown as string,
+          objectiveText: HOUSING_OBJECTIVE,
+        }),
+      /Project name is required/
+    );
+    await assert.rejects(
+      () =>
+        services.createProject({
+          name: "Valid name",
+          objectiveText: undefined as unknown as string,
+        }),
+      /Planning objective is required/
+    );
+  });
+
   it("records lastOpenedAt and deletes project with cascades", async () => {
     const ws = await services.createProject({
       name: "Transit Hub",

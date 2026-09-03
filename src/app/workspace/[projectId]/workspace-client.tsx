@@ -201,7 +201,7 @@ export default function WorkspaceClient({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { workspace, loading, error, busy, act, refresh, clearError, loadPhase, elapsedMs, isRetrying } =
+  const { workspace, loading, error, busy, act, refresh, clearError, loadPhase, elapsedMs, isRetrying, refreshing, projectNotFound, lastFetchAt } =
     useWorkspace(projectId);
   const [tab, setTabState] = useState<Tab>(() => {
     const fromQuery =
@@ -347,6 +347,7 @@ export default function WorkspaceClient({
   const hasAnyResult = Boolean(result);
   const isFreshResult = Boolean(result && result.status === "completed" && !result.stale);
   const candidates = result?.candidates ?? [];
+  const completedAnalysisCount = result?.status === "completed" ? 1 : 0;
   const headerResumeNote = useMemo(() => {
     if (!workspace || !scenario) return undefined;
     if (scenario.decisionStatus === "approved" && !scenario.decisionStale) {
@@ -1048,6 +1049,14 @@ export default function WorkspaceClient({
   }
 
   if (!loading && !workspace) {
+    const notFoundTitle = projectNotFound
+      ? "This project is no longer on the server"
+      : "This project is not available";
+    const notFoundDetail = projectNotFound
+      ? "The workspace catalog changed while you were working — often after a deploy or storage recovery. Your in-browser view may be stale."
+      : error
+        ? ` ${error}`
+        : " It may have been removed or workspace storage may be degraded.";
     return (
       <div className="h-screen flex flex-col bg-background">
         <StorageBanner />
@@ -1058,13 +1067,16 @@ export default function WorkspaceClient({
         </header>
         <main className="flex-1 flex items-center justify-center p-8">
           <div className="max-w-lg text-center border border-outline-variant bg-surface-container-lowest p-10">
-            <h1 className="text-headline-md text-on-surface mb-3">This project is not available</h1>
+            <h1 className="text-headline-md text-on-surface mb-3">{notFoundTitle}</h1>
             <p className="text-body-sm text-on-surface-variant mb-2">
               The server could not load project <span className="font-mono text-caption">{projectId}</span>.
-              {error
-                ? ` ${error}`
-                : " It may have been removed or workspace storage may be degraded."}
+              {notFoundDetail}
             </p>
+            {lastFetchAt && (
+              <p className="font-mono text-caption text-on-surface-variant mb-4">
+                Last checked {new Date(lastFetchAt).toLocaleString()}
+              </p>
+            )}
             <p className="text-body-sm text-on-surface-variant mb-6">
               If you were mid-analysis, check whether other projects are still listed on the home
               page. A storage warning banner appears only when workspace storage is degraded.
@@ -1073,21 +1085,25 @@ export default function WorkspaceClient({
               <button
                 type="button"
                 onClick={() => void refresh()}
-                className="bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium"
+                disabled={refreshing}
+                className="bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium disabled:opacity-50 inline-flex items-center gap-2"
               >
+                {refreshing && (
+                  <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+                )}
                 Retry load
               </button>
               <Link
-                href="/new"
+                href="/"
                 className="border border-outline-variant px-5 py-2.5 rounded text-body-sm"
               >
-                New project
+                Home
               </Link>
               <Link
-                href="/"
+                href="/new"
                 className="text-primary text-body-sm hover:underline py-2.5"
               >
-                Back to projects
+                New project
               </Link>
             </div>
           </div>
@@ -2416,7 +2432,7 @@ export default function WorkspaceClient({
                   {scenario.constraints.filter((c) => c.enabled).length} CONSTRAINTS
                 </span>
                 ·
-                <span>{scenario.analysisPlan?.steps.length ?? 0} ANALYSES</span>
+                <span>{completedAnalysisCount} ANALYSES</span>
               </div>
               <button
                 onClick={runAnalysis}

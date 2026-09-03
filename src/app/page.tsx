@@ -525,6 +525,16 @@ export default function HomePage() {
     <div className="min-h-screen bg-background flex flex-col" onClick={() => setMenuId(null)}>
       <AppHeader active="projects" />
       <StorageBanner />
+      {storageStatus.lastBoot === "empty-after-missing-file" && (
+        <div
+          role="status"
+          className="bg-error-container/40 border-b border-error px-section-padding py-3 text-body-sm text-error"
+        >
+          Workspace catalog may have reset after a deploy — the server booted without finding
+          store.json on the persistent disk. Reload projects; if studies are missing, create a new
+          workspace or restore from backup.
+        </div>
+      )}
 
       <main id="main-content" className="flex-1 max-w-7xl w-full mx-auto px-section-padding py-10">
         <div className="flex flex-col lg:flex-row lg:items-start gap-10">
