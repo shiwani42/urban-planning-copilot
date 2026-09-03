@@ -517,8 +517,8 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
   );
 
   type RawCandidate = {
-    feature: GeoJSON.Feature;
     id: string;
+    centroid: [number, number];
     transitDist: number;
     schoolDist: number;
     parkDist: number;
@@ -532,8 +532,13 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
     labelBase: string;
   };
 
-  const rawCandidates: RawCandidate[] = remaining.map((f, i) => {
-    const id = featureId(f, `candidate-${i}`);
+  const rawCandidates: RawCandidate[] = [];
+  const PARCEL_CHUNK = 250;
+  for (let offset = 0; offset < remaining.length; offset += PARCEL_CHUNK) {
+    const chunk = remaining.slice(offset, offset + PARCEL_CHUNK);
+    for (let i = 0; i < chunk.length; i++) {
+      const f = chunk[i]!;
+      const id = featureId(f, `candidate-${offset + i}`);
     const transit = input.layers.transit
       ? nearestDistance(f, input.layers.transit)
       : { distance: Number.POSITIVE_INFINITY };
@@ -586,9 +591,9 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
       : false;
     const floodExposure = intersectsHigh ? 100 : intersectsModerate ? 65 : 15;
     const labelBase = candidateLabelFromFeature(f, id);
-    return {
-      feature: f,
+    rawCandidates.push({
       id,
+      centroid: centroidOf(f),
       transitDist: transit.distance,
       schoolDist,
       parkDist,
@@ -600,8 +605,9 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
       floodScore,
       floodExposure,
       labelBase,
-    };
-  });
+    });
+    }
+  }
 
   const transitDists = rawCandidates.map((r) => r.transitDist);
   const schoolDists = rawCandidates.map((r) => r.schoolDist);
@@ -653,7 +659,6 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
   }
 
   const enriched = rawCandidates.map((raw) => {
-    const f = raw.feature;
     const id = raw.id;
     const transitScore = scoreFromDistance(raw.transitDist, transitThreshold);
     const transitGapScore = percentileScore(raw.transitAccess.underserved, transitUnderserved, true);
@@ -882,65 +887,23 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
 
     const label = raw.labelBase;
 
-    const calculations: Candidate["provenance"]["calculations"] = [];
-    if (raw.capacityInfo) {
-      calculations.push({
-        name: "capacity",
-        method: raw.capacityInfo.method,
-        inputs: raw.capacityInfo.inputs,
-        output: raw.capacityInfo.capacity,
-      });
-    }
-    if (useSchoolMetrics) {
-      calculations.push({
-        name: "school_access_gap",
-        method: `underserved population beyond ${schoolRadius}m school service radius`,
-        inputs: {
-          school_distance_m: Math.round(raw.schoolDist),
-          underserved_pop: raw.schoolAccess.underserved,
-          parcel_population: raw.schoolAccess.total,
-        },
-        output: schoolGapScore,
-      });
-    }
-    if (useParkMetrics) {
-      calculations.push({
-        name: "park_access_gap",
-        method: `underserved population beyond ${parkRadius}m park service radius`,
-        inputs: {
-          park_distance_m: Math.round(raw.parkDist),
-          underserved_pop: raw.parkAccess.underserved,
-          parcel_population: raw.parkAccess.total,
-        },
-        output: parkGapScore,
-      });
-    }
-    calculations.push({
-      name: "composite_score",
-      method: profileScore != null
-        ? "explore profile score (percentile-calibrated)"
-        : "weighted sum of normalized criteria",
-      inputs: { weights: Object.fromEntries(weights.map((w) => [w.key, w.weight])) },
-      output: Number(score.toFixed(1)),
-    });
-
     const candidate: Candidate = {
       id,
       label,
       featureIds: [id],
-      geometry: f.geometry,
-      centroid: centroidOf(f),
+      geometry: { type: "Point", coordinates: raw.centroid },
+      centroid: raw.centroid,
       score: Number(score.toFixed(1)),
       rank: 0,
       metrics,
       provenance: {
         scoreBreakdown: profileScore != null ? { profile: profileScore, ...breakdown } : breakdown,
-        calculations,
+        calculations: [],
         datasets: Object.values(input.datasetIds),
         assumptions: input.assumptions.map((a) => a.key),
         constraints: input.constraints.filter((c) => c.enabled).map((c) => c.label),
         humanDecisions: input.selections.map((s) => s.label),
-        limitations: [...limitations],
+        limitations: [],
       },
       status: "eligible",
       recommendationNote: undefined,
@@ -980,7 +943,6 @@ export function runSpatialAnalysis(input: AnalysisEngineInput): AnalysisEngineOu
 
   ranked.forEach((c, i) => {
     c.rank = i + 1;
-    c.provenance.limitations = [...limitations];
     if (i === 0) {
       c.recommendationNote =
         input.exploreProfile === "transit_gap" || input.objective.intent === "transit_gap"

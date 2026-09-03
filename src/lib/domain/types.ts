@@ -225,6 +225,11 @@ export interface AnalysisResult {
   createdAt: string;
   completedAt?: string;
   candidates: Candidate[];
+  /** Denormalized for fast list_candidates without scanning all scores. */
+  candidateCount?: number;
+  scoreSpread?: number;
+  scoreMin?: number;
+  scoreMax?: number;
   aggregateMetrics: MetricValue[];
   summary: string;
   limitations: string[];

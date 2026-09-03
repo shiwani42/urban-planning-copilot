@@ -530,6 +530,23 @@ export default function WorkspaceClient({
   const runningJob = workspace?.analysisJobs.find(
     (j) => j.scenarioId === scenario?.id && j.status === "running"
   );
+  const failedJob = useMemo(() => {
+    if (!workspace || !scenario) return null;
+    const latestFailed = [...workspace.analysisJobs]
+      .reverse()
+      .find((j) => j.scenarioId === scenario.id && j.status === "failed");
+    if (!latestFailed) return null;
+    const resultCompletedAt = result?.completedAt ?? result?.createdAt;
+    if (
+      resultCompletedAt &&
+      (latestFailed.completedAt ?? latestFailed.startedAt) < resultCompletedAt &&
+      result.status === "completed" &&
+      !result.stale
+    ) {
+      return null;
+    }
+    return latestFailed;
+  }, [workspace?.analysisJobs, scenario?.id, result?.completedAt, result?.createdAt, result?.status, result?.stale]);
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}`, {
@@ -1041,6 +1058,7 @@ export default function WorkspaceClient({
 
   function scenarioStatusLabel(): string {
     if (runningJob) return runningJob.currentStep ?? "Analysis running…";
+    if (failedJob) return failedJob.error ?? "Analysis failed — retry run_analysis.";
     if (isFreshResult && result) {
       return `Analysis complete — ${result.candidates.length} candidates`;
     }
@@ -1706,12 +1724,17 @@ export default function WorkspaceClient({
             {scenarioStatusLabel()}
           </span>
         )}
-        {hasAnyResult && !isFreshResult && !runningJob && (
+        {hasAnyResult && !isFreshResult && !runningJob && !failedJob && (
           <span className="shrink-0 text-caption text-on-surface-variant">
             {scenarioStatusLabel()}
           </span>
         )}
-        {(result?.stale || criteriaStaleHint) && (
+        {failedJob && (
+          <span className="shrink-0 px-3 py-1 rounded border border-error bg-error-container/30 text-error text-caption font-medium whitespace-nowrap">
+            Analysis failed — retry
+          </span>
+        )}
+        {(result?.stale || criteriaStaleHint) && !failedJob && (
           <span className="shrink-0 px-3 py-1 rounded border border-secondary bg-secondary-fixed/20 text-secondary text-caption font-medium whitespace-nowrap">
             Results stale — recalculate
           </span>

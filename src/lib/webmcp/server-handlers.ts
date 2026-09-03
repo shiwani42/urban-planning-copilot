@@ -79,9 +79,17 @@ async function waitForAnalysisWithinBudget(
   budgetMs: number = getPageToolBudgetMs()
 ) {
   const deadline = Date.now() + budgetMs;
+  let runSettled = false;
+  void runPromise.finally(() => {
+    runSettled = true;
+  });
   while (Date.now() < deadline) {
     const status = await services.getAnalysisRunStatus(projectId, scenarioId);
     if (status.status === "completed") {
+      if (!runSettled && status.stale) {
+        await sleep(ANALYSIS_POLL_MS);
+        continue;
+      }
       if ((status.candidateCount ?? 0) < 1) {
         throw new ToolError(
           "ANALYSIS_EMPTY",
@@ -93,6 +101,10 @@ async function waitForAnalysisWithinBudget(
     }
     if (status.status === "failed") {
       throw new ToolError("ANALYSIS_FAILED", status.error ?? "Analysis failed", "scenarioId");
+    }
+    if (status.status === "running") {
+      await sleep(ANALYSIS_POLL_MS);
+      continue;
     }
     await sleep(ANALYSIS_POLL_MS);
   }
@@ -175,6 +187,9 @@ export async function executePlanningTool(
       const ws = await services.getWorkspace(projectId);
       if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
       const { scenario, result } = activeContext(ws);
+      const runStatus = scenario
+        ? await services.getAnalysisRunStatus(ws.project.id, scenario.id)
+        : { status: "none" as const };
       return {
         projectId: ws.project.id,
         name: ws.project.name,
@@ -186,6 +201,9 @@ export async function executePlanningTool(
         weights: scenario?.weights,
         decisionStatus: scenario?.decisionStatus,
         analysisSummary: result?.summary ?? null,
+        analysisRunStatus: runStatus.status,
+        analysisError:
+          runStatus.status === "failed" ? (runStatus.error ?? "Analysis failed") : null,
         stale: result?.stale ?? false,
         pendingProposals: ws.proposals.length,
       };
@@ -248,12 +266,13 @@ export async function executePlanningTool(
     }
     case "inspect_candidate": {
       const projectId = resolveProjectId(input, context);
-      const ws = await services.getWorkspace(projectId);
-      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
       const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
-      const scenario = ws.scenarios.find((s) => s.id === scenarioId) ?? activeContext(ws).scenario;
-      const result = ws.analysisResults.find((r) => r.id === scenario?.latestResultId);
-      const candidate = result?.candidates.find((c) => c.id === input.candidateId);
+      const candidateId = String(input.candidateId ?? "");
+      const candidate = await services.findCandidateForInspection(
+        projectId,
+        scenarioId,
+        candidateId
+      );
       if (!candidate) throw new Error("Candidate not found");
       return {
         id: candidate.id,

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
+import { promises as fs } from "fs";
+import path from "path";
+import os from "os";
 import { exploreObjectiveTextForProject } from "./explore";
 import { listRecentAnalyses } from "./services";
 import {
@@ -10,6 +13,19 @@ import { resetStore, reloadStoreFromDisk } from "./store";
 import * as services from "./services";
 
 describe("pass 39 planner handoffs", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "upc-pass39-"));
+    process.env.DATA_DIR = tmpDir;
+    await resetStore();
+  });
+
+  afterEach(async () => {
+    delete process.env.DATA_DIR;
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
   it("exploreObjectiveTextForProject embeds scratch summary", () => {
     const text = exploreObjectiveTextForProject({
       objective: "Where are transit gaps largest?",
@@ -45,7 +61,6 @@ describe("pass 39 planner handoffs", () => {
   });
 
   it("listRecentAnalyses includes scenarioId for deep links", async () => {
-    await resetStore();
     const ws = await services.createProject({
       name: "Recent analysis link test",
       objectiveText:

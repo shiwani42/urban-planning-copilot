@@ -1,12 +1,27 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
+import { promises as fs } from "fs";
+import path from "path";
+import os from "os";
 import * as services from "./services";
 import { resetStore } from "./store";
 import { executePlanningTool } from "@/lib/webmcp/server-handlers";
 
 describe("pass 40 copilot exclusion and scenario context", () => {
-  it("exclude_features MCP tool excludes selected parcel features", async () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "upc-pass40-"));
+    process.env.DATA_DIR = tmpDir;
     await resetStore();
+  });
+
+  afterEach(async () => {
+    delete process.env.DATA_DIR;
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("exclude_features MCP tool excludes selected parcel features", async () => {
     const ws = await services.createProject({
       name: "Exclude features MCP",
       objectiveText:
@@ -41,7 +56,6 @@ describe("pass 40 copilot exclusion and scenario context", () => {
   });
 
   it("stale scenarioId in MCP context falls back to active scenario", async () => {
-    await resetStore();
     const ws = await services.createProject({
       name: "Stale scenario fallback",
       objectiveText:

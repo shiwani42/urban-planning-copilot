@@ -3,6 +3,7 @@ import type { CopilotActivityEntry } from "@/lib/copilot/copilot-activity";
 
 export type WorkspaceOutcomeContext = {
   runningJob?: AnalysisJob | null;
+  failedJob?: AnalysisJob | null;
   result?: AnalysisResult | null;
   isFreshResult?: boolean;
   copilotActivity?: CopilotActivityEntry[];
@@ -28,6 +29,10 @@ export function describeWorkspaceOutcome(ctx: WorkspaceOutcomeContext): string {
 
   if (ctx.runningJob) {
     return ctx.runningJob.currentStep ?? "Analysis is running for this scenario…";
+  }
+
+  if (ctx.failedJob) {
+    return ctx.failedJob.error ?? "Analysis failed — retry run_analysis after reviewing constraints.";
   }
 
   const result = ctx.result;
@@ -62,11 +67,19 @@ export function outcomeFromWorkspace(
   const runningJob = workspace.analysisJobs.find(
     (j) => j.scenarioId === scenario?.id && j.status === "running"
   );
+  const failedJob = [...workspace.analysisJobs]
+    .reverse()
+    .find((j) => j.scenarioId === scenario?.id && j.status === "failed");
   const isFreshResult = Boolean(
     result && result.status === "completed" && !result.stale && scenario?.latestResultId === result.id
   );
   return describeWorkspaceOutcome({
     runningJob,
+    failedJob:
+      failedJob &&
+      (!result?.completedAt || (failedJob.completedAt ?? "") >= result.completedAt)
+        ? failedJob
+        : null,
     result,
     isFreshResult,
     copilotActivity,
