@@ -538,6 +538,7 @@ export default function WorkspaceClient({
     if (!latestFailed) return null;
     const resultCompletedAt = result?.completedAt ?? result?.createdAt;
     if (
+      result &&
       resultCompletedAt &&
       (latestFailed.completedAt ?? latestFailed.startedAt) < resultCompletedAt &&
       result.status === "completed" &&
