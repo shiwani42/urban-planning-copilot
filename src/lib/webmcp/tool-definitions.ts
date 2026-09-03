@@ -53,14 +53,22 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
   {
     layer: "answer",
     name: "list_candidates",
-    description: "List ranked analysis candidates with scores and statuses for a scenario.",
+    description:
+      "List ranked analysis candidates (top N by default) with total count and score spread — does not return the full candidate set.",
     annotations: { readOnlyHint: true, untrustedContentHint: true },
     inputSchema: {
       type: "object",
       properties: {
         projectId: PROJECT_ID,
         scenarioId: SCENARIO_ID,
-        limit: { type: "number", description: "Max candidates (default 10)" },
+        limit: {
+          type: "number",
+          description: "Max candidates to return (default 10, max 100)",
+        },
+        offset: {
+          type: "number",
+          description: "Skip this many ranked candidates before returning the page (default 0)",
+        },
       },
       additionalProperties: false,
     },

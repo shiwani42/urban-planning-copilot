@@ -23,3 +23,5 @@ services:
         sync: false
       - key: NEXT_PUBLIC_CARTO_API_KEY
         sync: false
+      - key: UPC_ANALYSIS_SYNC
+        value: "0"

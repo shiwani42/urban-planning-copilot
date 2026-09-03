@@ -29,7 +29,7 @@ import { ToolError } from "@/lib/domain/tool-errors";
 import { parseMapCenter } from "@/lib/domain/map-center";
 import { resolveObjectiveTextWithGeography } from "@/lib/domain/objective-geography";
 import { resolvePlanningToolAlias } from "./tool-aliases";
-import { PAGE_TOOL_BUDGET_MS, PAGE_TOOL_POLL_MS, sleep } from "@/lib/webmcp/page-tool-budget";
+import { getPageToolBudgetMs, PAGE_TOOL_POLL_MS, sleep } from "@/lib/webmcp/page-tool-budget";
 
 function isKnownPlanningToolName(name: string): boolean {
   const resolved = resolvePlanningToolAlias(name);
@@ -76,7 +76,7 @@ async function waitForAnalysisWithinBudget(
   projectId: string,
   scenarioId: string,
   runPromise: Promise<unknown>,
-  budgetMs: number = PAGE_TOOL_BUDGET_MS
+  budgetMs: number = getPageToolBudgetMs()
 ) {
   const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
@@ -204,30 +204,18 @@ export async function executePlanningTool(
     }
     case "list_candidates": {
       const projectId = resolveProjectId(input, context);
-      const ws = await services.getWorkspace(projectId);
-      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
       const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
-      const scenario = ws.scenarios.find((s) => s.id === scenarioId) ?? activeContext(ws).scenario;
-      const result = ws.analysisResults.find((r) => r.id === scenario?.latestResultId);
-      if (!result) {
+      const limit = Number(input.limit ?? 10);
+      const offset = Number(input.offset ?? 0);
+      const page = await services.listCandidatesPage(projectId, scenarioId, limit, offset);
+      if (!page) {
         throw new ToolError(
           "NO_ANALYSIS",
           "No analysis results for this scenario — run_analysis first",
           "scenarioId"
         );
       }
-      const limit = Number(input.limit ?? 10);
-      return {
-        stale: result?.stale ?? false,
-        summary: result?.summary,
-        candidates: (result?.candidates ?? []).slice(0, limit).map((c) => ({
-          id: c.id,
-          label: c.label,
-          rank: c.rank,
-          score: c.score,
-          status: c.status,
-        })),
-      };
+      return page;
     }
     case "list_shortlist": {
       const projectId = resolveProjectId(input, context);
@@ -383,7 +371,7 @@ export async function executePlanningTool(
           projectId,
           scenarioId,
           Promise.resolve(),
-          PAGE_TOOL_BUDGET_MS
+          getPageToolBudgetMs()
         );
       }
 
@@ -396,7 +384,7 @@ export async function executePlanningTool(
           projectId,
           scenarioId,
           runPromise,
-          PAGE_TOOL_BUDGET_MS
+          getPageToolBudgetMs()
         );
       } catch (err) {
         const recovery = await services.getAnalysisRunStatus(projectId, scenarioId);
