@@ -5,12 +5,18 @@ export type BootRecoveryKind =
   | "migrated-from-legacy-path"
   | "normal";
 
+export type PersistBackend = "postgres" | "file";
+
 export type StorageHealth = {
   status: "healthy" | "degraded" | "unknown";
   dataDir: string;
   configuredDataDir: string;
   onPersistentMount: boolean;
-  /** Latest write-probe outcome — false when the data dir is not writable. */
+  /** Active durable store backend when known. */
+  persistBackend?: PersistBackend;
+  /** Latest Postgres probe outcome when DATABASE_URL is set. */
+  postgresOk?: boolean;
+  /** Latest write-probe outcome — false when the active backend is not writable. */
   writeProbeOk?: boolean;
   /** How the in-process store was bootstrapped — surfaces deploy/mount recovery. */
   lastBoot?: BootRecoveryKind;
@@ -38,7 +44,12 @@ function onPersistentMount(dataDir: string): boolean {
 export function markStorageHealthy(
   dataDir: string,
   message?: string,
-  options?: { writeProbeOk?: boolean; lastBoot?: BootRecoveryKind }
+  options?: {
+    writeProbeOk?: boolean;
+    lastBoot?: BootRecoveryKind;
+    persistBackend?: PersistBackend;
+    postgresOk?: boolean;
+  }
 ): void {
   const previous = healthByDir.get(dataDir);
   healthByDir.set(dataDir, {
@@ -46,6 +57,8 @@ export function markStorageHealthy(
     dataDir,
     configuredDataDir: dataDir,
     onPersistentMount: onPersistentMount(dataDir),
+    persistBackend: options?.persistBackend ?? previous?.persistBackend,
+    postgresOk: options?.postgresOk ?? previous?.postgresOk,
     writeProbeOk: options?.writeProbeOk ?? true,
     lastBoot: options?.lastBoot ?? previous?.lastBoot ?? "normal",
     message,
@@ -56,7 +69,12 @@ export function markStorageHealthy(
 export function markStorageDegraded(
   dataDir: string,
   message: string,
-  options?: { writeProbeOk?: boolean; lastBoot?: BootRecoveryKind }
+  options?: {
+    writeProbeOk?: boolean;
+    lastBoot?: BootRecoveryKind;
+    persistBackend?: PersistBackend;
+    postgresOk?: boolean;
+  }
 ): void {
   const previous = healthByDir.get(dataDir);
   healthByDir.set(dataDir, {
@@ -64,6 +82,8 @@ export function markStorageDegraded(
     dataDir,
     configuredDataDir: dataDir,
     onPersistentMount: onPersistentMount(dataDir),
+    persistBackend: options?.persistBackend ?? previous?.persistBackend,
+    postgresOk: options?.postgresOk ?? previous?.postgresOk,
     writeProbeOk: options?.writeProbeOk ?? false,
     lastBoot: options?.lastBoot ?? previous?.lastBoot ?? "normal",
     message,

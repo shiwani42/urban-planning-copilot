@@ -532,8 +532,8 @@ export default function HomePage() {
           className="bg-error-container/40 border-b border-error px-section-padding py-3 text-body-sm text-error"
         >
           Workspace catalog may have reset after a deploy — the server booted without finding
-          store.json on the persistent disk. Reload projects; if studies are missing, create a new
-          workspace or restore from backup.
+          durable storage. Reload projects; if studies are missing, create a new workspace or
+          restore from backup.
         </div>
       )}
 

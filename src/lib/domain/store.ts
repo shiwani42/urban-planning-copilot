@@ -17,8 +17,18 @@ import {
   markStorageDegraded,
   markStorageHealthy,
   type BootRecoveryKind,
+  type PersistBackend,
   type StorageHealth,
 } from "./storage-health";
+import {
+  getPersistBackend,
+  isPostgresConfigured,
+  loadStorePayloadFromPostgres,
+  peekPostgresProjectCount,
+  PostgresPersistError,
+  upsertStoreToPostgres,
+  verifyPostgresWritable,
+} from "./store-postgres";
 import {
   isRealMount,
   legacyRenderDataDir,
@@ -180,6 +190,14 @@ export async function storeFileExists(): Promise<boolean> {
 
 /** Read project count from disk without bootstrapping or persisting an empty store. */
 export async function peekStoreProjectCount(): Promise<number> {
+  if (isPostgresConfigured()) {
+    try {
+      const count = await peekPostgresProjectCount();
+      return count ?? 0;
+    } catch (err) {
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+  }
   const pathToStore = storePath();
   if (!(await fileExists(pathToStore))) {
     return 0;
@@ -485,7 +503,109 @@ async function ensureMigrated(): Promise<void> {
   await migrateStoreFromLegacyPaths();
 }
 
+function postgresHealthOptions(
+  overrides?: Partial<{
+    writeProbeOk: boolean;
+    lastBoot: BootRecoveryKind;
+    postgresOk: boolean;
+  }>
+): {
+  persistBackend: PersistBackend;
+  postgresOk: boolean;
+  writeProbeOk: boolean;
+  lastBoot?: BootRecoveryKind;
+} {
+  return {
+    persistBackend: "postgres",
+    postgresOk: overrides?.postgresOk ?? true,
+    writeProbeOk: overrides?.writeProbeOk ?? true,
+    ...(overrides?.lastBoot ? { lastBoot: overrides.lastBoot } : {}),
+  };
+}
+
+async function writeFileCacheBestEffort(
+  dir: string,
+  pathToStore: string,
+  pathToBackup: string,
+  store: AppStore,
+  options?: PersistOptions
+): Promise<void> {
+  try {
+    await verifyWritableDataDir(dir);
+    await writeStorePayload(dir, pathToStore, pathToBackup, store, options);
+  } catch (err) {
+    console.error(
+      "[store] file cache write failed (postgres is primary):",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
+async function readStoreFromPostgresPrimary(): Promise<AppStore> {
+  await ensureDataDirResolved();
+  const dir = dataDir();
+  const pathToStore = storePath();
+  const pathToBackup = backupPath();
+
+  try {
+    const raw = await loadStorePayloadFromPostgres();
+    if (raw !== null) {
+      const store = await parseStoreFile(raw, "postgres:planning_store");
+      hydrateAnalysisResultsInStore(store);
+      const upgraded = await upgradeCatalog(store);
+      setLastBootRecovery("normal");
+      markStorageHealthy(dir, undefined, {
+        ...postgresHealthOptions({ lastBoot: "normal" }),
+      });
+      if (upgraded) await persist(store);
+      await writeFileCacheBestEffort(dir, pathToStore, pathToBackup, store);
+      return store;
+    }
+
+    const store = await buildDefaultStore();
+    setLastBootRecovery("first-run");
+    try {
+      await persist(store, { allowEmptyCatalog: true });
+      markStorageHealthy(dir, undefined, {
+        ...postgresHealthOptions({ lastBoot: "first-run" }),
+      });
+    } catch (err) {
+      markStorageDegraded(
+        dir,
+        err instanceof Error ? err.message : String(err),
+        {
+          ...postgresHealthOptions({
+            lastBoot: "first-run",
+            postgresOk: false,
+            writeProbeOk: false,
+          }),
+        }
+      );
+      throw err;
+    }
+    return store;
+  } catch (err) {
+    if (err instanceof StorePersistError || err instanceof PostgresPersistError) {
+      throw err;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    setLastBootRecovery("empty-after-missing-file");
+    markStorageDegraded(dir, `Postgres read failed: ${message}`, {
+      ...postgresHealthOptions({
+        lastBoot: "empty-after-missing-file",
+        postgresOk: false,
+        writeProbeOk: false,
+      }),
+    });
+    throw err;
+  }
+}
+
 async function readStoreFromDisk(): Promise<AppStore> {
+  if (isPostgresConfigured()) {
+    return readStoreFromPostgresPrimary();
+  }
+
   await ensureDataDirResolved();
   const dir = dataDir();
   await ensureMigrated();
@@ -598,6 +718,10 @@ async function readStoreFromDisk(): Promise<AppStore> {
 
 /** Retry disk reads until store files appear or retries exhaust — for seed / boot. */
 export async function waitForStableStoreRead(): Promise<AppStore> {
+  if (isPostgresConfigured()) {
+    return ensureStore();
+  }
+
   const dir = dataDir();
   const pathToStore = storePath();
   const pathToBackup = backupPath();
@@ -676,6 +800,13 @@ function resetWriteQueues(): void {
   updateChain = Promise.resolve(null as unknown as AppStore);
 }
 
+function mapPostgresPersistError(err: unknown): never {
+  if (err instanceof PostgresPersistError) {
+    throw new StorePersistError(err.message, { cause: err });
+  }
+  throw err;
+}
+
 export async function persist(store: AppStore, options?: PersistOptions): Promise<void> {
   await ensureDataDirResolved();
   const dir = dataDir();
@@ -687,13 +818,36 @@ export async function persist(store: AppStore, options?: PersistOptions): Promis
     .catch(() => undefined)
     .then(async () => {
     try {
-      await verifyWritableDataDir(dir);
-      await writeStorePayload(dir, pathToStore, pathToBackup, store, options);
-      markStorageHealthy(dir, undefined, { lastBoot: lastBootRecovery });
+      if (isPostgresConfigured()) {
+        try {
+          await upsertStoreToPostgres(store, options);
+        } catch (err) {
+          mapPostgresPersistError(err);
+        }
+        markStorageHealthy(dir, undefined, {
+          ...postgresHealthOptions({ lastBoot: lastBootRecovery }),
+        });
+        await writeFileCacheBestEffort(dir, pathToStore, pathToBackup, store, options);
+      } else {
+        await verifyWritableDataDir(dir);
+        await writeStorePayload(dir, pathToStore, pathToBackup, store, options);
+        markStorageHealthy(dir, undefined, {
+          lastBoot: lastBootRecovery,
+          persistBackend: "file",
+        });
+      }
     } catch (err) {
       markStorageDegraded(
         dir,
-        err instanceof Error ? err.message : String(err)
+        err instanceof Error ? err.message : String(err),
+        isPostgresConfigured()
+          ? {
+              ...postgresHealthOptions({
+                postgresOk: false,
+                writeProbeOk: false,
+              }),
+            }
+          : { persistBackend: "file", writeProbeOk: false }
       );
       throw err;
     }
@@ -777,26 +931,49 @@ export function readStorageHealth(): StorageHealth {
   return getStorageHealth(dataDir());
 }
 
+export function getActivePersistBackend(): PersistBackend {
+  return getPersistBackend();
+}
+
 /** Run a write probe and refresh in-process storage health — used by /api/health. */
 export async function refreshStorageHealthProbe(): Promise<StorageHealth> {
   await ensureDataDirResolved();
   const dir = dataDir();
   try {
-    await verifyWritableDataDir(dir);
-    await ensureMigrated();
-    const exists = await storeFileExists();
-    if (!exists) {
-      setLastBootRecovery("empty-after-missing-file");
-      markStorageDegraded(dir, "store.json missing", {
-        writeProbeOk: true,
-        lastBoot: "empty-after-missing-file",
+    if (isPostgresConfigured()) {
+      await verifyPostgresWritable();
+      markStorageHealthy(dir, undefined, {
+        ...postgresHealthOptions({ lastBoot: getLastBootRecovery() }),
       });
     } else {
-      markStorageHealthy(dir, undefined, { writeProbeOk: true });
+      await verifyWritableDataDir(dir);
+      await ensureMigrated();
+      const exists = await storeFileExists();
+      if (!exists) {
+        setLastBootRecovery("empty-after-missing-file");
+        markStorageDegraded(dir, "store.json missing", {
+          writeProbeOk: true,
+          persistBackend: "file",
+          lastBoot: "empty-after-missing-file",
+        });
+      } else {
+        markStorageHealthy(dir, undefined, { writeProbeOk: true, persistBackend: "file" });
+      }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    markStorageDegraded(dir, `Write probe failed: ${message}`, { writeProbeOk: false });
+    markStorageDegraded(
+      dir,
+      `Write probe failed: ${message}`,
+      isPostgresConfigured()
+        ? {
+            ...postgresHealthOptions({
+              postgresOk: false,
+              writeProbeOk: false,
+            }),
+          }
+        : { writeProbeOk: false, persistBackend: "file" }
+    );
   }
   return getStorageHealth(dir);
 }
