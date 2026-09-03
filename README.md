@@ -2,7 +2,7 @@
 
 Production-oriented AI-native urban planning workspace.
 
-**Live app:** https://urban-planning-copilot.onrender.com/
+**Live app:** https://urban-planning-copilot.heisenbug.in/
 
 ## What this is
 

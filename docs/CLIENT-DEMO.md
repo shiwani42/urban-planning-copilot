@@ -1,6 +1,6 @@
 # Client demo — Urban Planning Copilot
 
-Live: https://urban-planning-copilot.onrender.com/
+Live: https://urban-planning-copilot.heisenbug.in/
 
 A planner and an external agent share one map and one study. The agent does not scrape the UI. It calls WebMCP tools (`document.modelContext`) and the workspace actually moves.
 
@@ -18,6 +18,10 @@ Pre-warm the live URL once so the opening is not a cold-start spinner. Leave the
 6. **`start_planning_project`** — a new Mission/SoMa housing study; the URL changes; target is 2,000 homes.
 
 Workbench argument forms default to Form mode. Switch to JSON when the arg is an array (`center`).
+
+## Checked-in recording
+
+`docs/demo/urban-planning-copilot-client-demo.mp4` is a continuous take of the live workspace: home continue → **Client Demo SF Housing** → 2,000-home shortfall → pin the top site (pre-warmed). It is not a Workbench JSON cut. Use the shot list above when reshooting tool calls.
 
 ## Why this sells it
 

@@ -18,6 +18,7 @@ const SOURCE_URLS = {
   transit: "https://data.sfgov.org/Transportation/Muni-Stops/i28k-bkz6",
   flood:
     "https://data.sfgov.org/Public-Safety/100-Year-Storm-Flood-Risk-Zone-July-2022-/jzu3-4yxp",
+  parks: "https://data.sfgov.org/Culture-and-Recreation/Recreation-and-Parks-Properties/gtr9-ntp6",
 };
 
 type Manifest = {
@@ -161,6 +162,73 @@ export async function loadSanFranciscoCity(): Promise<{
     },
     available: true,
   };
+}
+
+/** Mission/SoMa Recreation and Parks clip — loadable even when parcel snapshots are absent. */
+export async function loadSanFranciscoParks(): Promise<{
+  dataset: DatasetMeta;
+  features: GeoJSON.FeatureCollection;
+} | null> {
+  const parksPath = path.join(SF_DIR, "parks.geojson.gz");
+  try {
+    await fs.access(parksPath);
+  } catch {
+    return null;
+  }
+  const parks = await readGzJson<GeoJSON.FeatureCollection>("parks.geojson.gz");
+  if (!parks.features.length) return null;
+  const manifest = await loadManifest();
+  const vintage = manifest?.layers?.parks?.vintage;
+  const generatedAt = manifest?.generatedAt ?? new Date().toISOString();
+  return {
+    dataset: {
+      id: "ds-parks",
+      name: "Recreation and Parks (San Francisco)",
+      kind: "parks",
+      source: provenanceSource("parks"),
+      version: vintageToVersion(vintage),
+      updatedAt: generatedAt,
+      dataVintage: dataVintageLabel(vintage, "SF Recreation and Parks properties"),
+      synthetic: false,
+      coverage: GEOGRAPHY_LABEL,
+      limitations: [
+        "Mission/SoMa clip of Recreation and Parks properties — not the full city",
+        "Does not include informal open space or privately owned public space",
+      ],
+      featureCount: parks.features.length,
+      enabled: true,
+      attributes: ["id", "name", "type", "neighborhood"],
+    },
+    features: parks,
+  };
+}
+
+/** Attach or replace synthetic parks with the checked-in SF clip. Memory only — do not persist the GIS catalog. */
+export async function attachSanFranciscoParks(store: {
+  datasets: DatasetMeta[];
+  featuresByDataset: Record<string, GeoJSON.FeatureCollection>;
+}): Promise<boolean> {
+  const parks = await loadSanFranciscoParks();
+  if (!parks) return false;
+  const hasCityParcels = store.datasets.some((d) => d.kind === "parcels" && !d.synthetic);
+  if (!hasCityParcels) return false;
+  const existing = store.datasets.find((d) => d.kind === "parks");
+  if (existing && !existing.synthetic && existing.id === parks.dataset.id) {
+    store.featuresByDataset[existing.id] = parks.features;
+    existing.featureCount = parks.features.features.length;
+    existing.name = parks.dataset.name;
+    existing.source = parks.dataset.source;
+    existing.limitations = parks.dataset.limitations;
+    existing.synthetic = false;
+    return false;
+  }
+  if (existing) {
+    store.datasets = store.datasets.filter((d) => d.id !== existing.id);
+    delete store.featuresByDataset[existing.id];
+  }
+  store.datasets.push(parks.dataset);
+  store.featuresByDataset[parks.dataset.id] = parks.features;
+  return true;
 }
 
 /** Synthetic layers not yet replaced by city open data in Pass 09. */

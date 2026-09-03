@@ -304,7 +304,7 @@ export default function PlanningMap({
     <div className="absolute inset-0">
     <div className="absolute inset-0 z-0 bg-surface-container-low" aria-hidden />
       {!suppressGeoLabel && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1001] pointer-events-none">
+        <div className="absolute top-14 left-3 z-[1001] pointer-events-none">
           <div className="bg-surface/95 border border-outline-variant px-4 py-1.5 rounded shadow-sm text-caption text-on-surface-variant font-medium whitespace-nowrap">
             {workspace.project.geographyLabel}
           </div>
@@ -377,6 +377,26 @@ export default function PlanningMap({
               } else if (showZoningOverlay) {
                 layer.bindTooltip(parcelZoningLabel(feature), { sticky: true });
               }
+            }}
+          />
+        )}
+
+        {visibleKinds.has("parks") && layerData.parks && (
+          <GeoJSON
+            key={`parks-${layerData.parks.features.length}`}
+            data={layerData.parks}
+            interactive={!drawingActive}
+            style={() => ({
+              color: "#4a6b44",
+              weight: 1,
+              fillColor: "#7d9b76",
+              fillOpacity: stale ? 0.2 : 0.35,
+              opacity: stale ? 0.5 : 0.9,
+            })}
+            onEachFeature={(feature, layer) => {
+              if (drawingActive) return;
+              const name = String(feature.properties?.name ?? "Park");
+              layer.bindTooltip(name, { sticky: true });
             }}
           />
         )}
