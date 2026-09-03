@@ -43,7 +43,7 @@ describe("pass 41 live planner fixes", () => {
       resolveWorkspaceTabFromParams({ initialTab: "compare", pathTab: "workspace" }),
       "compare"
     );
-    assert.equal(workspaceTabHref("p1", "evidence"), "/workspace/p1?tab=evidence");
+    assert.equal(workspaceTabHref("p1", "evidence"), "/workspace/p1/evidence");
     assert.equal(workspaceTabHref("p1", "workspace"), "/workspace/p1");
   });
 

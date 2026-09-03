@@ -598,10 +598,6 @@ export default function WorkspaceClient({
   }, [workspace, tab, workspace?.analysisResults.length]);
 
   useEffect(() => {
-    if (tab === "results") setDrawerOpen(true);
-  }, [tab]);
-
-  useEffect(() => {
     if (!toast) return;
     const duration = toast.undo ? 8000 : 3200;
     const t = setTimeout(() => setToast(null), duration);
@@ -730,7 +726,6 @@ export default function WorkspaceClient({
       if (!scenario) return;
       const rowIndex = candidates.findIndex((x) => x.id === c.id);
       if (rowIndex >= 0) setFocusedRowIndex(rowIndex);
-      setDrawerOpen(true);
       setDrawerPanel(panel);
       setTab("results");
       await act("select_candidate", {
@@ -924,7 +919,6 @@ export default function WorkspaceClient({
     try {
       await act("run_analysis", { scenarioId });
       setCriteriaStaleHint(false);
-      setDrawerOpen(true);
       setTab("results");
       showToast("Analysis complete — results updated.");
     } catch {
@@ -1434,10 +1428,7 @@ export default function WorkspaceClient({
                 title={TAB_LABELS[t]}
                 aria-label={TAB_LABELS[t]}
                 aria-current={tab === t ? "page" : undefined}
-                onClick={() => {
-                  setTab(t);
-                  if (t === "results") setDrawerOpen(true);
-                }}
+                onClick={() => setTab(t)}
                 className={`px-2.5 py-1.5 rounded transition-colors flex items-center gap-1.5 shrink-0 focus-ring ${
                   tab === t
                     ? "bg-surface text-on-surface font-medium border border-outline-variant"
@@ -1694,16 +1685,25 @@ export default function WorkspaceClient({
         </div>
       )}
 
-      {isFreshResult && topCandidate && !runningJob && (tab === "workspace" || tab === "results") && (
+      {isFreshResult && topCandidate && !runningJob && (
         <div className="bg-surface-container-low border-b border-outline-variant px-section-padding py-2.5 flex flex-wrap items-center gap-3 text-body-sm shrink-0">
           <span className="text-on-surface">
             Analysis complete — {result!.candidates.length} candidates.
           </span>
           <div className="flex flex-wrap gap-2">
+            {tab !== "results" && (
+              <button
+                type="button"
+                onClick={() => setTab("results")}
+                className="bg-primary text-on-primary px-3 py-1.5 rounded text-caption font-medium focus-ring"
+              >
+                View results
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void selectCandidate(topCandidate, "evidence")}
-              className="bg-primary text-on-primary px-3 py-1.5 rounded text-caption font-medium focus-ring"
+              className="border border-outline-variant px-3 py-1.5 rounded text-caption focus-ring"
             >
               Inspect top site
             </button>
@@ -1727,7 +1727,7 @@ export default function WorkspaceClient({
         </div>
       )}
 
-      {tab === "workspace" || tab === "results" ? (
+      {tab === "workspace" ? (
         <main className="flex-1 flex overflow-hidden relative min-h-0">
           <aside className="w-sidebar-width min-w-sidebar-width max-w-sidebar-width bg-surface border-r border-outline-variant flex flex-col z-30 shrink-0 min-h-0">
             <div className="p-4 border-b border-outline-variant bg-surface-container-low flex justify-between items-center">
@@ -2406,10 +2406,7 @@ export default function WorkspaceClient({
             >
               <button
                 type="button"
-                onClick={() => {
-                  setDrawerOpen((open) => !open);
-                  setTab("results");
-                }}
+                onClick={() => setTab("results")}
                 className="bg-surface border-t border-l border-r border-outline-variant rounded-t-xl px-6 py-1 flex flex-col items-center hover:bg-surface-container-low"
               >
                 <div className="w-8 h-1 bg-outline-variant rounded-full mb-1" />
@@ -2595,7 +2592,6 @@ export default function WorkspaceClient({
                     <button
                       type="button"
                       onClick={() => {
-                        setDrawerOpen(true);
                         setDrawerPanel("evidence");
                         setTab("results");
                       }}
@@ -2808,8 +2804,9 @@ export default function WorkspaceClient({
         </div>
       )}
 
-      {drawerOpen && (tab === "workspace" || tab === "results") ? (
+      {drawerOpen && tab === "workspace" ? (
         <ResultsDrawer
+          layout="drawer"
           open={drawerOpen}
           panel={drawerPanel}
           onPanelChange={setDrawerPanel}
@@ -2870,6 +2867,75 @@ export default function WorkspaceClient({
           onResultsFilterChange={setResultsFilter}
         />
       ) : null}
+
+      {tab === "results" && (
+        <TabErrorBoundary tabName="Results">
+          <ResultsDrawer
+            layout="page"
+            open
+            panel={drawerPanel}
+            onPanelChange={setDrawerPanel}
+            onClose={() => setTab("workspace")}
+            drawingActive={false}
+            result={result}
+            stale={Boolean(result?.stale)}
+            selected={selectedCandidate}
+            shortlist={shortlist}
+            scenario={scenario}
+            datasets={workspace.datasets}
+            onInspectDataset={(datasetId) => openDatasetInspect(datasetId)}
+            floodCoverageDetail={floodCoverageDetail}
+            yieldGap={yieldGap}
+            housingGoalLine={housingGoalLine}
+            onStartExcludeDraw={() => {
+              setTab("workspace");
+              startDraw("exclude");
+            }}
+            onInspectFloodDataset={() => {
+              const flood = workspace.datasets.find((d) => d.kind === "flood");
+              if (flood) openDatasetInspect(flood.id);
+            }}
+            housingTarget={housingTarget}
+            totalCapacity={totalCapacity}
+            intent={scenario.objective.intent}
+            resultsColumns={resultsColumns}
+            accessHeadline={accessHeadline}
+            selectionUpdated={selectionUpdated}
+            onDismissUpdated={() => setSelectionUpdated(false)}
+            focusedRowIndex={focusedRowIndex}
+            setFocusedRowIndex={setFocusedRowIndex}
+            resultLimitations={analysisLimitations(result)}
+            topCandidateId={topCandidate?.id}
+            onSelect={(c) => selectCandidate(c, "evidence")}
+            onToggleShortlist={async (c) => {
+              if (!scenario) return;
+              if (isCandidateShortlisted(scenario, c)) {
+                await unpinFromShortlist(c.id);
+              } else {
+                await pinToShortlist(c);
+              }
+            }}
+            onUnpinShortlist={unpinFromShortlist}
+            onUpdateShortlistNote={saveShortlistNote}
+            onReject={async (c, reason) => {
+              await act("record_decision", {
+                scenarioId: scenario.id,
+                type: "reject_candidate",
+                subjectId: c.id,
+                reason,
+              });
+              await refresh();
+            }}
+            onSensitivityBranch={async (name) => {
+              await act("create_scenario_branch", { name });
+              await refresh();
+              showToast(`Created branch “${name}” — run analysis on this branch when ready.`);
+            }}
+            resultsFilter={resultsFilter}
+            onResultsFilterChange={setResultsFilter}
+          />
+        </TabErrorBoundary>
+      )}
 
       {tab === "evidence" && (
         <EvidenceView
@@ -3367,6 +3433,7 @@ function ResultsFilterBar(props: {
 }
 
 function ResultsDrawer(props: {
+  layout?: "drawer" | "page";
   open: boolean;
   panel: DrawerPanel;
   onPanelChange: (panel: DrawerPanel) => void;
@@ -3422,8 +3489,10 @@ function ResultsDrawer(props: {
   const visibleCandidates = filteredCandidates;
   const neighborhoods = useMemo(() => candidateNeighborhoods(allCandidates), [allCandidates]);
   const floodDataset = props.datasets.find((d) => d.kind === "flood");
+  const layout = props.layout ?? "drawer";
+  const isPage = layout === "page";
 
-  if (!props.open) return null;
+  if (!isPage && !props.open) return null;
 
   const showEvidence = panel === "evidence" || Boolean(selected);
   const housingAnalysis = isHousingIntent(intent);
@@ -3441,17 +3510,28 @@ function ResultsDrawer(props: {
 
   return (
     <div
-      className={`absolute bottom-7 left-sidebar-width right-inspector-width max-h-[min(48vh,520px)] z-[1010] ${
-        props.drawingActive ? "pointer-events-none" : "pointer-events-none"
-      }`}
+      className={
+        isPage
+          ? "flex-1 min-h-0 flex flex-col overflow-hidden bg-surface"
+          : `absolute bottom-7 left-sidebar-width right-inspector-width max-h-[min(48vh,520px)] z-[1010] ${
+              props.drawingActive ? "pointer-events-none" : "pointer-events-none"
+            }`
+      }
     >
       <div
-        className={`max-h-[min(48vh,520px)] bg-surface border-t border-outline-variant flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.06)] ${
-          props.drawingActive ? "pointer-events-none" : "pointer-events-auto"
-        }`}
+        className={
+          isPage
+            ? "flex-1 min-h-0 flex flex-col overflow-hidden bg-surface border-t border-outline-variant"
+            : `max-h-[min(48vh,520px)] bg-surface border-t border-outline-variant flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.06)] ${
+                props.drawingActive ? "pointer-events-none" : "pointer-events-auto"
+              }`
+        }
       >
         <div className="flex items-center justify-between px-4 py-2 border-b border-outline-variant bg-surface-container-low shrink-0">
           <div className="flex gap-4 items-center min-w-0">
+            {isPage && (
+              <h2 className="text-headline-md text-on-surface shrink-0">Results</h2>
+            )}
             <button
               type="button"
               onClick={() => props.onPanelChange("candidates")}
@@ -3518,9 +3598,9 @@ function ResultsDrawer(props: {
             type="button"
             onClick={props.onClose}
             className="p-1 hover:bg-surface-variant rounded"
-            aria-label="Close results panel"
+            aria-label={isPage ? "Back to workspace map" : "Close results panel"}
           >
-            <span className="material-symbols-outlined">close</span>
+            <span className="material-symbols-outlined">{isPage ? "map" : "close"}</span>
           </button>
         </div>
         <div className="flex-1 min-h-0 overflow-hidden grid md:grid-cols-2 gap-px bg-outline-variant">
@@ -3575,7 +3655,7 @@ function ResultsDrawer(props: {
                     No candidates match the current filters.
                   </p>
                 )}
-                <div className="overflow-x-auto overflow-y-auto max-h-[min(36vh,320px)]">
+                <div className={`overflow-x-auto overflow-y-auto ${isPage ? "max-h-none flex-1 min-h-[12rem]" : "max-h-[min(36vh,320px)]"}`}>
                 <table className="w-full text-left text-body-sm min-w-[640px]">
                   <thead className="sticky top-0 bg-surface z-10">
                     <tr className="font-mono text-data-label text-on-surface-variant border-b border-outline-variant">

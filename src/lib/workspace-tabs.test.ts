@@ -24,6 +24,7 @@ describe("resolveWorkspaceTab", () => {
       resolveWorkspaceTabFromParams({ tab: "results", pathTab: "workspace" }),
       "results"
     );
-    assert.equal(workspaceTabHref("abc", "compare"), "/workspace/abc?tab=compare");
+    assert.equal(workspaceTabHref("abc", "compare"), "/workspace/abc/compare");
+    assert.equal(workspaceTabHref("abc", "results"), "/workspace/abc/results");
   });
 });
