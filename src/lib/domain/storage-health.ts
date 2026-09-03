@@ -26,7 +26,7 @@ const PERSISTENT_MOUNT_PREFIXES = [
 ];
 
 export function getRenderDiskPrefix(): string {
-  return process.env.RENDER_DATA_DIR_PREFIX ?? "/var/data";
+  return process.env.RENDER_DATA_DIR_PREFIX ?? "/opt/render/project/src/data";
 }
 
 function onPersistentMount(dataDir: string): boolean {
