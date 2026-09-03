@@ -123,7 +123,8 @@ import {
   defaultCompareScenarioIds,
   scenarioHasComparableAnalysis,
 } from "@/lib/domain/scenario-resolution";
-import { validateDecisionReason } from "@/lib/domain/decision";
+import { validateDecisionReason, requireAnalysisForDecision } from "@/lib/domain/decision";
+import { reportStaleLabel } from "@/lib/report-freshness";
 import type { MapDrawMode } from "@/components/PlanningMap";
 import { CompareScenarioMaps } from "@/components/CompareScenarioMaps";
 import {
@@ -152,6 +153,7 @@ type DrawerPanel = "candidates" | "evidence";
 type ToastState = {
   message: string;
   undo?: () => void;
+  action?: { label: string; onClick: () => void };
 } | null;
 
 const TAB_LABELS: Record<Tab, string> = {
@@ -688,6 +690,15 @@ export default function WorkspaceClient({
         setTab("compare", { compareScenarioIds: ids });
         return;
       }
+      if (detail.openTab === "decision") {
+        setTab("decision");
+        return;
+      }
+      if (detail.openTab === "report") {
+        if (detail.reportId) setReportId(detail.reportId);
+        setTab("report");
+        return;
+      }
       if (detail.openTab === "results") {
         setDrawerOpen(false);
         setDrawerPanel("candidates");
@@ -758,8 +769,12 @@ export default function WorkspaceClient({
     });
   }, [workspace, result, layerData.parcels, layerData.flood]);
 
-  function showToast(message: string, undo?: () => void) {
-    setToast({ message, undo });
+  function showToast(
+    message: string,
+    undo?: () => void,
+    action?: { label: string; onClick: () => void }
+  ) {
+    setToast({ message, undo, action });
   }
 
   function openDatasetInspect(datasetId: string) {
@@ -795,14 +810,21 @@ export default function WorkspaceClient({
         reason: reason ?? "Pinned from Results",
       });
       await refresh();
-      showToast(`Pinned ${c.label} to shortlist`, () => {
-        void act("remove_from_shortlist", {
-          scenarioId: scenario.id,
-          candidateId: c.id,
-        }).then(() => refresh());
-      });
+      showToast(
+        `Pinned ${c.label} to shortlist`,
+        () => {
+          void act("remove_from_shortlist", {
+            scenarioId: scenario.id,
+            candidateId: c.id,
+          }).then(() => refresh());
+        },
+        {
+          label: "Review decision",
+          onClick: () => setTab("decision"),
+        }
+      );
     },
-    [act, refresh, scenario]
+    [act, refresh, scenario, setTab]
   );
 
   const unpinFromShortlist = useCallback(
@@ -2792,6 +2814,18 @@ export default function WorkspaceClient({
               Undo
             </button>
           )}
+          {toast.action && (
+            <button
+              type="button"
+              className="underline font-medium shrink-0"
+              onClick={() => {
+                toast.action?.onClick();
+                setToast(null);
+              }}
+            >
+              {toast.action.label}
+            </button>
+          )}
           <button
             type="button"
             className="text-inverse-on-surface/80 hover:text-inverse-on-surface shrink-0"
@@ -2918,6 +2952,7 @@ export default function WorkspaceClient({
           }}
           resultsFilter={resultsFilter}
           onResultsFilterChange={setResultsFilter}
+          onReviewDecision={() => setTab("decision")}
         />
       ) : null}
 
@@ -2986,6 +3021,7 @@ export default function WorkspaceClient({
             }}
             resultsFilter={resultsFilter}
             onResultsFilterChange={setResultsFilter}
+            onReviewDecision={() => setTab("decision")}
           />
         </TabErrorBoundary>
       )}
@@ -3189,6 +3225,7 @@ function ShortlistPanel(props: {
   onUnpin: (candidateId: string) => void | Promise<void>;
   onUpdateNote: (candidateId: string, note: string) => void | Promise<void>;
   onSelect?: (candidateId: string) => void;
+  onReviewDecision?: () => void;
   compact?: boolean;
 }) {
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
@@ -3203,9 +3240,20 @@ function ShortlistPanel(props: {
 
   return (
     <section className={props.compact ? "space-y-2" : "space-y-3"}>
-      <h4 className="font-mono text-data-label uppercase">
-        Candidate shortlist ({props.entries.length})
-      </h4>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="font-mono text-data-label uppercase">
+          Candidate shortlist ({props.entries.length})
+        </h4>
+        {props.onReviewDecision && (
+          <button
+            type="button"
+            onClick={props.onReviewDecision}
+            className="text-caption text-primary-container hover:underline font-medium"
+          >
+            Review in Decision →
+          </button>
+        )}
+      </div>
       <ul className="space-y-2">
         {props.entries.map((entry) => {
           const id = entry.candidateId ?? entry.featureIds[0] ?? entry.label;
@@ -3521,6 +3569,7 @@ function ResultsDrawer(props: {
   onUpdateShortlistNote: (candidateId: string, note: string) => void | Promise<void>;
   onReject: (c: Candidate, reason: string) => Promise<void>;
   onSensitivityBranch?: (branchName: string) => void | Promise<void>;
+  onReviewDecision?: () => void;
   resultsFilter: ResultsFilterState;
   onResultsFilterChange: (next: ResultsFilterState) => void;
 }) {
@@ -3690,6 +3739,7 @@ function ResultsDrawer(props: {
                   compact
                   onUnpin={props.onUnpinShortlist}
                   onUpdateNote={props.onUpdateShortlistNote}
+                  onReviewDecision={props.onReviewDecision}
                   onSelect={(candidateId) => {
                     const c = result?.candidates.find((x) => x.id === candidateId);
                     if (c) props.onSelect(c);
@@ -4833,15 +4883,19 @@ function DecisionView(props: {
   onDecide: (type: "approve_scenario" | "reject_scenario" | "request_changes") => Promise<void>;
 }) {
   const { scenario, result, topCandidate } = props;
-  const analysisReady = Boolean(result && result.status === "completed" && result.candidates.length > 0);
-  const hasFreshAnalysis = analysisReady && !result?.stale;
+  const scenarioResults = props.workspace.analysisResults.filter(
+    (item) => item.scenarioId === scenario.id
+  );
+  const evidenceBlocker = requireAnalysisForDecision(scenario, scenarioResults);
+  const decisionEvidenceReady = evidenceBlocker === null;
+  const hasFreshAnalysis = decisionEvidenceReady;
   const decisionLabel =
     scenario.decisionStatus === "approved" && scenario.decisionStale
       ? "Approved (stale)"
       : formatDecisionStatus(scenario.decisionStatus);
   const mapCandidates = result?.candidates ?? [];
   const readyForReview =
-    hasFreshAnalysis &&
+    decisionEvidenceReady &&
     scenario.decisionStatus !== "approved" &&
     scenario.decisionStatus !== "rejected";
   const tradeoffs = buildDecisionTradeoffs(result, topCandidate, props.yieldGap);
@@ -4868,10 +4922,10 @@ function DecisionView(props: {
             </div>
             {readyForReview && (
               <span
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded border border-secondary text-secondary font-mono text-data-label bg-surface-bright"
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded border border-primary-container text-primary-container font-mono text-data-label bg-primary-fixed/15"
                 role="status"
               >
-                <span className="w-2 h-2 rounded bg-secondary shrink-0" />
+                <span className="w-2 h-2 rounded bg-primary-container shrink-0" />
                 Ready for human review
               </span>
             )}
@@ -4888,11 +4942,10 @@ function DecisionView(props: {
               role="status"
             >
               <p className="text-body-sm text-on-surface">
-                {!result
-                  ? "No analysis results for this scenario yet."
-                  : result.stale
-                    ? `Results are stale (${result.staleReason ?? "inputs changed"}).`
-                    : "Evidence pack is incomplete for a formal decision."}
+                {evidenceBlocker ??
+                  (!result
+                    ? "No analysis results for this scenario yet."
+                    : "Evidence pack is incomplete for a formal decision.")}
               </p>
               <button
                 type="button"
@@ -4904,7 +4957,7 @@ function DecisionView(props: {
             </div>
           )}
 
-          <div className="bg-surface-container-lowest border border-outline-variant rounded overflow-hidden mb-8">
+          <div className="bg-surface-container-lowest border border-outline-variant rounded overflow-hidden mb-8 border-l-4 border-l-primary-container">
             <div className="h-1 bg-primary-container w-full" role="presentation" />
             <div className="p-6">
               <div className="flex items-center gap-2 mb-4 text-primary-container">
@@ -5491,6 +5544,9 @@ function ReportView(props: {
   );
   const displayReport =
     props.workspace.reports.find((r) => r.id === props.selectedReportId) ?? scenarioReports[0];
+  const displayReportStaleReason = displayReport
+    ? reportStaleLabel(displayReport, props.result)
+    : null;
   const canGenerate = Boolean(props.result && !props.result.stale);
   const housingGoal =
     props.result && isHousingIntent(props.scenario.objective.intent)
@@ -5600,7 +5656,10 @@ function ReportView(props: {
         )}
 
         <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-6">
-          {scenarioReports.map((r) => (
+          {scenarioReports.map((r) => {
+          const staleReason = reportStaleLabel(r, props.result);
+          const isStale = Boolean(staleReason);
+          return (
             <button
               key={r.id}
               type="button"
@@ -5615,12 +5674,21 @@ function ReportView(props: {
               <div className="absolute top-0 left-0 w-full h-1 bg-surface-variant group-hover:bg-primary-container transition-colors" />
               <div className="p-5 flex-1">
                 <div className="flex justify-between items-start mb-3 gap-2">
-                  <span className="bg-surface-container-high text-on-surface px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider border border-outline-variant">
-                    {r.stale ? "Stale" : "Ready"}
+                  <span
+                    className={`px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider border ${
+                      isStale
+                        ? "bg-error-container/30 text-error border-error/40"
+                        : "bg-surface-container-high text-on-surface border-outline-variant"
+                    }`}
+                  >
+                    {isStale ? "Stale" : "Ready"}
                   </span>
                   <ProvenanceChip kind="calculated" />
                 </div>
                 <h3 className="text-headline-md text-on-surface mb-2 leading-snug">{r.title}</h3>
+                {isStale && staleReason && (
+                  <p className="text-caption text-error mb-2">{staleReason}</p>
+                )}
                 <div className="grid grid-cols-2 gap-4 mt-4">
                   <div>
                     <div className="font-mono text-data-label text-outline mb-1 uppercase text-[10px]">
@@ -5646,7 +5714,8 @@ function ReportView(props: {
                 </span>
               </div>
             </button>
-          ))}
+          );
+        })}
           {scenarioReports.length === 0 && (
             <div className="border border-dashed border-outline-variant rounded p-8 text-center bg-surface col-span-full">
               <p className="text-body-sm text-on-surface-variant mb-3">No reports yet for this scenario.</p>
@@ -5725,9 +5794,9 @@ function ReportView(props: {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {displayReport.stale && (
+              {displayReportStaleReason && (
                 <p className="text-body-sm text-error border border-error/40 bg-error-container/20 px-3 py-2 rounded">
-                  Stale snapshot — regenerate to include latest decisions.
+                  {displayReportStaleReason}
                 </p>
               )}
               <div className="grid sm:grid-cols-2 gap-3">

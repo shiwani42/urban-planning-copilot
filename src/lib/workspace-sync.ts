@@ -33,6 +33,8 @@ export type WorkspaceMutatedDetail = {
   openTab?: WorkspaceTab;
   compareScenarioIds?: string[];
   comparePayload?: CompareScenariosToolPayload;
+  /** Select a report after generate_report completes. */
+  reportId?: string;
   /** Active scenario after branch creation — keeps copilot context aligned. */
   activeScenarioId?: string;
 };
@@ -175,7 +177,33 @@ export function mutationDetailFromToolResult(
     }
   }
 
+  if (name === "generate_report") {
+    const payload = result as { reportId?: string };
+    detail.openTab = "report";
+    if (typeof payload.reportId === "string") {
+      detail.reportId = payload.reportId;
+    }
+  }
+
+  if (name === "approve_scenario" || name === "reject_scenario" || name === "request_changes") {
+    detail.openTab = "decision";
+  }
+
   return detail;
+}
+
+/** Open decision/report tabs when human-gated tools await planner review. */
+export function pendingPlannerNavigationDetail(
+  tool: string,
+  projectId?: string
+): WorkspaceMutatedDetail | null {
+  if (tool === "approve_scenario" || tool === "reject_scenario" || tool === "request_changes") {
+    return { projectId, openTab: "decision", tool };
+  }
+  if (tool === "generate_report") {
+    return { projectId, openTab: "report", tool };
+  }
+  return null;
 }
 
 export function workspaceToolEventDetail(

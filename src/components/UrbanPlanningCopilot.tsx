@@ -25,6 +25,8 @@ import {
   toolLabel,
 } from "@/lib/copilot/tool-groups";
 import { formatLocaleTime } from "@/lib/format";
+import { notifyWorkspaceMutated } from "@/lib/workspace-sync";
+import type { WorkspaceTab } from "@/lib/workspace-tabs";
 
 type UrbanPlanningCopilotProps = {
   projectId?: string | null;
@@ -137,6 +139,28 @@ export function UrbanPlanningCopilot({
 
   const runTool = useCallback(
     async (tool: string, args: Record<string, unknown> = {}, userQuery?: string) => {
+      if (tool === "__workspace_tab__") {
+        const tab = typeof args.tab === "string" ? (args.tab as WorkspaceTab) : "workspace";
+        notifyWorkspaceMutated({
+          projectId: projectId ?? undefined,
+          openTab: tab,
+        });
+        const summary =
+          tab === "decision"
+            ? "Opened Decision review."
+            : tab === "report"
+              ? "Opened Reports."
+              : `Opened ${tab} tab.`;
+        appendCopilotActivity({
+          tool: "workspace_tab",
+          query: userQuery,
+          status: "success",
+          summary,
+        });
+        setStatusMessage(summary);
+        return;
+      }
+
       if (tool === "__navigate__") {
         const href = typeof args.href === "string" ? args.href : "/";
         router.push(href);
@@ -284,6 +308,24 @@ export function UrbanPlanningCopilot({
       setError(null);
       return;
     }
+    if (route.kind === "workspace_tab") {
+      notifyWorkspaceMutated({
+        projectId: projectId ?? undefined,
+        openTab: route.tab,
+      });
+      appendCopilotActivity({
+        tool: "workspace_tab",
+        query: trimmed,
+        status: "success",
+        summary: route.summary,
+      });
+      setStatusMessage(route.summary);
+      setError(null);
+      if (route.tool) {
+        await runTool(route.tool, route.args ?? {}, trimmed);
+      }
+      return;
+    }
     await runTool(route.tool, route.args, trimmed);
   }
 
@@ -306,7 +348,29 @@ export function UrbanPlanningCopilot({
         setError(null);
         return;
       }
+      if (route.kind === "workspace_tab") {
+        notifyWorkspaceMutated({
+          projectId: projectId ?? undefined,
+          openTab: route.tab,
+        });
+        appendCopilotActivity({
+          tool: "workspace_tab",
+          query: q,
+          status: "success",
+          summary: route.summary,
+        });
+        setStatusMessage(route.summary);
+        setError(null);
+        if (route.tool) {
+          void runTool(route.tool, route.args ?? {}, q);
+        }
+        return;
+      }
       void runTool(route.tool, route.args, q);
+      return;
+    }
+    if (suggestion.tool === "__workspace_tab__") {
+      void runTool(suggestion.tool, suggestion.args ?? {}, suggestion.label);
       return;
     }
     if (suggestion.requiresProject && !hasProject) return;
