@@ -167,8 +167,46 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
   },
   {
     layer: "answer",
+    name: "get_planning_constraints",
+    description:
+      "One-shot read of planning constraints for the active scenario: objective, enabled constraints, dataset limitations, flood/transit thresholds, stale flag, and housing target vs eligible capacity.",
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "answer",
+    name: "list_decisions",
+    description:
+      "Recent planner decisions and scenario preferences (approvals, rejections, candidate rejections, prefer_scenario). Use for audit — get_workspace only shows decisionStatus on the active scenario.",
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: PROJECT_ID,
+        scenarioId: {
+          type: "string",
+          description: "Optional — filter to one scenario; omit for all branches",
+        },
+        limit: {
+          type: "number",
+          description: "Max decisions to return (default 20, max 100)",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "answer",
     name: "compare_scenarios",
-    description: "Compare scenarios using consistent calculated metrics (capacity, transit, scores).",
+    description:
+      "Compare scenarios using consistent calculated metrics (capacity, transit, scores). Requires two scenario IDs from list_scenarios with hasResults: true.",
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
@@ -296,7 +334,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "action",
     name: "run_analysis",
     description:
-      "Run spatial analysis for a scenario. May return status running — poll get_workspace or list_candidates until complete; if results are stale, run again after changing constraints or weights.",
+      "Run spatial analysis for a scenario. Returns running — poll list_candidates or get_workspace; do not re-run on stale Client Demo if results exist.",
     inputSchema: {
       type: "object",
       properties: {
@@ -581,7 +619,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "sensitive",
     name: "approve_scenario",
     description:
-      "Record a formal scenario approval (planning decision). Without confirmed:true returns status pending_planner — the planner must Approve in the workspace banner before the decision is saved.",
+      "Use when the user says 'record decision' or 'approve scenario'; returns pending_planner until planner clicks Approve. Without confirmed:true the decision is not saved until the planner confirms in the workspace banner.",
     annotations: { destructiveHint: true },
     inputSchema: {
       type: "object",
