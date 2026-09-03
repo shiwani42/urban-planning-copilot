@@ -12,7 +12,6 @@ import {
   type CopilotActivityEntry,
 } from "@/lib/copilot/copilot-activity";
 import {
-  COPILOT_COMMAND_HINTS,
   plannerSuggestions,
   routePlannerQuery,
   summarizeToolResult,
@@ -297,25 +296,25 @@ export function UrbanPlanningCopilot({
       aria-label="Urban Planning Copilot"
       data-testid="urban-planning-copilot"
     >
-      <header className="shrink-0 border-b border-outline-variant bg-surface-container-low px-4 py-3">
+      <header className="shrink-0 border-b border-outline-variant bg-surface-container-low px-3 py-2.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-headline-md text-primary-container flex items-center gap-2">
-              <span className="material-symbols-outlined text-[20px]" aria-hidden>
+            <h2 className="text-body-sm font-medium text-on-surface flex items-center gap-2">
+              <span className="material-symbols-outlined text-[18px] text-on-surface-variant" aria-hidden>
                 smart_toy
               </span>
               Urban Planning Copilot
             </h2>
             <p className="text-caption text-on-surface-variant mt-0.5">
               {hasProject
-                ? "Ask questions or run planning tools — results appear in Agent activity."
-                : "Start here without a project — open or create a workspace for analysis tools."}
+                ? "Ask or pick a command — activity shows progress and results."
+                : "No project open — explore data or start a new study."}
             </p>
           </div>
         </div>
       </header>
 
-      <div className={`flex-1 min-h-0 overflow-y-auto ${compact ? "p-3" : "p-4"} space-y-4`}>
+      <div className={`flex-1 min-h-0 overflow-y-auto ${compact ? "p-2.5" : "p-4"} space-y-3`}>
         {showActivityFeed && (
           <div>
             <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">
@@ -323,7 +322,8 @@ export function UrbanPlanningCopilot({
             </h3>
             {activity.length === 0 ? (
               <p className="text-body-sm text-on-surface-variant">
-                Tool runs and answers will appear here with progress, errors, and results.
+                When you run a tool or ask a question, steps appear here with Working… status and
+                outcomes.
               </p>
             ) : (
               <ul className="space-y-2" aria-live="polite">
@@ -334,7 +334,7 @@ export function UrbanPlanningCopilot({
                       entry.status === "error"
                         ? "border-error/40 bg-error-container/10"
                         : entry.status === "running"
-                          ? "border-primary/30 bg-primary-fixed/10"
+                          ? "border-outline-variant bg-surface-container"
                           : "border-outline-variant bg-surface-container-lowest"
                     }`}
                   >
@@ -374,8 +374,8 @@ export function UrbanPlanningCopilot({
                       </button>
                     )}
                     {entry.status === "running" && (
-                      <p className="text-caption text-primary mt-1 flex items-center gap-1">
-                        <span className="material-symbols-outlined text-[14px] animate-spin">
+                      <p className="text-caption text-on-surface-variant mt-1 flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[14px] animate-spin text-primary">
                           progress_activity
                         </span>
                         Working…
@@ -389,17 +389,17 @@ export function UrbanPlanningCopilot({
         )}
 
         <div>
-          <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">
+          <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-1.5">
             Suggestions
           </h3>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {suggestions.map((suggestion) => (
               <button
                 key={suggestion.id}
                 type="button"
                 disabled={busy || (suggestion.requiresProject && !hasProject)}
                 onClick={() => handleSuggestion(suggestion)}
-                className="text-left text-caption border border-outline-variant rounded px-2.5 py-1.5 hover:border-primary hover:bg-surface-container disabled:opacity-50"
+                className="text-left text-[11px] leading-tight border border-outline-variant/80 rounded px-2 py-1 text-on-surface-variant hover:border-outline hover:bg-surface-container disabled:opacity-50 focus-ring"
               >
                 {suggestion.label}
               </button>
@@ -477,15 +477,15 @@ export function UrbanPlanningCopilot({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={
               hasProject
-                ? COPILOT_COMMAND_HINTS
+                ? "e.g. pin top site · run analysis · compare scenarios"
                 : "Ask without a project — e.g. list datasets"
             }
-            className="flex-1 min-w-0 border border-outline-variant bg-surface px-3 py-2 text-body-sm rounded focus:outline-none focus:border-primary"
+            className="flex-1 min-w-0 border border-outline-variant bg-surface px-3 py-2 text-body-sm rounded focus-ring focus:border-primary"
           />
           <button
             type="submit"
             disabled={busy || !query.trim()}
-            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm font-medium disabled:opacity-50 shrink-0 flex items-center gap-1.5 min-w-[5.5rem] justify-center"
+            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm font-medium disabled:opacity-50 shrink-0 flex items-center gap-1.5 min-w-[5.5rem] justify-center focus-ring"
             aria-busy={busy}
           >
             {busy ? (

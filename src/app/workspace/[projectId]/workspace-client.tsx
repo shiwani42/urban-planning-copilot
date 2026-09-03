@@ -1189,28 +1189,43 @@ export default function WorkspaceClient({
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background relative">
       <StorageBanner />
-      <header className="bg-surface-container-high border-b border-outline-variant flex justify-between items-center px-section-padding h-14 shrink-0 z-50">
-        <div className="flex items-center gap-6 min-w-0">
-          <Link href="/" className="font-display text-[18px] font-semibold text-primary shrink-0">
-            Urban Planning Copilot
-          </Link>
-          <nav className="flex items-center gap-2 text-body-sm truncate">
-            <Link href="/" className="text-on-surface-variant hover:text-primary">
-              Projects
+      <header className="bg-surface-container-high border-b border-outline-variant shrink-0 z-50">
+        <div className="flex items-center justify-between gap-4 px-section-padding h-14 min-w-0">
+          <div className="flex items-center gap-4 min-w-0 flex-1">
+            <Link
+              href="/"
+              className="font-display text-[18px] font-semibold text-primary shrink-0 hidden sm:block"
+            >
+              Urban Planning Copilot
             </Link>
-            <span className="text-outline-variant">/</span>
-            <span className="max-w-[9rem] sm:max-w-[14rem] truncate" title={workspace.project.name}>
-              {workspace.project.name}
-            </span>
-            <span className="text-outline-variant">/</span>
-            {workspace.scenarios.length > 1 ? (
-              <label className="flex items-center gap-2 min-w-0">
-                <span className="sr-only">Active scenario</span>
+            <nav
+              className="flex items-center gap-1.5 text-body-sm min-w-0 flex-wrap leading-snug"
+              aria-label="Workspace location"
+            >
+              <Link href="/" className="text-on-surface-variant hover:text-primary shrink-0">
+                Projects
+              </Link>
+              <span className="text-outline-variant shrink-0">/</span>
+              <span
+                className="text-on-surface font-medium min-w-0"
+                title={workspace.project.name}
+              >
+                {workspace.project.name}
+              </span>
+            </nav>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <label className="flex items-center gap-2 min-w-0">
+              <span className="font-mono text-[10px] uppercase text-on-surface-variant shrink-0">
+                Scenario
+              </span>
+              {workspace.scenarios.length > 1 ? (
                 <select
                   value={scenario.id}
                   onChange={(e) => void activateScenario(e.target.value)}
-                  className="text-primary font-medium max-w-[10rem] sm:max-w-[14rem] truncate border border-outline-variant rounded px-2 py-1 text-body-sm bg-surface"
+                  className="text-body-sm font-medium max-w-[12rem] sm:max-w-[16rem] border border-outline-variant rounded px-2 py-1.5 bg-surface focus-ring"
                   title="Switch scenario branch"
+                  aria-label="Active scenario"
                 >
                   {workspace.scenarios.map((s) => {
                     const analyzed = scenarioHasComparableAnalysis(s, workspace.analysisResults);
@@ -1222,65 +1237,70 @@ export default function WorkspaceClient({
                     );
                   })}
                 </select>
-              </label>
-            ) : (
-              <span
-                className="text-primary font-medium max-w-[9rem] sm:max-w-[14rem] truncate"
-                title={`Scenario: ${scenario.name}`}
-              >
-                {scenario.name}
-              </span>
-            )}
+              ) : (
+                <span className="text-body-sm font-medium text-on-surface" title={scenario.name}>
+                  {scenario.name}
+                </span>
+              )}
+            </label>
             {!scenarioHasComparableAnalysis(scenario, workspace.analysisResults) && (
-              <span className="shrink-0 px-2 py-0.5 rounded border border-outline-variant text-caption text-on-surface-variant whitespace-nowrap">
+              <span className="hidden md:inline shrink-0 px-2 py-0.5 rounded border border-outline-variant text-caption text-on-surface-variant">
                 No results yet
               </span>
             )}
             {resolvedShortlistCount > 0 && (
               <span
-                className="shrink-0 ml-2 px-2 py-0.5 rounded border border-[#815504] text-[#815504] text-caption font-medium"
+                className="shrink-0 px-2 py-0.5 rounded border border-[#815504]/50 text-[#815504] text-caption"
                 title={`Shortlist pins for scenario “${scenario.name}”`}
               >
-                Shortlist ({scenario.name}): {resolvedShortlistCount}
+                Shortlist: {resolvedShortlistCount}
               </span>
             )}
-          </nav>
+          </div>
         </div>
-        <div className="flex items-center gap-1 text-primary">
-          {(
-            [
-              ["workspace", "map"],
-              ["results", "table_chart"],
-              ["evidence", "database"],
-              ["compare", "compare"],
-              ["decision", "gavel"],
-              ["activity", "history"],
-              ["report", "description"],
-            ] as const
-          ).map(([t, icon]) => (
-            <button
-              key={t}
-              type="button"
-              title={TAB_LABELS[t]}
-              aria-label={TAB_LABELS[t]}
-              onClick={() => {
-                setTab(t);
-                if (t === "results") setDrawerOpen(true);
-              }}
-              className={`px-2 py-1.5 rounded transition-colors flex items-center gap-1 ${
-                tab === t ? "bg-surface-variant" : "hover:bg-surface-variant"
-              }`}
-            >
-              <span className="material-symbols-outlined text-[20px]">{icon}</span>
-              <span className="hidden xl:inline text-caption">{TAB_LABELS[t]}</span>
-            </button>
-          ))}
+        <div className="flex items-center justify-between gap-2 px-section-padding py-1 border-t border-outline-variant/60 bg-surface-container-low">
+          <nav
+            className="flex items-center gap-0.5 overflow-x-auto workspace-tab-scroll flex-1 min-w-0"
+            aria-label="Workspace views"
+          >
+            {(
+              [
+                ["workspace", "map"],
+                ["results", "table_chart"],
+                ["evidence", "database"],
+                ["compare", "compare"],
+                ["decision", "gavel"],
+                ["activity", "history"],
+                ["report", "description"],
+              ] as const
+            ).map(([t, icon]) => (
+              <button
+                key={t}
+                type="button"
+                title={TAB_LABELS[t]}
+                aria-label={TAB_LABELS[t]}
+                aria-current={tab === t ? "page" : undefined}
+                onClick={() => {
+                  setTab(t);
+                  if (t === "results") setDrawerOpen(true);
+                }}
+                className={`px-2.5 py-1.5 rounded transition-colors flex items-center gap-1.5 shrink-0 focus-ring ${
+                  tab === t
+                    ? "bg-surface text-on-surface font-medium border border-outline-variant"
+                    : "text-on-surface-variant hover:text-on-surface hover:bg-surface/80"
+                }`}
+              >
+                <span className="material-symbols-outlined text-[18px]">{icon}</span>
+                <span className="text-caption hidden lg:inline">{TAB_LABELS[t]}</span>
+              </button>
+            ))}
+          </nav>
           <button
             onClick={() => saveScenario()}
-            className="px-2 py-1.5 hover:bg-surface-variant rounded text-caption flex items-center gap-1"
+            className="px-2.5 py-1.5 hover:bg-surface rounded text-caption flex items-center gap-1 shrink-0 focus-ring text-on-surface-variant hover:text-on-surface"
             title="Save scenario"
           >
-            <span className="material-symbols-outlined text-[20px]">save</span>
+            <span className="material-symbols-outlined text-[18px]">save</span>
             <span className="hidden xl:inline">Save</span>
           </button>
         </div>
@@ -1515,15 +1535,15 @@ export default function WorkspaceClient({
       )}
 
       {isFreshResult && topCandidate && !runningJob && (tab === "workspace" || tab === "results") && (
-        <div className="bg-primary-fixed/15 border-b border-primary-fixed/40 px-section-padding py-3 flex flex-wrap items-center gap-3 text-body-sm shrink-0">
-          <span className="font-medium text-primary">
-            Analysis complete — {result!.candidates.length} candidates. What&apos;s next?
+        <div className="bg-surface-container-low border-b border-outline-variant px-section-padding py-2.5 flex flex-wrap items-center gap-3 text-body-sm shrink-0">
+          <span className="text-on-surface">
+            Analysis complete — {result!.candidates.length} candidates.
           </span>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => void selectCandidate(topCandidate, "evidence")}
-              className="bg-primary text-on-primary px-3 py-1.5 rounded text-caption font-medium"
+              className="bg-primary text-on-primary px-3 py-1.5 rounded text-caption font-medium focus-ring"
             >
               Inspect top site
             </button>
@@ -1531,7 +1551,7 @@ export default function WorkspaceClient({
               <button
                 type="button"
                 onClick={() => setTab("compare")}
-                className="border border-primary text-primary px-3 py-1.5 rounded text-caption font-medium"
+                className="border border-outline-variant px-3 py-1.5 rounded text-caption focus-ring"
               >
                 Compare scenarios
               </button>
@@ -1539,7 +1559,7 @@ export default function WorkspaceClient({
             <button
               type="button"
               onClick={() => setTab("decision")}
-              className="border border-outline-variant px-3 py-1.5 rounded text-caption"
+              className="border border-outline-variant px-3 py-1.5 rounded text-caption focus-ring"
             >
               Record decision
             </button>
@@ -2200,41 +2220,26 @@ export default function WorkspaceClient({
 
           <aside
             id="agent-activity-panel"
-            className="w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0"
+            className="w-[280px] bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0"
           >
-            <div className="p-4 border-b border-outline-variant bg-surface-container-low flex justify-between items-center shrink-0">
-              <div>
-                <h2 className="text-headline-md text-primary-container">Agent activity</h2>
-                <p className="text-caption text-on-surface-variant mt-0.5">
-                  Urban Planning Copilot runs tools in-app — results below.
+            <div className="p-3 border-b border-outline-variant bg-surface-container-low shrink-0">
+              <h2 className="text-body-sm font-medium text-on-surface">Agent activity</h2>
+              <p className="text-caption text-on-surface-variant mt-0.5">
+                Tool runs and answers — progress, errors, and outcomes.
+              </p>
+              <div className="flex items-center gap-2 mt-2">
+                <div
+                  className={`w-2 h-2 rounded-full shrink-0 ${
+                    runningJob ? "bg-primary animate-pulse" : result ? "bg-outline" : "bg-outline-variant"
+                  }`}
+                />
+                <p className="text-caption text-on-surface-variant line-clamp-2">
+                  {inspectorOutcome}
                 </p>
-                <div className="flex items-center gap-2 mt-1">
-                  <div
-                    className={`w-2 h-2 rounded-full ${
-                      runningJob ? "bg-primary animate-pulse" : result ? "bg-primary-container" : "bg-outline"
-                    }`}
-                  />
-                  <p className="text-caption text-on-surface-variant">
-                    {inspectorOutcome}
-                  </p>
-                </div>
               </div>
-              <button
-                type="button"
-                title="Jump to agent activity"
-                aria-label="Jump to agent activity"
-                onClick={() =>
-                  document
-                    .getElementById("agent-activity-panel")
-                    ?.scrollIntoView({ behavior: "smooth", block: "nearest" })
-                }
-                className="material-symbols-outlined text-primary hover:text-primary-container transition-colors"
-              >
-                smart_toy
-              </button>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
               {!result && scenario.analysisPlan && (
                 <>
                   <div className="bg-primary-fixed/20 p-3 rounded-r-lg rounded-bl-lg border border-primary-fixed">
@@ -2385,7 +2390,7 @@ export default function WorkspaceClient({
               onToolComplete={async () => {
                 await refresh();
               }}
-              className="shrink-0 max-h-[42vh] border-t border-outline-variant min-h-[220px]"
+              className="shrink-0 max-h-[34vh] border-t border-outline-variant min-h-[180px]"
             />
 
             {assumptionsOpen && (
@@ -2753,6 +2758,10 @@ export default function WorkspaceClient({
           confirmType={confirmDecision}
           onRequestConfirm={setConfirmDecision}
           onCancelConfirm={() => setConfirmDecision(null)}
+          onGoToWorkspace={() => {
+            setTab("workspace");
+            setDrawerOpen(false);
+          }}
           onDecide={async (type) => {
             setDecisionError(null);
             try {
@@ -2931,14 +2940,14 @@ function ShortlistPanel(props: {
 
 function YieldGapBanner({ gap }: { gap: YieldGapSummary }) {
   const tone = gap.needsWarning
-    ? "border-error/40 bg-error-container/15 text-error"
-    : "border-primary-fixed/40 bg-primary-fixed/10 text-on-surface";
+    ? "border-secondary/40 bg-secondary-fixed/10 text-on-surface"
+    : "border-outline-variant bg-surface-container-low text-on-surface-variant";
   return (
-    <div role="status" className={`mb-3 border text-caption px-3 py-2 rounded ${tone}`}>
-      <p className="font-medium text-body-sm mb-1">
-        {gap.needsWarning ? "Yield gap" : "Housing yield"} — {gap.headline}
+    <div role="status" className={`mb-3 border text-body-sm px-3 py-2 rounded ${tone}`}>
+      <p className="font-medium text-on-surface mb-0.5">
+        {gap.needsWarning ? "Housing yield gap" : "Housing yield"} — {gap.headline}
       </p>
-      <p>{gap.detail}</p>
+      <p className="text-caption leading-relaxed">{gap.detail}</p>
     </div>
   );
 }
@@ -2952,13 +2961,13 @@ function FloodCoverageAlert(props: {
   const { detail, expanded, onToggle, onInspectEvidence } = props;
   return (
     <div
-      role="alert"
-      className="mb-3 border border-secondary/50 bg-secondary-fixed/15 text-secondary text-caption rounded overflow-hidden"
+      role="note"
+      className="mb-3 border border-outline-variant bg-surface-container-low text-on-surface-variant text-caption rounded overflow-hidden"
     >
       <button
         type="button"
         onClick={onToggle}
-        className="w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-secondary-fixed/25"
+        className="w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-surface-container focus-ring"
         aria-expanded={expanded}
       >
         <span className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">
@@ -2967,7 +2976,7 @@ function FloodCoverageAlert(props: {
         <span>{detail.summary}</span>
       </button>
       {expanded && (
-        <div className="px-3 pb-3 pt-0 space-y-2 border-t border-secondary/30">
+        <div className="px-3 pb-3 pt-0 space-y-2 border-t border-outline-variant">
           <p>
             <strong>Coverage:</strong> {detail.incompleteReason}
           </p>
@@ -3014,33 +3023,33 @@ function ResultsFilterBar(props: {
   filteredCount: number;
 }) {
   const { filter, onChange, neighborhoods, totalCount, filteredCount } = props;
+  const fieldClass =
+    "w-full border border-outline-variant rounded px-2.5 py-1.5 text-body-sm bg-surface focus-ring";
   return (
-    <div className="border border-outline-variant rounded p-3 bg-surface-container-lowest space-y-2">
+    <div className="border border-outline-variant rounded-md p-3 bg-surface-container-low space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="font-mono text-[10px] uppercase text-on-surface-variant">
-          Filter candidates
-        </span>
-        <span className="font-mono text-[10px] text-on-surface-variant">
-          Showing {filteredCount.toLocaleString()} of {totalCount.toLocaleString()}
+        <span className="text-body-sm font-medium text-on-surface">Filter candidates</span>
+        <span className="font-mono text-[11px] text-on-surface-variant">
+          {filteredCount.toLocaleString()} of {totalCount.toLocaleString()}
         </span>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">
-        <label className="block text-caption">
-          <span className="sr-only">Search address or block/lot</span>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <label className="block">
+          <span className="text-caption text-on-surface-variant block mb-1">Search</span>
           <input
             type="search"
             value={filter.text}
             onChange={(e) => onChange({ ...filter, text: e.target.value })}
-            placeholder="Address / Blk-Lot…"
-            className="w-full border border-outline-variant rounded px-2 py-1 text-body-sm"
+            placeholder="Address or block-lot…"
+            className={fieldClass}
           />
         </label>
-        <label className="block text-caption">
-          <span className="sr-only">Neighborhood</span>
+        <label className="block">
+          <span className="text-caption text-on-surface-variant block mb-1">Neighborhood</span>
           <select
             value={filter.neighborhood}
             onChange={(e) => onChange({ ...filter, neighborhood: e.target.value })}
-            className="w-full border border-outline-variant rounded px-2 py-1 text-body-sm bg-surface"
+            className={fieldClass}
           >
             <option value="">All neighborhoods</option>
             {neighborhoods.map((n) => (
@@ -3050,8 +3059,8 @@ function ResultsFilterBar(props: {
             ))}
           </select>
         </label>
-        <label className="block text-caption">
-          <span className="sr-only">Score band</span>
+        <label className="block">
+          <span className="text-caption text-on-surface-variant block mb-1">Score</span>
           <select
             value={filter.scoreBand}
             onChange={(e) =>
@@ -3060,7 +3069,7 @@ function ResultsFilterBar(props: {
                 scoreBand: e.target.value as ResultsFilterState["scoreBand"],
               })
             }
-            className="w-full border border-outline-variant rounded px-2 py-1 text-body-sm bg-surface"
+            className={fieldClass}
           >
             <option value="all">All scores</option>
             <option value="high">High (≥70)</option>
@@ -3068,8 +3077,8 @@ function ResultsFilterBar(props: {
             <option value="low">Low (&lt;40)</option>
           </select>
         </label>
-        <label className="block text-caption">
-          <span className="sr-only">Flood risk</span>
+        <label className="block">
+          <span className="text-caption text-on-surface-variant block mb-1">Flood risk</span>
           <select
             value={filter.floodRisk}
             onChange={(e) =>
@@ -3078,7 +3087,7 @@ function ResultsFilterBar(props: {
                 floodRisk: e.target.value as ResultsFilterState["floodRisk"],
               })
             }
-            className="w-full border border-outline-variant rounded px-2 py-1 text-body-sm bg-surface"
+            className={fieldClass}
           >
             <option value="all">All flood risk</option>
             <option value="high">High flood risk</option>
@@ -3086,30 +3095,30 @@ function ResultsFilterBar(props: {
             <option value="low">Low flood risk</option>
           </select>
         </label>
-        <label className="block text-caption">
-          <span className="text-on-surface-variant">Min homes</span>
+        <label className="block">
+          <span className="text-caption text-on-surface-variant block mb-1">Min homes</span>
           <input
             type="text"
             inputMode="numeric"
             value={filter.capacityMin}
             onChange={(e) => onChange({ ...filter, capacityMin: e.target.value })}
             placeholder="Min"
-            className="w-full border border-outline-variant rounded px-2 py-1 text-body-sm"
+            className={fieldClass}
           />
         </label>
-        <label className="block text-caption">
-          <span className="text-on-surface-variant">Max homes</span>
+        <label className="block">
+          <span className="text-caption text-on-surface-variant block mb-1">Max homes</span>
           <input
             type="text"
             inputMode="numeric"
             value={filter.capacityMax}
             onChange={(e) => onChange({ ...filter, capacityMax: e.target.value })}
             placeholder="Max"
-            className="w-full border border-outline-variant rounded px-2 py-1 text-body-sm"
+            className={fieldClass}
           />
         </label>
       </div>
-      <label className="flex items-center gap-2 text-body-sm px-1 py-1">
+      <label className="flex items-center gap-2 text-body-sm">
         <input
           type="checkbox"
           checked={filter.shortlistedOnly}
@@ -3190,12 +3199,12 @@ function ResultsDrawer(props: {
 
   return (
     <div
-      className={`absolute bottom-0 left-[300px] right-[360px] max-h-[42vh] z-[1010] ${
+      className={`absolute bottom-0 left-[300px] right-[280px] max-h-[min(52vh,560px)] z-[1010] ${
         props.drawingActive ? "pointer-events-none" : "pointer-events-none"
       }`}
     >
       <div
-        className={`max-h-[42vh] bg-surface border-t border-outline-variant flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.06)] ${
+        className={`max-h-[min(52vh,560px)] bg-surface border-t border-outline-variant flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.06)] ${
           props.drawingActive ? "pointer-events-none" : "pointer-events-auto"
         }`}
       >
@@ -3321,15 +3330,15 @@ function ResultsDrawer(props: {
                     No candidates match the current filters.
                   </p>
                 )}
-                <div className="overflow-x-auto">
-                <table className="w-full text-left text-body-sm min-w-[620px]">
-                  <thead>
-                    <tr className="font-mono text-data-label text-on-surface-variant">
-                      <th className="py-2 pr-2 w-8" aria-label="Pin to shortlist">
+                <div className="overflow-x-auto overflow-y-auto max-h-[min(36vh,320px)]">
+                <table className="w-full text-left text-body-sm min-w-[640px]">
+                  <thead className="sticky top-0 bg-surface z-10">
+                    <tr className="font-mono text-data-label text-on-surface-variant border-b border-outline-variant">
+                      <th className="py-2 pr-3 w-20 text-left" scope="col">
                         Pin
                       </th>
                       {props.resultsColumns.map((col) => (
-                        <th key={col.key} className="py-2 pr-2">
+                        <th key={col.key} className="py-2 pr-3 text-left" scope="col">
                           {col.label}
                         </th>
                       ))}
@@ -3995,15 +4004,34 @@ function CompareView(props: {
       )}
       {props.compareIds.length < 2 && (
         <div
-          className="mb-4 border border-dashed border-outline-variant rounded p-6 text-center bg-surface-container-low"
+          className="mb-4 border border-dashed border-outline-variant rounded-lg p-6 text-center bg-surface-container-low"
           role="status"
         >
-          <p className="text-body-sm text-on-surface-variant">
-            Select at least two scenarios above to enable comparison.
+          <p className="text-body-sm text-on-surface mb-3">
+            Compare needs at least two analyzed scenario branches.
           </p>
-          <p className="text-caption text-on-surface-variant mt-1">
-            Scenarios without analysis can be run inline from this tab.
-          </p>
+          {workspace.scenarios.filter((s) =>
+            scenarioHasComparableAnalysis(s, workspace.analysisResults)
+          ).length < 2 ? (
+            <div className="flex flex-wrap justify-center gap-2">
+              {workspace.scenarios
+                .filter((s) => !scenarioHasComparableAnalysis(s, workspace.analysisResults))
+                .map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => void props.onRunAnalysis(s.id, s.name)}
+                    className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm focus-ring"
+                  >
+                    Run analysis on {s.name}
+                  </button>
+                ))}
+            </div>
+          ) : (
+            <p className="text-caption text-on-surface-variant">
+              Select two or more analyzed scenarios above, then press Compare selected.
+            </p>
+          )}
         </div>
       )}
       <button
@@ -4165,6 +4193,7 @@ function DecisionView(props: {
     type: "approve_scenario" | "reject_scenario" | "request_changes"
   ) => void;
   onCancelConfirm: () => void;
+  onGoToWorkspace: () => void;
   onDecide: (type: "approve_scenario" | "reject_scenario" | "request_changes") => Promise<void>;
 }) {
   const { scenario, result, topCandidate } = props;
@@ -4182,28 +4211,39 @@ function DecisionView(props: {
       <h2 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">
         Review decision
       </h2>
-      <h3 className="text-display mb-6">{scenario.name}</h3>
-      {!result && (
-        <p className="text-body-sm text-secondary mb-4" role="status">
-          No analysis results for this scenario yet — run analysis from the Workspace tab first.
-        </p>
-      )}
-      {result?.stale && (
-        <p className="text-body-sm text-secondary mb-4" role="status">
-          Results are stale ({result.staleReason ?? "inputs changed"}) — recalculate before deciding.
-        </p>
+      <h3 className="text-headline-md mb-4">{scenario.name}</h3>
+      {!hasFreshAnalysis && (
+        <div
+          className="mb-6 border border-outline-variant rounded-lg p-5 bg-surface-container-low space-y-3"
+          role="status"
+        >
+          <p className="text-body-sm text-on-surface">
+            {!result
+              ? "No analysis results for this scenario yet."
+              : result.stale
+                ? `Results are stale (${result.staleReason ?? "inputs changed"}).`
+                : "Evidence pack is incomplete for a formal decision."}
+          </p>
+          <button
+            type="button"
+            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm focus-ring"
+            onClick={props.onGoToWorkspace}
+          >
+            {result?.stale ? "Recalculate in Workspace" : "Run analysis in Workspace"}
+          </button>
+          <p className="text-caption text-on-surface-variant">
+            Approve, request changes, and reject unlock after fresh analysis and evidence review.
+          </p>
+        </div>
       )}
       {hasFreshAnalysis && (
         <p className="text-body-sm text-on-surface-variant mb-4" role="status">
-          Analysis complete with {result!.candidates.length} candidates — ready for your decision.
+          {result!.candidates.length} candidates ranked — evidence summary below.
         </p>
       )}
-      {result && isHousingIntent(scenario.objective.intent) && (
-        <p className="text-body-sm font-medium text-primary mb-4 border border-primary-fixed/40 bg-primary-fixed/10 px-3 py-2 rounded">
-          {props.housingGoalLine ??
-            (result.candidates.length > 0
-              ? "Housing target metrics are loading from ranked candidates."
-              : "Run analysis to evaluate housing target progress.")}
+      {result && isHousingIntent(scenario.objective.intent) && props.housingGoalLine && (
+        <p className="text-body-sm text-on-surface-variant mb-4 border border-outline-variant bg-surface-container-low px-3 py-2 rounded">
+          {props.housingGoalLine}
         </p>
       )}
       {props.yieldGap && <YieldGapBanner gap={props.yieldGap} />}
@@ -4254,7 +4294,7 @@ function DecisionView(props: {
         <textarea
           value={props.reason}
           onChange={(e) => props.setReason(e.target.value)}
-          className={`mt-2 w-full border rounded p-3 text-body-sm ${
+          className={`mt-2 w-full border rounded p-3 text-body-sm focus-ring ${
             props.error ? "border-error" : "border-outline-variant"
           }`}
           rows={3}
@@ -4267,32 +4307,35 @@ function DecisionView(props: {
           </p>
         )}
       </label>
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          disabled={!hasFreshAnalysis}
-          onClick={() => props.onRequestConfirm("approve_scenario")}
-          className="bg-secondary text-on-secondary px-4 py-2 rounded text-body-sm disabled:opacity-40"
-        >
-          Approve scenario
-        </button>
-        <button
-          type="button"
-          disabled={!hasFreshAnalysis}
-          onClick={() => props.onRequestConfirm("request_changes")}
-          className="border border-outline px-4 py-2 rounded text-body-sm disabled:opacity-40"
-        >
-          Request changes
-        </button>
-        <button
-          type="button"
-          disabled={!hasFreshAnalysis}
-          onClick={() => props.onRequestConfirm("reject_scenario")}
-          className="border border-error text-error px-4 py-2 rounded text-body-sm disabled:opacity-40"
-        >
-          Reject
-        </button>
-      </div>
+      {hasFreshAnalysis ? (
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => props.onRequestConfirm("approve_scenario")}
+            className="bg-secondary text-on-secondary px-4 py-2 rounded text-body-sm focus-ring"
+          >
+            Approve scenario
+          </button>
+          <button
+            type="button"
+            onClick={() => props.onRequestConfirm("request_changes")}
+            className="border border-outline px-4 py-2 rounded text-body-sm focus-ring"
+          >
+            Request changes
+          </button>
+          <button
+            type="button"
+            onClick={() => props.onRequestConfirm("reject_scenario")}
+            className="border border-error text-error px-4 py-2 rounded text-body-sm focus-ring"
+          >
+            Reject
+          </button>
+        </div>
+      ) : (
+        <p className="text-caption text-on-surface-variant">
+          Decision actions appear after analysis is complete and results are current.
+        </p>
+      )}
       <p className="mt-4 text-caption text-on-surface-variant">
         Current decision status:{" "}
         <span className="font-medium text-secondary">{decisionLabel}</span>
@@ -4659,18 +4702,14 @@ function ReportView(props: {
 
   return (
     <main className="flex-1 overflow-auto p-8 max-w-4xl">
-      <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
-        <h2 className="text-display">Reports</h2>
-        <div className="flex gap-2">
-          {displayReport && (
-            <button
-              type="button"
-              onClick={downloadMarkdown}
-              className="border border-outline-variant px-4 py-2 rounded text-body-sm"
-            >
-              Download Markdown
-            </button>
-          )}
+      <div className="flex flex-col sm:flex-row sm:flex-wrap justify-between items-start gap-4 mb-6">
+        <div>
+          <h2 className="text-display mb-1">Reports</h2>
+          <p className="text-body-sm text-on-surface-variant">
+            Export a markdown brief for <strong>{props.scenario.name}</strong>.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           <button
             type="button"
             onClick={async () => {
@@ -4687,21 +4726,33 @@ function ReportView(props: {
                 ? undefined
                 : "Run analysis on the active scenario first"
             }
-            className="bg-primary text-on-primary px-4 py-2 rounded text-body-sm disabled:opacity-40 flex items-center gap-2"
+            className="bg-primary text-on-primary px-5 py-2.5 rounded text-body-sm font-medium disabled:opacity-40 flex items-center gap-2 focus-ring flex-1 sm:flex-none justify-center"
           >
             {generating && (
               <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
             )}
             {generating ? "Generating…" : scenarioReports.length > 0 ? "Update report" : "Generate report"}
           </button>
+          {displayReport && (
+            <button
+              type="button"
+              onClick={downloadMarkdown}
+              className="border border-outline-variant px-5 py-2.5 rounded text-body-sm focus-ring flex-1 sm:flex-none justify-center"
+            >
+              Export Markdown
+            </button>
+          )}
         </div>
       </div>
       {!canGenerate && (
-        <p className="text-body-sm text-on-surface-variant mb-4">
-          Reports summarize the active scenario <strong>{props.scenario.name}</strong>, its
-          evidence, constraints, and any recorded decision. Run analysis first — stale results must
-          be recalculated.
-        </p>
+        <div className="mb-6 border border-outline-variant rounded-lg p-5 bg-surface-container-low">
+          <p className="text-body-sm text-on-surface mb-2">
+            Run analysis on <strong>{props.scenario.name}</strong> before generating a report.
+          </p>
+          <p className="text-caption text-on-surface-variant">
+            Reports include objective, methodology, datasets, ranked candidates, and decision history.
+          </p>
+        </div>
       )}
       {canGenerate && !displayReport && (
         <p className="text-body-sm text-on-surface-variant mb-4">
@@ -4711,7 +4762,7 @@ function ReportView(props: {
         </p>
       )}
       {housingGoal && (
-          <p className="text-body-sm font-medium text-primary mb-4 border border-primary-fixed/40 bg-primary-fixed/10 px-3 py-2 rounded">
+          <p className="text-body-sm text-on-surface-variant mb-4 border border-outline-variant bg-surface-container-low px-3 py-2 rounded">
             {housingGoal}
           </p>
         )}
