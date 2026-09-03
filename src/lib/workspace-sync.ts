@@ -65,6 +65,7 @@ export const WORKSPACE_MUTATING_TOOLS = new Set([
   "add_to_shortlist",
   "remove_from_shortlist",
   "exclude_map_area",
+  "exclude_features",
   "remove_map_area",
   "update_map_area",
   "set_map_view",

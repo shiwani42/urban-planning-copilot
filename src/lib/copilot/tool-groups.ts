@@ -11,6 +11,7 @@ export type CopilotToolGroup = {
 const TOOL_GROUP_BY_NAME: Record<string, CopilotToolGroupId> = {
   set_map_view: "map",
   exclude_map_area: "map",
+  exclude_features: "map",
   remove_map_area: "map",
   update_map_area: "map",
   get_analysis_plan: "analysis",

@@ -47,14 +47,17 @@ export async function resolveScenarioId(
     typeof input.scenarioId === "string" && input.scenarioId.trim()
       ? input.scenarioId.trim()
       : undefined;
-  if (fromInput) return fromInput;
 
   const ws = await getWorkspace(projectId);
   if (!ws) {
     throw new ToolError("NOT_FOUND", "Project not found", "projectId");
   }
-  const active =
-    ws.project.activeScenarioId ?? ws.scenarios[0]?.id;
+
+  if (fromInput && ws.scenarios.some((s) => s.id === fromInput)) {
+    return fromInput;
+  }
+
+  const active = ws.project.activeScenarioId ?? ws.scenarios[0]?.id;
   if (!active) {
     throw new ToolError("NOT_FOUND", "No scenario found for project", "scenarioId");
   }

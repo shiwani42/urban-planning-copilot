@@ -378,6 +378,30 @@ export async function executePlanningTool(
         note: `Removed from shortlist (${count} site${count === 1 ? "" : "s"} remaining)`,
       };
     }
+    case "exclude_features": {
+      const projectId = resolveProjectId(input, context);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
+      const rawIds = input.featureIds;
+      if (!Array.isArray(rawIds) || rawIds.length === 0) {
+        throw new ToolError("MISSING_FIELD", "featureIds is required", "featureIds");
+      }
+      const featureIds = rawIds.map((id) => String(id).trim()).filter(Boolean);
+      if (featureIds.length === 0) {
+        throw new ToolError("MISSING_FIELD", "featureIds is required", "featureIds");
+      }
+      const label =
+        typeof input.label === "string" && input.label.trim()
+          ? input.label.trim()
+          : `Exclude ${featureIds.length} feature${featureIds.length === 1 ? "" : "s"}`;
+      await services.requireProject(projectId);
+      await services.excludeFeatures(projectId, scenarioId, featureIds, label);
+      return {
+        excluded: label,
+        featureIds,
+        note: "Features excluded — recalculate.",
+        criteriaStale: true,
+      };
+    }
     case "exclude_map_area": {
       const projectId = resolveProjectId(input, context);
       const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);

@@ -120,12 +120,49 @@ describe("planner query routing", () => {
     }
   });
 
-  it("exclude area does not pretend to list shortlist", () => {
+  it("exclude area without map selection asks to draw first", () => {
     const route = routePlannerQuery("exclude this area from analysis", workspaceCtx);
     assert.equal(route.kind, "message");
     if (route.kind === "message") {
-      assert.match(route.message, /map/i);
+      assert.match(route.message, /draw an exclusion on the map/i);
       assert.doesNotMatch(route.message, /shortlist/i);
+    }
+  });
+
+  it("exclude area with drawn polygon calls exclude_map_area", () => {
+    const route = routePlannerQuery("exclude this area", {
+      ...workspaceCtx,
+      exclusion: {
+        exclusionRing: [
+          [-122.42, 37.76],
+          [-122.41, 37.76],
+          [-122.41, 37.77],
+        ],
+        exclusionLabel: "Riverside buffer",
+      },
+    });
+    assert.equal(route.kind, "tool");
+    if (route.kind === "tool") {
+      assert.equal(route.tool, "exclude_map_area");
+      assert.equal(route.args.label, "Riverside buffer");
+      assert.ok(Array.isArray(route.args.coordinates));
+    }
+  });
+
+  it("exclude selected parcel calls exclude_features", () => {
+    const route = routePlannerQuery("add exclusion for this parcel", {
+      ...workspaceCtx,
+      exclusion: {
+        selectedParcel: {
+          featureIds: ["parcel-1"],
+          label: "Mission — Blk/Lot 3595/006",
+        },
+      },
+    });
+    assert.equal(route.kind, "tool");
+    if (route.kind === "tool") {
+      assert.equal(route.tool, "exclude_features");
+      assert.deepEqual(route.args.featureIds, ["parcel-1"]);
     }
   });
 

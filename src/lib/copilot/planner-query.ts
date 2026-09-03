@@ -7,6 +7,15 @@ export type PlannerSuggestion = {
   requiresProject?: boolean;
 };
 
+export type PlannerExclusionContext = {
+  /** Closed or open exclusion polygon draft on the map (lng, lat pairs). */
+  exclusionRing?: [number, number][];
+  /** Label suggestion for a drafted exclusion polygon. */
+  exclusionLabel?: string;
+  /** Selected parcel / candidate to exclude by feature id. */
+  selectedParcel?: { featureIds: string[]; label: string };
+};
+
 export type PlannerRouteContext = {
   hasProject: boolean;
   scenarioCount?: number;
@@ -16,6 +25,7 @@ export type PlannerRouteContext = {
   analyzedScenarioIds?: string[];
   topCandidateId?: string;
   topCandidateLabel?: string;
+  exclusion?: PlannerExclusionContext;
 };
 
 export type PlannerQueryRoute =
@@ -257,9 +267,13 @@ function wantsExcludeArea(q: string): boolean {
   return (
     /\bexclude\b/.test(q) ||
     /\bexclusion\b/.test(q) ||
+    /\badd_exclusion\b/.test(q) ||
     /\b(draw|mark|add)\b.*\b(exclude|off[- ]limits)\b/.test(q)
   );
 }
+
+const EXCLUDE_NO_SELECTION_MESSAGE =
+  "Draw an exclusion on the map, then tell me to exclude it.";
 
 export function extractBranchName(query: string): string {
   const q = normalize(query);
@@ -369,10 +383,39 @@ function routeExcludeArea(q: string, ctx: PlannerRouteContext): PlannerQueryRout
   if (!wantsExcludeArea(q)) return null;
   const blocked = requiresOpenProject(ctx);
   if (blocked) return blocked;
+
+  const exclusion = ctx.exclusion;
+  const ring = exclusion?.exclusionRing;
+  if (ring && ring.length >= 3) {
+    const label = exclusion.exclusionLabel?.trim() || "Exclusion area";
+    return {
+      kind: "tool",
+      tool: "exclude_map_area",
+      args: {
+        label,
+        coordinates: ring.map(([lng, lat]) => [lng, lat]),
+      },
+      summary: `Exclude map area “${label}”`,
+    };
+  }
+
+  const parcel = exclusion?.selectedParcel;
+  if (parcel && parcel.featureIds.length > 0) {
+    const label = `Exclude ${parcel.label}`;
+    return {
+      kind: "tool",
+      tool: "exclude_features",
+      args: {
+        featureIds: parcel.featureIds,
+        label,
+      },
+      summary: label,
+    };
+  }
+
   return {
     kind: "message",
-    message:
-      "Exclusions are drawn on the workspace map — switch to the map tab, use the draw toolbar to outline an area, then click Add area. I cannot add an exclusion from chat without map coordinates.",
+    message: EXCLUDE_NO_SELECTION_MESSAGE,
   };
 }
 
@@ -530,6 +573,13 @@ export function summarizeToolResult(
   if (tool === "exclude_map_area" && result && typeof result === "object") {
     const excluded = (result as { excluded?: string }).excluded;
     if (excluded) return `Excluded map area “${excluded}”. Results are stale until you recalculate.`;
+  }
+
+  if (tool === "exclude_features" && result && typeof result === "object") {
+    const excluded = (result as { excluded?: string; label?: string }).excluded;
+    const label = (result as { label?: string }).label;
+    const name = excluded ?? label;
+    if (name) return `Excluded ${name}. Results are stale until you recalculate.`;
   }
 
   if (tool === "get_workspace" && result && typeof result === "object") {

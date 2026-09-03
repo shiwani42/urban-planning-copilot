@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PLANNING_TOOL_META } from "@/lib/webmcp/tool-definitions";
 import { invokePlanningTool } from "@/lib/webmcp/register-browser";
+import { resolveWebMcpBrowserContext } from "@/lib/webmcp/browser-context";
 import {
   appendCopilotActivity,
   listCopilotActivity,
@@ -35,6 +36,10 @@ type UrbanPlanningCopilotProps = {
   analyzedScenarioIds?: string[];
   topCandidateId?: string | null;
   topCandidateLabel?: string | null;
+  /** Map exclusion draft / selected parcel for natural-language exclude routing. */
+  exclusionRing?: [number, number][] | null;
+  exclusionLabel?: string | null;
+  selectedParcel?: { featureIds: string[]; label: string } | null;
   variant?: "sidebar" | "home";
   showActivityFeed?: boolean;
   /** Workspace inspector: input + suggestions only — no duplicate feed header. */
@@ -61,6 +66,9 @@ export function UrbanPlanningCopilot({
   analyzedScenarioIds = [],
   topCandidateId,
   topCandidateLabel,
+  exclusionRing,
+  exclusionLabel,
+  selectedParcel,
   variant = "sidebar",
   showActivityFeed = true,
   commandOnly = false,
@@ -89,6 +97,11 @@ export function UrbanPlanningCopilot({
       analyzedScenarioIds,
       topCandidateId: topCandidateId ?? undefined,
       topCandidateLabel: topCandidateLabel ?? undefined,
+      exclusion: {
+        exclusionRing: exclusionRing && exclusionRing.length >= 3 ? exclusionRing : undefined,
+        exclusionLabel: exclusionLabel ?? undefined,
+        selectedParcel: selectedParcel ?? undefined,
+      },
     }),
     [
       hasProject,
@@ -99,6 +112,9 @@ export function UrbanPlanningCopilot({
       analyzedScenarioIds,
       topCandidateId,
       topCandidateLabel,
+      exclusionRing,
+      exclusionLabel,
+      selectedParcel,
     ]
   );
 
@@ -149,8 +165,14 @@ export function UrbanPlanningCopilot({
       const mergedArgs: Record<string, unknown> = {
         ...args,
         ...(projectId && !args.projectId ? { projectId } : {}),
-        ...(scenarioId && !args.scenarioId ? { scenarioId } : {}),
       };
+
+      // Prefer live WebMCP browser context for scenario id (updates on branch activation).
+      if (!mergedArgs.scenarioId) {
+        const ctxScenarioId = resolveWebMcpBrowserContext().scenarioId;
+        if (ctxScenarioId) mergedArgs.scenarioId = ctxScenarioId;
+        else if (scenarioId) mergedArgs.scenarioId = scenarioId;
+      }
 
       if (tool === "add_to_shortlist" && !mergedArgs.candidateId) {
         if (topCandidateId) {
