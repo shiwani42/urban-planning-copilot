@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, Component, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
   ProvenanceChip,
@@ -127,8 +127,11 @@ import { validateDecisionReason } from "@/lib/domain/decision";
 import type { MapDrawMode } from "@/components/PlanningMap";
 import { CompareScenarioMaps } from "@/components/CompareScenarioMaps";
 import {
+  parseCompareScenarioIds,
+  parseWorkspacePathTab,
   resolveWorkspaceTabFromParams,
-  workspaceTabHref,
+  WORKSPACE_TAB_KEYBOARD_SHORTCUTS,
+  workspaceTabUrl,
   type WorkspaceTab,
 } from "@/lib/workspace-tabs";
 import { EMPTY_ANALYSIS_STATUS } from "@/lib/workspace-analysis-status";
@@ -223,12 +226,11 @@ class TabErrorBoundary extends Component<
 
 export default function WorkspaceClient({
   projectId,
-  initialTab = "workspace",
 }: {
   projectId: string;
-  initialTab?: Tab;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { workspace, loading, error, busy, act, refresh, clearError, loadPhase, elapsedMs, isRetrying, refreshing, projectNotFound, lastFetchAt } =
     useWorkspace(projectId);
@@ -238,10 +240,10 @@ export default function WorkspaceClient({
       return resolveWorkspaceTabFromParams({
         tab: params.get("tab"),
         initialTab: params.get("initialTab"),
-        pathTab: initialTab,
+        pathTab: parseWorkspacePathTab(window.location.pathname),
       }) as Tab;
     }
-    return TAB_PATHS.includes(initialTab as Tab) ? (initialTab as Tab) : "workspace";
+    return "workspace";
   });
   const [layerData, setLayerData] = useState<Record<string, GeoJSON.FeatureCollection>>({});
   const layerDataRef = useRef<Record<string, GeoJSON.FeatureCollection>>({});
@@ -347,28 +349,50 @@ export default function WorkspaceClient({
   );
 
   const setTab = useCallback(
-    (next: Tab) => {
+    (next: Tab, options?: { compareScenarioIds?: string[] }) => {
       setTabState(next);
-      router.replace(workspaceTabHref(projectId, next), { scroll: false });
+      if (next !== "workspace") setDrawerOpen(false);
+      const compareScenarioIds =
+        options?.compareScenarioIds ??
+        (next === "compare" && compareIds.length >= 2 ? compareIds : undefined);
+      const href = workspaceTabUrl(projectId, next, {
+        scenarioId: searchParams.get("scenarioId"),
+        compareScenarioIds,
+      });
+      router.replace(href, { scroll: false });
     },
-    [projectId, router]
+    [projectId, router, searchParams, compareIds]
   );
 
   useEffect(() => {
+    const pathTab = parseWorkspacePathTab(pathname);
     const tabParam = searchParams.get("tab");
     const initialTabParam = searchParams.get("initialTab");
     const fromQuery = tabParam ?? initialTabParam;
-    if (fromQuery) {
-      const resolved = resolveWorkspaceTabFromParams({ tab: fromQuery }) as Tab;
-      if (TAB_PATHS.includes(resolved)) {
-        setTabState(resolved);
+    const resolved = resolveWorkspaceTabFromParams({
+      tab: fromQuery,
+      initialTab: initialTabParam,
+      pathTab,
+    }) as Tab;
+    if (TAB_PATHS.includes(resolved)) {
+      setTabState(resolved);
+    }
+
+    const legacyTab = fromQuery ? resolveWorkspaceTabFromParams({ tab: fromQuery }) : null;
+    const onBaseWorkspacePath = pathname === `/workspace/${projectId}`;
+    if (legacyTab && legacyTab !== "workspace" && onBaseWorkspacePath) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("tab");
+      params.delete("initialTab");
+      const canonical = workspaceTabUrl(projectId, legacyTab, {
+        scenarioId: params.get("scenarioId"),
+        compareScenarioIds: parseCompareScenarioIds(params.get("compareScenarioIds")),
+      });
+      if (canonical !== `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`) {
+        router.replace(canonical, { scroll: false });
       }
-      return;
     }
-    if (initialTab !== "workspace" && TAB_PATHS.includes(initialTab as Tab)) {
-      setTabState(initialTab as Tab);
-    }
-  }, [searchParams, initialTab]);
+  }, [pathname, searchParams, projectId, router]);
 
   useEffect(() => {
     if (tab !== "activity" || !workspace?.activities.length) return;
@@ -576,6 +600,12 @@ export default function WorkspaceClient({
       return;
     }
     if (!workspace) return;
+    const fromUrl = parseCompareScenarioIds(searchParams.get("compareScenarioIds"));
+    if (fromUrl.length >= 2) {
+      compareTabEnteredRef.current = true;
+      setCompareIds(fromUrl);
+      return;
+    }
     if (compareTabEnteredRef.current) return;
     compareTabEnteredRef.current = true;
     setCompareIds(
@@ -585,7 +615,7 @@ export default function WorkspaceClient({
         scenario?.id
       )
     );
-  }, [tab, workspace, scenario?.id]);
+  }, [tab, workspace, scenario?.id, searchParams]);
 
   useEffect(() => {
     if (!workspace || tab !== "compare") return;
@@ -655,7 +685,13 @@ export default function WorkspaceClient({
         } else {
           setCompareIds(ids);
         }
-        setTab("compare");
+        setTab("compare", { compareScenarioIds: ids });
+        return;
+      }
+      if (detail.openTab === "results") {
+        setDrawerOpen(false);
+        setDrawerPanel("candidates");
+        setTab("results");
       }
     });
   }, [projectId, setTab, applyCompareFromPayload]);
@@ -680,6 +716,19 @@ export default function WorkspaceClient({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [drawingActive, drawMode, drawClicks.length, editingSelectionId]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.altKey && !e.metaKey && !e.ctrlKey)) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      const shortcut = WORKSPACE_TAB_KEYBOARD_SHORTCUTS.find((item) => item.key === e.key);
+      if (!shortcut) return;
+      e.preventDefault();
+      setTab(shortcut.tab);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [setTab]);
 
   const syncedMapLayers = useMemo(() => {
     if (!workspace) return [];
@@ -1694,7 +1743,11 @@ export default function WorkspaceClient({
             {tab !== "results" && (
               <button
                 type="button"
-                onClick={() => setTab("results")}
+                onClick={() => {
+                  setDrawerOpen(false);
+                  setDrawerPanel("candidates");
+                  setTab("results");
+                }}
                 className="bg-primary text-on-primary px-3 py-1.5 rounded text-caption font-medium focus-ring"
               >
                 View results
