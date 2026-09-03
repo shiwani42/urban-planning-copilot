@@ -16,6 +16,10 @@ const TRANSIT_DIST_RE =
   /(?:within|inside|near|of)\s+(\d[\d,]*)\s*(m|meters|metres|km|kilometers)?(?:\s+of\s+)?(?:transit|station|rail|bus)/i;
 const TRANSIT_DIST_ALT_RE =
   /(\d[\d,]*)\s*(m|meters|metres|km)?\s*(?:of\s+)?(?:transit|from\s+transit)/i;
+const WALK_TRANSIT_RE =
+  /(\d+)[\s-]*(?:minute|min)(?:ute)?s?\s+(?:walk|walking)[^.]{0,60}(?:frequent\s+)?(?:transit|bus|rail|station)/i;
+const SERVICE_EXCLUSION_RE =
+  /(?:without|avoid|protect|preserv|not\s+displac|exclude|keep|no\s+loss|stay\s+out)\b[^.]{0,120}\b(schools?|parks?|green\s*space|playgrounds?|education)\b|\bwithout\s+displacing\s+existing\s+(schools?|parks?)\b/i;
 const FLOOD_RE = /flood|flood-risk|floodplain|inundation/i;
 const ZONING_RE = /zoning|residential(?:ly)?\s+zon/i;
 const SHELTER_RE = /shelter|emergency\s+response|evacuation/i;
@@ -118,10 +122,28 @@ export function detectIntent(text: string): PlanningIntent {
   return "generic_siting";
 }
 
+function serviceMentionedAsExclusion(text: string, kind: ServiceAccessType): boolean {
+  if (!SERVICE_EXCLUSION_RE.test(text)) return false;
+  const re = kind === "school" ? /\bschools?\b|education|classroom/i : PARK_RE;
+  const exclusionWindow = text.match(
+    new RegExp(
+      `(?:without|avoid|protect|preserv|not\\s+displac|exclude|keep)[^.]{0,120}\\b(${kind === "school" ? "schools?|education" : "parks?|green\\s*space|playgrounds?"})\\b`,
+      "i"
+    )
+  );
+  if (exclusionWindow) return true;
+  if (/\bwithout\s+displacing\s+existing\b/i.test(text) && re.test(text)) return true;
+  return false;
+}
+
 export function serviceTypesInObjective(text: string): ServiceAccessType[] {
   const types: ServiceAccessType[] = [];
-  if (SCHOOL_RE.test(text)) types.push("school");
-  if (PARK_RE.test(text)) types.push("park");
+  if (SCHOOL_RE.test(text) && !serviceMentionedAsExclusion(text, "school")) {
+    types.push("school");
+  }
+  if (PARK_RE.test(text) && !serviceMentionedAsExclusion(text, "park")) {
+    types.push("park");
+  }
   return types;
 }
 
@@ -327,9 +349,14 @@ export function parseObjective(
   }
 
   let transitMeters: number | undefined;
-  const td = rawText.match(TRANSIT_DIST_RE) || rawText.match(TRANSIT_DIST_ALT_RE);
+  const td =
+    rawText.match(TRANSIT_DIST_RE) ||
+    rawText.match(TRANSIT_DIST_ALT_RE) ||
+    rawText.match(WALK_TRANSIT_RE);
   if (td) {
-    transitMeters = parseDistanceMeters(td[1], td[2]);
+    transitMeters = WALK_TRANSIT_RE.test(td[0])
+      ? Number(td[1]) * 80
+      : parseDistanceMeters(td[1], td[2]);
     requirements.push(`Transit proximity ≤ ${transitMeters}m`);
     constraints.push({
       id: nanoid(),

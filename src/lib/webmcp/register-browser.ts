@@ -17,7 +17,7 @@ import {
   coerceBrowserToolFailure,
   webMcpToolOk,
 } from "@/lib/webmcp/tool-result";
-import { runWithPageToolBudget } from "@/lib/webmcp/page-tool-budget";
+import { getPageToolBudgetMs, runWithPageToolBudget } from "@/lib/webmcp/page-tool-budget";
 import { isPendingPlannerResult } from "@/lib/domain/human-gated-tools";
 import {
   registerPendingPlannerAction,

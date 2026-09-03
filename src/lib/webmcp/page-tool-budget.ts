@@ -1,6 +1,11 @@
 /** Nekuda WebMCP Workbench page-tool budget (~30s). Stay under this in browser execute(). */
 export const PAGE_TOOL_BUDGET_MS = 25_000;
 
+export function getPageToolBudgetMs(): number {
+  const override = Number(process.env.UPC_PAGE_TOOL_BUDGET_MS);
+  return Number.isFinite(override) && override > 0 ? override : PAGE_TOOL_BUDGET_MS;
+}
+
 export const PAGE_TOOL_POLL_MS = 400;
 
 const TIMEOUT_ABORT_PATTERNS = [
