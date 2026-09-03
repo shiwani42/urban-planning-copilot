@@ -11,6 +11,7 @@ import {
   getLastBootRecovery,
   reloadStoreFromDisk,
   resetStore,
+  resetDataDirCacheForTests,
   updateStore,
   setPersistFailureInjector,
   StorePersistError,
@@ -195,6 +196,8 @@ describe("store persistence", () => {
     await fs.mkdir(readOnly, { recursive: true });
     await fs.chmod(readOnly, 0o555);
     process.env.DATA_DIR = readOnly;
+    resetDataDirCacheForTests();
+    clearStoreCache();
     try {
       const health = await refreshStorageHealthProbe();
       assert.equal(health.status, "degraded");
@@ -473,6 +476,7 @@ describe("store persistence", () => {
     await fs.mkdir(persistentDir, { recursive: true });
     process.env.DATA_DIR = persistentDir;
     clearStoreCache();
+    resetDataDirCacheForTests();
     try {
       const store = await reloadStoreFromDisk();
       assert.equal(store.projects.length, 0);

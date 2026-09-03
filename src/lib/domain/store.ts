@@ -16,10 +16,15 @@ import {
   getStorageHealth,
   markStorageDegraded,
   markStorageHealthy,
-  getRenderDiskPrefix,
   type BootRecoveryKind,
   type StorageHealth,
 } from "./storage-health";
+import {
+  isRealMount,
+  legacyRenderDataDir,
+  resolveDataDir,
+  storeSearchDirs,
+} from "./storage-mount";
 import { projectCountFromRawJson } from "./store-shape";
 
 const DEFAULT_DISK_READ_RETRY_DELAYS_MS = [2000, 3000, 5000];
@@ -41,7 +46,14 @@ function sleep(ms: number): Promise<void> {
 }
 
 function isPersistentDataDir(dir: string): boolean {
-  return dir.startsWith(getRenderDiskPrefix());
+  const prefixes = [
+    legacyRenderDataDir(),
+    "/var/data",
+    process.env.RENDER_DATA_DIR_PREFIX ?? legacyRenderDataDir(),
+  ].filter((prefix, index, all) => all.indexOf(prefix) === index);
+  return prefixes.some(
+    (prefix) => dir === prefix || dir.startsWith(`${prefix}/`)
+  );
 }
 
 export type PersistOptions = {
@@ -55,21 +67,34 @@ export function getLastBootRecovery(): BootRecoveryKind {
   return lastBootRecovery;
 }
 
+let resolvedDataDirCache: string | null = null;
+
+export function resetDataDirCacheForTests(): void {
+  resolvedDataDirCache = null;
+}
+
+export async function ensureDataDirResolved(): Promise<string> {
+  if (resolvedDataDirCache) return resolvedDataDirCache;
+  resolvedDataDirCache = await resolveDataDir();
+  return resolvedDataDirCache;
+}
+
 export function resetMigrationAttemptedForTests(): void {
   migrationAttempted = false;
   lastBootRecovery = "normal";
+  resolvedDataDirCache = null;
 }
 
 function setLastBootRecovery(kind: BootRecoveryKind): void {
   lastBootRecovery = kind;
 }
 
-function legacyRenderDataDir(): string {
-  return process.env.LEGACY_DATA_DIR ?? "/opt/render/project/src/data";
-}
-
 function dataDir(): string {
-  return process.env.DATA_DIR ?? path.join(process.cwd(), "data");
+  return (
+    resolvedDataDirCache ??
+    process.env.DATA_DIR ??
+    path.join(process.cwd(), "data")
+  );
 }
 
 function storePath(): string {
@@ -278,28 +303,14 @@ async function parseStoreFile(raw: string, source: string): Promise<AppStore> {
  * new path is empty. Old files are kept until the copy parses successfully.
  */
 export async function migrateStoreFromLegacyPaths(): Promise<boolean> {
+  await ensureDataDirResolved();
   const targetDir = dataDir();
   const targetStore = path.join(targetDir, "store.json");
   if (await fileExists(targetStore)) {
     return false;
   }
 
-  const legacyDirs = [legacyRenderDataDir()];
-  const localLegacy = path.join(process.cwd(), "data");
-  if (
-    targetDir === "/var/data" ||
-    targetDir.startsWith("/var/data/") ||
-    targetDir === legacyRenderDataDir() ||
-    targetDir.startsWith(`${legacyRenderDataDir()}/`)
-  ) {
-    if (localLegacy !== targetDir && !legacyDirs.includes(localLegacy)) {
-      legacyDirs.push(localLegacy);
-    }
-  }
-
-  const candidates = legacyDirs.filter(
-    (dir, index, all) => all.indexOf(dir) === index && dir !== targetDir
-  );
+  const candidates = storeSearchDirs(targetDir).filter((dir) => dir !== targetDir);
 
   for (const legacyDir of candidates) {
     for (const fileName of ["store.json", "store.json.bak"] as const) {
@@ -431,6 +442,24 @@ async function writeStorePayload(
   }
 }
 
+async function findBackupAcrossSearchPaths(
+  resolvedDir: string
+): Promise<{ dir: string; backupPath: string } | null> {
+  for (const dir of storeSearchDirs(resolvedDir)) {
+    const backupPath = path.join(dir, "store.json.bak");
+    if (!(await fileExists(backupPath))) continue;
+    try {
+      const raw = await fs.readFile(backupPath, "utf8");
+      if (!raw.trim()) continue;
+      await parseStoreFile(raw, backupPath);
+      return { dir, backupPath };
+    } catch {
+      /* try next candidate */
+    }
+  }
+  return null;
+}
+
 async function restoreStoreFromBackup(
   dir: string,
   pathToStore: string,
@@ -457,6 +486,7 @@ async function ensureMigrated(): Promise<void> {
 }
 
 async function readStoreFromDisk(): Promise<AppStore> {
+  await ensureDataDirResolved();
   const dir = dataDir();
   await ensureMigrated();
 
@@ -517,6 +547,18 @@ async function readStoreFromDisk(): Promise<AppStore> {
       pathToStore,
       pathToBackup,
       "Restored workspace from backup after disk mount delay."
+    );
+  }
+
+  const externalBackup = await findBackupAcrossSearchPaths(dir);
+  if (externalBackup) {
+    return restoreStoreFromBackup(
+      dir,
+      pathToStore,
+      externalBackup.backupPath,
+      externalBackup.dir === dir
+        ? "Restored workspace from backup."
+        : `Restored workspace from backup at ${externalBackup.backupPath}.`
     );
   }
 
@@ -635,6 +677,7 @@ function resetWriteQueues(): void {
 }
 
 export async function persist(store: AppStore, options?: PersistOptions): Promise<void> {
+  await ensureDataDirResolved();
   const dir = dataDir();
   const pathToStore = storePath();
   const pathToBackup = backupPath();
@@ -713,6 +756,7 @@ export async function resetStore(): Promise<AppStore> {
   memory = null;
   memoryDataDir = null;
   migrationAttempted = false;
+  resolvedDataDirCache = null;
   resetWriteQueues();
   setLastBootRecovery("first-run");
   const store = await buildDefaultStore();
@@ -735,6 +779,7 @@ export function readStorageHealth(): StorageHealth {
 
 /** Run a write probe and refresh in-process storage health — used by /api/health. */
 export async function refreshStorageHealthProbe(): Promise<StorageHealth> {
+  await ensureDataDirResolved();
   const dir = dataDir();
   try {
     await verifyWritableDataDir(dir);
