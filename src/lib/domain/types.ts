@@ -448,6 +448,26 @@ export interface ProjectListItem {
   scenarioCount?: number;
   /** Scenario names joined for multi-branch projects (e.g. "Baseline · Flood-weighted"). */
   scenarioSummary?: string;
+  /** Active scenario branch name for Continue cards. */
+  activeScenarioName?: string;
+}
+
+export interface RecentAnalysisRow {
+  id: string;
+  analysisName: string;
+  projectId: string;
+  projectName: string;
+  status: "completed" | "running" | "failed" | "stale";
+  result: string;
+  timestamp: string;
+}
+
+export interface RecentActivityRow {
+  id: string;
+  summary: string;
+  actor: ActivityEvent["actor"];
+  timestamp: string;
+  projectId?: string;
 }
 
 export interface WorkspaceSnapshot {

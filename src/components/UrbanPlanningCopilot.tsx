@@ -37,6 +37,8 @@ type UrbanPlanningCopilotProps = {
   topCandidateLabel?: string | null;
   variant?: "sidebar" | "home";
   showActivityFeed?: boolean;
+  /** Workspace inspector: input + suggestions only — no duplicate feed header. */
+  commandOnly?: boolean;
   onToolComplete?: () => void;
   className?: string;
 };
@@ -61,6 +63,7 @@ export function UrbanPlanningCopilot({
   topCandidateLabel,
   variant = "sidebar",
   showActivityFeed = true,
+  commandOnly = false,
   onToolComplete,
   className = "",
 }: UrbanPlanningCopilotProps) {
@@ -290,6 +293,64 @@ export function UrbanPlanningCopilot({
 
   const compact = variant === "sidebar";
 
+  if (commandOnly) {
+    return (
+      <form
+        onSubmit={(e) => void handleSubmit(e)}
+        className={`shrink-0 border-t border-outline-variant bg-surface-container-lowest p-3 space-y-2 ${className}`}
+        aria-label="Urban Planning Copilot command"
+        data-testid="urban-planning-copilot-command"
+      >
+        {error && (
+          <p role="alert" className="text-caption text-error">
+            {error}
+          </p>
+        )}
+        {statusMessage && !error && (
+          <p role="status" className="text-caption text-primary-container">
+            {statusMessage}
+          </p>
+        )}
+        <label className="sr-only" htmlFor="urban-planning-copilot-input">
+          Ask Urban Planning Copilot
+        </label>
+        <div className="flex gap-2">
+          <input
+            ref={inputRef}
+            id="urban-planning-copilot-input"
+            type="text"
+            value={query}
+            disabled={busy}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Ask or command — e.g. pin top site, compare scenarios"
+            className="flex-1 min-w-0 border border-outline-variant bg-surface px-3 py-2 text-body-sm rounded focus-ring focus:border-primary-container"
+          />
+          <button
+            type="submit"
+            disabled={busy || !query.trim()}
+            className="bg-primary-container text-on-primary px-3 py-2 rounded text-body-sm font-medium disabled:opacity-50 shrink-0 focus-ring"
+            aria-busy={busy}
+          >
+            {busy ? "…" : "Run"}
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {suggestions.slice(0, 3).map((suggestion) => (
+            <button
+              key={suggestion.id}
+              type="button"
+              disabled={busy || (suggestion.requiresProject && !hasProject)}
+              onClick={() => handleSuggestion(suggestion)}
+              className="text-[10px] border border-outline-variant/80 rounded px-2 py-0.5 text-on-surface-variant hover:border-outline hover:bg-surface-container disabled:opacity-50"
+            >
+              {suggestion.label}
+            </button>
+          ))}
+        </div>
+      </form>
+    );
+  }
+
   return (
     <section
       className={`flex flex-col min-h-0 ${className}`}
@@ -308,7 +369,7 @@ export function UrbanPlanningCopilot({
             <p className="text-caption text-on-surface-variant mt-0.5">
               {hasProject
                 ? "Ask or pick a command — activity shows progress and results."
-                : "No project open — explore data or start a new study."}
+                : "Start a project from the header or explore open data."}
             </p>
           </div>
         </div>

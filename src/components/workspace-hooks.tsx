@@ -240,26 +240,46 @@ export function ProvenanceChip({
 }) {
   const map = {
     source_data: {
-      label: "Source data",
-      className: "border border-outline text-on-surface-variant bg-transparent",
+      label: "Observed",
+      className: "border border-outline-variant text-on-surface-variant bg-transparent rounded",
     },
     calculated: {
       label: "Calculated",
-      className: "bg-surface-container-high text-on-surface",
+      className: "border border-outline-variant/60 bg-surface-container text-on-surface-variant rounded",
     },
     copilot_recommendation: {
-      label: "AI recommendation",
-      className: "bg-primary-container text-on-primary",
+      label: "AI REC",
+      className: "bg-primary-container text-on-primary rounded",
     },
     planner_decision: {
-      label: "Planner decision",
-      className: "bg-secondary text-on-secondary",
+      label: "MANUAL",
+      className: "bg-secondary-container text-on-secondary-container rounded",
     },
   } as const;
   const m = map[kind];
   return (
-    <span className={`font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 ${m.className}`}>
+    <span
+      className={`inline-flex items-center font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 ${m.className}`}
+      aria-label={m.label}
+    >
       {m.label}
     </span>
   );
+}
+
+/** Home Action Required row — maps project action kind to provenance chip + icon. */
+export function ActionRequiredKindChip({
+  kind,
+}: {
+  kind: "manual" | "data" | "ai";
+}) {
+  if (kind === "ai") return <ProvenanceChip kind="copilot_recommendation" />;
+  if (kind === "data") {
+    return (
+      <span className="inline-flex items-center font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-outline-variant text-on-surface-variant bg-transparent rounded">
+        Data
+      </span>
+    );
+  }
+  return <ProvenanceChip kind="planner_decision" />;
 }

@@ -68,6 +68,8 @@ import type {
   MapState,
   Project,
   ProjectListItem,
+  RecentActivityRow,
+  RecentAnalysisRow,
   Report,
   Scenario,
   StagedProposal,
@@ -355,6 +357,125 @@ export function summarizeProjectForList(
   };
 }
 
+function analysisDisplayName(scenario: Scenario, result?: AnalysisResult): string {
+  const step = scenario.analysisPlan?.steps.find((s) => s.status === "completed")?.label;
+  if (step) return step;
+  if (result?.summary) {
+    const short = result.summary.split(/[.—]/)[0]?.trim();
+    if (short && short.length <= 48) return short;
+  }
+  return "Site suitability analysis";
+}
+
+function resultStatusForRow(
+  result: AnalysisResult,
+  runningJobIds: Set<string>
+): RecentAnalysisRow["status"] {
+  if (runningJobIds.has(result.jobId)) return "running";
+  if (result.status === "failed" || result.error) return "failed";
+  if (result.stale || result.status === "stale") return "stale";
+  return "completed";
+}
+
+function resultLabelForRow(result: AnalysisResult): string {
+  if (result.status === "failed" || result.error) {
+    return result.error ?? "Analysis failed";
+  }
+  if (result.stale) {
+    return result.staleReason ?? "Results stale — recalculate";
+  }
+  const top = result.candidates[0];
+  if (top) {
+    return `${result.candidates.length} candidate${result.candidates.length === 1 ? "" : "s"}`;
+  }
+  const trimmed = result.summary.trim();
+  if (trimmed.length <= 64) return trimmed;
+  return trimmed.slice(0, 61) + "…";
+}
+
+export function listRecentAnalyses(store: AppStore, limit = 8): RecentAnalysisRow[] {
+  const runningJobIds = new Set(
+    store.analysisJobs.filter((j) => j.status === "running").map((j) => j.id)
+  );
+  const rows: RecentAnalysisRow[] = [];
+
+  for (const job of store.analysisJobs) {
+    const scenario = store.scenarios.find((s) => s.id === job.scenarioId);
+    const project = scenario
+      ? store.projects.find((p) => p.id === scenario.projectId)
+      : undefined;
+    if (!scenario || !project) continue;
+    if (job.status === "running") {
+      rows.push({
+        id: `job-${job.id}`,
+        analysisName: job.currentStep ?? "Analysis run",
+        projectId: project.id,
+        projectName: project.name,
+        status: "running",
+        result: "Processing…",
+        timestamp: job.startedAt,
+      });
+    } else if (job.status === "failed") {
+      const hasNewerResult = store.analysisResults.some(
+        (r) =>
+          r.scenarioId === job.scenarioId &&
+          (r.completedAt ?? r.createdAt) >= (job.completedAt ?? job.startedAt)
+      );
+      if (!hasNewerResult) {
+        rows.push({
+          id: `job-${job.id}`,
+          analysisName: "Analysis run",
+          projectId: project.id,
+          projectName: project.name,
+          status: "failed",
+          result: job.error ?? "Data missing",
+          timestamp: job.completedAt ?? job.startedAt,
+        });
+      }
+    }
+  }
+
+  for (const result of store.analysisResults) {
+    const scenario = store.scenarios.find((s) => s.id === result.scenarioId);
+    const project = scenario
+      ? store.projects.find((p) => p.id === scenario.projectId)
+      : undefined;
+    if (!scenario || !project) continue;
+    const status = resultStatusForRow(result, runningJobIds);
+    if (status === "running") continue;
+    rows.push({
+      id: result.id,
+      analysisName: analysisDisplayName(scenario, result),
+      projectId: project.id,
+      projectName: project.name,
+      status,
+      result: resultLabelForRow(result),
+      timestamp: result.completedAt ?? result.createdAt,
+    });
+  }
+
+  return rows
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    .slice(0, limit);
+}
+
+export function listRecentSystemActivity(
+  store: AppStore,
+  limit = 5
+): RecentActivityRow[] {
+  return store.activities
+    .slice()
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    .slice(0, limit)
+    .map((a) => ({
+      id: a.id,
+      summary: a.summary,
+      actor: a.actor,
+      timestamp: a.timestamp,
+      projectId: a.projectId,
+    }));
+}
+
 function configHashFor(scenario: Scenario): string {
   return hashConfig({
     objective: scenario.objective,
@@ -439,6 +560,8 @@ export async function listProjects(): Promise<ProjectListItem[]> {
       const summary = summarizeProjectForList(store, p);
       const scenarios = store.scenarios.filter((s) => s.projectId === p.id);
       const scenarioNames = scenarios.map((s) => s.name);
+      const active =
+        scenarios.find((s) => s.id === p.activeScenarioId) ?? scenarios[0];
       return {
         id: p.id,
         name: p.name,
@@ -449,6 +572,7 @@ export async function listProjects(): Promise<ProjectListItem[]> {
         approvedScenarioName: summary.approvedScenarioName,
         activeScenarioStatus: summary.activeScenarioStatus,
         activeScenarioNote: summary.activeScenarioNote,
+        activeScenarioName: active?.name,
         actionRequiredLabel: summary.actionRequiredLabel,
         actionRequiredKind: summary.actionRequiredKind,
         shortlistCount: summary.shortlistCount,
@@ -457,6 +581,47 @@ export async function listProjects(): Promise<ProjectListItem[]> {
           scenarios.length > 1 ? scenarioNames.join(" · ") : undefined,
       };
     });
+}
+
+export async function listHomeDashboard(): Promise<{
+  projects: ProjectListItem[];
+  recentAnalyses: RecentAnalysisRow[];
+  recentActivity: RecentActivityRow[];
+}> {
+  const store = await reloadStoreFromDisk();
+  const projects = store.projects
+    .slice()
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .map((p) => {
+      const summary = summarizeProjectForList(store, p);
+      const scenarios = store.scenarios.filter((s) => s.projectId === p.id);
+      const scenarioNames = scenarios.map((s) => s.name);
+      const active =
+        scenarios.find((s) => s.id === p.activeScenarioId) ?? scenarios[0];
+      return {
+        id: p.id,
+        name: p.name,
+        updatedAt: p.updatedAt,
+        lastOpenedAt: p.lastOpenedAt,
+        resumeNote: summary.resumeNote,
+        geographyLabel: p.geographyLabel,
+        approvedScenarioName: summary.approvedScenarioName,
+        activeScenarioStatus: summary.activeScenarioStatus,
+        activeScenarioNote: summary.activeScenarioNote,
+        activeScenarioName: active?.name,
+        actionRequiredLabel: summary.actionRequiredLabel,
+        actionRequiredKind: summary.actionRequiredKind,
+        shortlistCount: summary.shortlistCount,
+        scenarioCount: scenarios.length > 1 ? scenarios.length : undefined,
+        scenarioSummary:
+          scenarios.length > 1 ? scenarioNames.join(" · ") : undefined,
+      };
+    });
+  return {
+    projects,
+    recentAnalyses: listRecentAnalyses(store),
+    recentActivity: listRecentSystemActivity(store),
+  };
 }
 
 export async function recordProjectOpen(projectId: string): Promise<void> {
