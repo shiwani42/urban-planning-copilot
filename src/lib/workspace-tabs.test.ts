@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveWorkspaceTab, resolveWorkspaceTabFromParams, workspaceTabHref } from "./workspace-tabs";
+import {
+  parseCompareScenarioIds,
+  resolveWorkspaceTab,
+  resolveWorkspaceTabFromParams,
+  workspaceTabHref,
+  workspaceTabUrl,
+} from "./workspace-tabs";
 
 describe("resolveWorkspaceTab", () => {
   it("honors activity and report deep-link query values", () => {
@@ -26,5 +32,13 @@ describe("resolveWorkspaceTab", () => {
     );
     assert.equal(workspaceTabHref("abc", "compare"), "/workspace/abc/compare");
     assert.equal(workspaceTabHref("abc", "results"), "/workspace/abc/results");
+  });
+
+  it("serializes compare scenario ids for compare tab URLs", () => {
+    assert.equal(
+      workspaceTabUrl("abc", "compare", { compareScenarioIds: ["s1", "s2"] }),
+      "/workspace/abc/compare?compareScenarioIds=s1%2Cs2"
+    );
+    assert.deepEqual(parseCompareScenarioIds("s1,s2"), ["s1", "s2"]);
   });
 });

@@ -26,6 +26,12 @@ import {
 import { getToolMeta, PLANNING_TOOL_META } from "./tool-definitions";
 import type { ToolErrorPayload } from "@/lib/domain/tool-errors";
 import { ToolError } from "@/lib/domain/tool-errors";
+import { resolvePlanningToolAlias } from "./tool-aliases";
+
+function isKnownPlanningToolName(name: string): boolean {
+  const resolved = resolvePlanningToolAlias(name);
+  return resolved === "list_projects" || Boolean(getToolMeta(resolved));
+}
 
 type WorkspaceLike = NonNullable<Awaited<ReturnType<typeof services.getWorkspace>>>;
 
@@ -53,18 +59,33 @@ export async function executePlanningTool(
   context?: ToolExecutionContext
 ): Promise<unknown> {
   const input = mergeToolContext(rawInput, context);
-  if (FORBIDDEN.has(name) || /sql|eval|exec|dom|click|selector/i.test(name)) {
+  const toolName = resolvePlanningToolAlias(name);
+  if (FORBIDDEN.has(toolName) || /sql|eval|exec|dom|click|selector/i.test(toolName)) {
     throw new ToolError(
       "FORBIDDEN",
       `Tool "${name}" is not permitted. Use semantic planning tools only.`
     );
   }
 
-  if (!getToolMeta(name)) {
+  if (!isKnownPlanningToolName(name)) {
     throw new ToolError("UNKNOWN_TOOL", `Unknown tool: ${name}`);
   }
 
-  switch (name) {
+  switch (toolName) {
+    case "list_projects": {
+      const projects = await services.listProjects();
+      return {
+        projects: projects.map((project) => ({
+          id: project.id,
+          name: project.name,
+          geographyLabel: project.geographyLabel,
+          activeScenarioId: project.activeScenarioId,
+          activeScenarioName: project.activeScenarioName,
+          updatedAt: project.updatedAt,
+        })),
+        count: projects.length,
+      };
+    }
     case "get_workspace": {
       const projectId = resolveProjectId(input, context);
       await services.requireProject(projectId);
@@ -595,15 +616,17 @@ export function validateToolInput(
   rawInput: Record<string, unknown>,
   context?: ToolExecutionContext
 ): ToolErrorPayload | null {
+  const toolName = resolvePlanningToolAlias(name);
+  if (toolName === "list_projects") return null;
   const input = mergeToolContext(rawInput, context);
-  const meta = getToolMeta(name);
+  const meta = getToolMeta(toolName);
   if (!meta) {
     return { code: "UNKNOWN_TOOL", message: `Unknown tool: ${name}` };
   }
   const required = meta.inputSchema.required ?? [];
-  const toolsWithoutProject = new Set(["start_planning_project", "list_datasets"]);
+  const toolsWithoutProject = new Set(["start_planning_project", "list_datasets", "list_projects"]);
   for (const key of required) {
-    if (key === "projectId" && toolsWithoutProject.has(name)) continue;
+    if (key === "projectId" && toolsWithoutProject.has(toolName)) continue;
     if (input[key] === undefined || input[key] === null) {
       if (key === "projectId" && context?.projectId) continue;
       if (key === "scenarioId" && context?.scenarioId) continue;

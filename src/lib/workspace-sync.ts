@@ -160,6 +160,21 @@ export function mutationDetailFromToolResult(
     }
   }
 
+  if (name === "run_analysis") {
+    const analysis = result as {
+      status?: string;
+      candidateCount?: number;
+      candidates?: unknown[];
+    };
+    if (
+      analysis.status === "completed" ||
+      (typeof analysis.candidateCount === "number" && analysis.candidateCount > 0) ||
+      (Array.isArray(analysis.candidates) && analysis.candidates.length > 0)
+    ) {
+      detail.openTab = "results";
+    }
+  }
+
   return detail;
 }
 

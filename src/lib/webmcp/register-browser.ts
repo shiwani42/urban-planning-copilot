@@ -11,6 +11,7 @@ import {
 import { formatToolErrorMessage } from "@/lib/domain/tool-errors";
 import type { ToolErrorPayload } from "@/lib/domain/tool-errors";
 import { parseToolArguments } from "@/lib/domain/webmcp-validation";
+import { resolvePlanningToolAlias } from "@/lib/webmcp/tool-aliases";
 import { isPendingPlannerResult } from "@/lib/domain/human-gated-tools";
 import {
   registerPendingPlannerAction,
@@ -101,10 +102,12 @@ export async function invokePlanningTool(
 }
 
 async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
+  const resolvedName =
+    name === "list_projects" ? "list_projects" : resolvePlanningToolAlias(name);
   const { args, context } = mergeArgsWithBrowserContext(rawArgs);
   const res = await api("/api/mcp", {
     method: "POST",
-    body: JSON.stringify({ tool: name, arguments: args, context }),
+    body: JSON.stringify({ tool: resolvedName, arguments: args, context }),
   });
   const data = res as {
     ok?: boolean;
@@ -214,18 +217,62 @@ export async function registerPlanningWebMcpTools(): Promise<WebMcpRegistration>
     },
   }));
 
-  for (const tool of tools) {
+  const aliasTools: WebMcpToolDefinition[] = [
+    {
+      name: "list_projects",
+      description: "List saved planning projects on the server.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true },
+      execute: async (input) => ok(await invokeMcpTool("list_projects", parseToolArguments(input))),
+    },
+    {
+      name: "load_project",
+      description: "Load a planning project workspace (alias for get_workspace).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectId: {
+            type: "string",
+            description: "Planning project id",
+          },
+        },
+        required: ["projectId"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true },
+      execute: async (input) => ok(await invokeMcpTool("load_project", parseToolArguments(input))),
+    },
+    {
+      name: "exclude_from_selection",
+      description: "Exclude parcel features from analysis (alias for exclude_features).",
+      inputSchema:
+        PLANNING_TOOL_META.find((tool) => tool.name === "exclude_features")?.inputSchema ?? {
+          type: "object",
+          properties: {},
+        },
+      execute: async (input) =>
+        ok(await invokeMcpTool("exclude_from_selection", parseToolArguments(input))),
+    },
+  ];
+
+  for (const tool of [...tools, ...aliasTools]) {
     await ctx.registerTool(tool, { signal: controller.signal });
   }
 
   if (typeof window !== "undefined") {
-    (window as unknown as { __UPC_WEBMCP_TOOLS__?: unknown }).__UPC_WEBMCP_TOOLS__ =
-      PLANNING_TOOL_META;
+    (window as unknown as { __UPC_WEBMCP_TOOLS__?: unknown }).__UPC_WEBMCP_TOOLS__ = [
+      ...PLANNING_TOOL_META,
+      ...aliasTools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      })),
+    ];
   }
 
   return {
     available: true,
-    toolCount: tools.length,
+    toolCount: tools.length + aliasTools.length,
     abort: () => controller.abort(),
   };
 }
