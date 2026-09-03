@@ -29,7 +29,7 @@ function isMissionSomaHousingStudy(project: ContinueCardProject): boolean {
   );
 }
 
-/** One continue card for the client Mission/SoMa study; duplicates stay in All projects. */
+/** Up to three continue cards; client Mission/SoMa study first, duplicates stay in All projects. */
 export function pickContinueProjects<T extends ContinueCardProject>(
   projects: T[],
   limit = 1
