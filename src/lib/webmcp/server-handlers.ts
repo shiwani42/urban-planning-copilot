@@ -308,22 +308,26 @@ export async function executePlanningTool(
         input.fromScenarioId as string | undefined
       );
       const scenario = ws?.scenarios.find((s) => s.id === ws.project.activeScenarioId);
+      const createdScenario = ws?.scenarios.find((s) => s.name === name);
       const floodWeighted = /\bflood[- ]?weighted\b/i.test(name);
-      const weightsSummary = scenario?.weights
+      const weightsSummary = createdScenario?.weights
         .map((weight) => `${weight.label} ${Math.round(weight.weight * 100)}%`)
         .join(", ");
+      const viewingName = scenario?.name ?? "active scenario";
       return {
         activeScenarioId: ws?.project.activeScenarioId,
+        createdScenarioId: createdScenario?.id,
         name,
+        viewingScenarioName: viewingName,
         floodWeighted,
         weightsSummary,
         note: floodWeighted
           ? `Scenario duplicated with flood-weighted priorities (${weightsSummary}) — analysis results and decision status were not copied.`
           : "Scenario duplicated — analysis results and decision status were not copied.",
-        message: `Created scenario branch "${name}". Now viewing this branch — analysis not run yet.${
+        message: `Created scenario branch "${name}". Still viewing "${viewingName}" — switch scenarios in the header to configure the branch, then run analysis.${
           floodWeighted
-            ? ` Weights shifted toward flood resilience (${weightsSummary}). Run analysis to rank sites.`
-            : " Run analysis on the new branch to rank sites."
+            ? ` Weights shifted toward flood resilience (${weightsSummary}).`
+            : ""
         }`,
       };
     }

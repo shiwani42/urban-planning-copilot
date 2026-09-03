@@ -7,18 +7,34 @@ import { onWorkspaceMutated } from "@/lib/workspace-sync";
 
 const LOAD_TIMEOUT_MS = 25_000;
 const LOAD_PHASES = [
-  { afterMs: 0, label: "Connecting to project storage…" },
-  { afterMs: 2500, label: "Loading scenarios and analysis state…" },
-  { afterMs: 6000, label: "Still loading — the server may be waking from sleep…" },
-  { afterMs: 12_000, label: "Taking longer than usual — retrying…" },
+  {
+    afterMs: 0,
+    label: "Connecting to project storage — reading persisted workspace from disk…",
+  },
+  {
+    afterMs: 2500,
+    label: "Loading scenarios, analysis results, datasets, and map layer cache…",
+  },
+  {
+    afterMs: 6000,
+    label: "Still loading project data — the server may be waking from sleep…",
+  },
+  {
+    afterMs: 12_000,
+    label: "Taking longer than usual — retrying project fetch…",
+  },
 ] as const;
 
-function phaseLabel(elapsedMs: number): string {
+export function workspaceLoadPhaseLabel(elapsedMs: number): string {
   let label: string = LOAD_PHASES[0].label;
   for (const phase of LOAD_PHASES) {
     if (elapsedMs >= phase.afterMs) label = phase.label;
   }
   return label;
+}
+
+function phaseLabel(elapsedMs: number): string {
+  return workspaceLoadPhaseLabel(elapsedMs);
 }
 
 export type WorkspaceLoadState = {

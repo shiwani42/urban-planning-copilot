@@ -481,14 +481,19 @@ export function summarizeToolResult(
       note?: string;
       floodWeighted?: boolean;
       weightsSummary?: string;
+      viewingScenarioName?: string;
+      createdScenarioId?: string;
     };
     if (payload.name) {
+      const viewing = payload.viewingScenarioName
+        ? ` Still viewing "${payload.viewingScenarioName}".`
+        : "";
       const weightNote = payload.floodWeighted
         ? payload.weightsSummary
-          ? ` Weights shifted (${payload.weightsSummary}) — run analysis to see a new ranking.`
-          : " Flood weights were increased — run analysis to see a new ranking."
-        : " Run analysis on the new branch to rank sites.";
-      return `Created scenario branch “${payload.name}”. Now viewing this branch — analysis not run yet.${weightNote}`;
+          ? ` Weights shifted (${payload.weightsSummary}) — switch scenarios in the header to run analysis on the branch.`
+          : " Flood weights were increased — switch scenarios in the header to run analysis on the branch."
+        : " Switch scenarios in the header to configure the branch, then run analysis.";
+      return `Created scenario branch “${payload.name}”.${viewing}${weightNote}`;
     }
     if (payload.message) return payload.message;
     if (payload.note) return payload.note;

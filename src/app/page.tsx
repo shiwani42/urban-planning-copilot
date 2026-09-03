@@ -32,6 +32,8 @@ type Project = {
   actionRequiredLabel?: string;
   actionRequiredKind?: "manual" | "data" | "ai";
   shortlistCount?: number;
+  scenarioCount?: number;
+  scenarioSummary?: string;
 };
 
 const SHOW_WEBMCP_UI = process.env.NEXT_PUBLIC_SHOW_WEBMCP_UI === "true";
@@ -480,6 +482,11 @@ export default function HomePage() {
           <p className="text-caption text-on-surface-variant text-left mb-2">
             {project.geographyLabel}
           </p>
+          {project.scenarioCount != null && project.scenarioCount > 1 && project.scenarioSummary && (
+            <p className="text-body-sm text-on-surface-variant text-left mb-2">
+              {project.scenarioCount} scenarios: {project.scenarioSummary}
+            </p>
+          )}
           {variant === "continue" && (
             <p className="font-mono text-[10px] text-outline uppercase text-left mb-3">
               {renderRecency(project)}

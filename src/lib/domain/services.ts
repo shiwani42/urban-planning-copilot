@@ -423,6 +423,8 @@ export async function listProjects(): Promise<ProjectListItem[]> {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map((p) => {
       const summary = summarizeProjectForList(store, p);
+      const scenarios = store.scenarios.filter((s) => s.projectId === p.id);
+      const scenarioNames = scenarios.map((s) => s.name);
       return {
         id: p.id,
         name: p.name,
@@ -436,6 +438,9 @@ export async function listProjects(): Promise<ProjectListItem[]> {
         actionRequiredLabel: summary.actionRequiredLabel,
         actionRequiredKind: summary.actionRequiredKind,
         shortlistCount: summary.shortlistCount,
+        scenarioCount: scenarios.length > 1 ? scenarios.length : undefined,
+        scenarioSummary:
+          scenarios.length > 1 ? scenarioNames.join(" · ") : undefined,
       };
     });
 }
@@ -1583,17 +1588,21 @@ export async function createScenario(
     }
 
     store.scenarios.push(scenario);
-    project.activeScenarioId = scenario.id;
+    if (source) {
+      project.activeScenarioId = source.id;
+    } else {
+      project.activeScenarioId = scenario.id;
+    }
     project.updatedAt = now();
     const branchResult = scenario.latestResultId
       ? store.analysisResults.find((r) => r.id === scenario.latestResultId)
       : undefined;
     project.resumeNote = source
       ? isFloodWeightedBranchName(name)
-        ? `Branched from "${source.name}" as flood-weighted (${Math.round(
+        ? `Created flood-weighted branch "${name}" from "${source.name}" (${Math.round(
             (scenario.weights.find((w) => w.key.includes("flood"))?.weight ?? 0) * 100
-          )}% flood) — no analysis yet.`
-        : `Branched from "${source.name}" — no analysis yet. Prior results and decision were not copied.`
+          )}% flood) — still viewing "${source.name}". Switch scenarios in the header to run analysis on the branch.`
+        : `Created branch "${name}" from "${source.name}" — still viewing "${source.name}". Switch scenarios in the header to configure or run analysis on the branch.`
       : resumeNoteForScenario(scenario, branchResult);
     logActivity(store, {
       projectId,

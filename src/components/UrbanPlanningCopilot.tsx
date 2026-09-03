@@ -198,9 +198,24 @@ export function UrbanPlanningCopilot({
       try {
         const result = await invokePlanningTool(tool, mergedArgs);
         const summary = summarizeToolResult(tool, result, { candidateLabel, query: userQuery });
+        const followUp =
+          tool === "create_scenario_branch" &&
+          result &&
+          typeof result === "object" &&
+          typeof (result as { createdScenarioId?: string }).createdScenarioId === "string" &&
+          typeof (result as { name?: string }).name === "string"
+            ? {
+                label: `Run analysis on ${(result as { name: string }).name}`,
+                tool: "run_analysis",
+                args: {
+                  scenarioId: (result as { createdScenarioId: string }).createdScenarioId,
+                },
+              }
+            : undefined;
         updateCopilotActivity(entry.id, {
           status: "success",
           summary,
+          followUp,
         });
         setStatusMessage(summary);
         onToolComplete?.();
@@ -342,6 +357,22 @@ export function UrbanPlanningCopilot({
                       </p>
                     )}
                     <p>{entry.summary}</p>
+                    {entry.status === "success" && entry.followUp && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void runTool(
+                            entry.followUp!.tool,
+                            entry.followUp!.args ?? {},
+                            entry.followUp!.label
+                          )
+                        }
+                        className="mt-2 text-caption border border-primary text-primary rounded px-2.5 py-1 hover:bg-primary-fixed/10 disabled:opacity-50"
+                      >
+                        {entry.followUp.label}
+                      </button>
+                    )}
                     {entry.status === "running" && (
                       <p className="text-caption text-primary mt-1 flex items-center gap-1">
                         <span className="material-symbols-outlined text-[14px] animate-spin">

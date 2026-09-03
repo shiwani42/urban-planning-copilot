@@ -1,6 +1,7 @@
+import { candidateMetricValue } from "./analysis-display";
 import { candidateLabelFromFeature } from "./candidate-label";
 import { intersectsRisk } from "./spatial";
-import type { AnalysisResult, DatasetMeta } from "./types";
+import type { AnalysisResult, Candidate, DatasetMeta } from "./types";
 
 export type FloodCoverageDetail = {
   showWarning: boolean;
@@ -110,4 +111,15 @@ export function buildFloodCoverageDetail(input: {
     floodDatasetId: flood.id,
     hadNoOverlap,
   };
+}
+
+/** Caveat when a high flood-resilience score may reflect missing coverage, not low risk. */
+export function candidateFloodIncompleteCaveat(
+  floodDataset: DatasetMeta | undefined,
+  candidate: Candidate
+): string | null {
+  if (!floodDataset?.incompleteCoverage) return null;
+  const resilience = candidateMetricValue(candidate, "flood_resilience");
+  if (resilience == null || resilience < 70) return null;
+  return "High flood resilience here means no mapped hazard overlap — flood layer coverage is incomplete for this study area. Verify site-specific flood risk before decisions.";
 }
