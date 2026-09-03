@@ -62,6 +62,14 @@ const config: Config = {
         "element-gap": "0.75rem",
         "section-padding": "1.5rem",
       },
+      minWidth: {
+        "sidebar-width": "360px",
+        "inspector-width": "320px",
+      },
+      maxWidth: {
+        "sidebar-width": "360px",
+        "inspector-width": "320px",
+      },
       fontFamily: {
         sans: ["Geist", "system-ui", "sans-serif"],
         mono: ["JetBrains Mono", "ui-monospace", "monospace"],

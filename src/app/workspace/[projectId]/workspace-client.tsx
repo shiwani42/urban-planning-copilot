@@ -123,7 +123,12 @@ import {
 import { validateDecisionReason } from "@/lib/domain/decision";
 import type { MapDrawMode } from "@/components/PlanningMap";
 import { CompareScenarioMaps } from "@/components/CompareScenarioMaps";
-import { resolveWorkspaceTab, type WorkspaceTab } from "@/lib/workspace-tabs";
+import {
+  resolveWorkspaceTabFromParams,
+  workspaceTabHref,
+  type WorkspaceTab,
+} from "@/lib/workspace-tabs";
+import { EMPTY_ANALYSIS_STATUS } from "@/lib/workspace-analysis-status";
 
 const PlanningMap = dynamic(
   () => import("@/components/PlanningMap").then((m) => m.default),
@@ -225,11 +230,13 @@ export default function WorkspaceClient({
   const { workspace, loading, error, busy, act, refresh, clearError, loadPhase, elapsedMs, isRetrying, refreshing, projectNotFound, lastFetchAt } =
     useWorkspace(projectId);
   const [tab, setTabState] = useState<Tab>(() => {
-    const fromQuery =
-      typeof window !== "undefined"
-        ? new URLSearchParams(window.location.search).get("initialTab")
-        : null;
-    if (fromQuery) return resolveWorkspaceTab(fromQuery);
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return resolveWorkspaceTabFromParams({
+        tab: params.get("tab"),
+        initialTab: params.get("initialTab"),
+      }) as Tab;
+    }
     return TAB_PATHS.includes(initialTab as Tab) ? (initialTab as Tab) : "workspace";
   });
   const [layerData, setLayerData] = useState<Record<string, GeoJSON.FeatureCollection>>({});
@@ -268,7 +275,6 @@ export default function WorkspaceClient({
   const [compareError, setCompareError] = useState<string | null>(null);
   const [compareHint, setCompareHint] = useState<string | null>(null);
   const [legendOpen, setLegendOpen] = useState(false);
-  const [legendDocked, setLegendDocked] = useState(true);
   const [inspectDatasetId, setInspectDatasetId] = useState<string | null>(null);
   const [analysisProgress, setAnalysisProgress] = useState<string | null>(null);
   const [renamingScenarioId, setRenamingScenarioId] = useState<string | null>(null);
@@ -339,18 +345,17 @@ export default function WorkspaceClient({
   const setTab = useCallback(
     (next: Tab) => {
       setTabState(next);
-      const path =
-        next === "workspace"
-          ? `/workspace/${projectId}`
-          : `/workspace/${projectId}/${next}`;
-      router.replace(path, { scroll: false });
+      router.replace(workspaceTabHref(projectId, next), { scroll: false });
     },
     [projectId, router]
   );
 
   useEffect(() => {
-    const fromQuery = searchParams.get("initialTab");
-    const resolved = fromQuery ? resolveWorkspaceTab(fromQuery) : initialTab;
+    const resolved = resolveWorkspaceTabFromParams({
+      tab: searchParams.get("tab"),
+      initialTab: searchParams.get("initialTab"),
+      pathTab: initialTab,
+    });
     if (TAB_PATHS.includes(resolved as Tab) && resolved !== tab) {
       setTabState(resolved as Tab);
     }
@@ -424,7 +429,7 @@ export default function WorkspaceClient({
       return `Analysis complete — ${result.candidates.length} candidates (${scenario.name}).`;
     }
     if (!hasAnyResult) {
-      return "No analysis yet — run analysis for this scenario.";
+      return undefined;
     }
     return workspace.project.resumeNote;
   }, [workspace, scenario, result, isFreshResult, hasAnyResult]);
@@ -950,7 +955,7 @@ export default function WorkspaceClient({
     if (hasAnyResult && result && (result.stale || result.status === "stale")) {
       return `Results stale — ${result.candidates.length} candidates from last run (recalculate to apply changes)`;
     }
-    return "No results yet — run analysis for this scenario";
+    return EMPTY_ANALYSIS_STATUS;
   }
 
   function adjustWeightDraft(changedIndex: number, newPercent: number) {
@@ -1375,11 +1380,6 @@ export default function WorkspaceClient({
                 </span>
               )}
             </label>
-            {!scenarioHasComparableAnalysis(scenario, workspace.analysisResults) && (
-              <span className="hidden md:inline shrink-0 px-2 py-0.5 rounded border border-outline-variant text-caption text-on-surface-variant">
-                No results yet
-              </span>
-            )}
             {resolvedShortlistCount > 0 && (
               <span
                 className="shrink-0 px-2 py-0.5 rounded border border-[#815504]/50 text-[#815504] text-caption"
@@ -1707,7 +1707,7 @@ export default function WorkspaceClient({
 
       {tab === "workspace" || tab === "results" ? (
         <main className="flex-1 flex overflow-hidden relative min-h-0">
-          <aside className="w-sidebar-width bg-surface border-r border-outline-variant flex flex-col z-30 shrink-0 min-h-0">
+          <aside className="w-sidebar-width min-w-sidebar-width max-w-sidebar-width bg-surface border-r border-outline-variant flex flex-col z-30 shrink-0 min-h-0">
             <div className="p-4 border-b border-outline-variant bg-surface-container-low flex justify-between items-center">
               <div>
                 <h2 className="text-headline-md text-primary">Context</h2>
@@ -2140,6 +2140,7 @@ export default function WorkspaceClient({
               layerData={layerData}
               candidates={filteredMapCandidates}
               shortlistedFeatureIds={shortlistedFeatureIds}
+              hideEmptyState
               onSelectCandidate={(c) => {
                 if (drawingActive) return;
                 void selectCandidate(c, "evidence");
@@ -2204,7 +2205,7 @@ export default function WorkspaceClient({
             )}
 
             <div
-              className="absolute right-4 top-4 flex flex-col gap-2 z-[1000] max-h-[calc(100%-6rem)] overflow-y-auto overflow-x-visible pr-1"
+              className="absolute right-[3.25rem] top-3 flex flex-col gap-2 z-[1000] max-h-[calc(100%-5rem)] overflow-y-auto overflow-x-visible"
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
             >
@@ -2241,6 +2242,36 @@ export default function WorkspaceClient({
               >
                 <span className="material-symbols-outlined">crop_free</span>
               </button>
+              <button
+                type="button"
+                onClick={() => void exportMapImage()}
+                disabled={exportingMap}
+                className="glass-panel px-2.5 py-1.5 rounded border border-outline-variant text-[10px] font-mono uppercase text-on-surface-variant disabled:opacity-50 pointer-events-auto"
+                title="Export map as PNG"
+              >
+                {exportingMap ? "Exporting…" : "Export PNG"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setLegendOpen((v) => !v)}
+                className="glass-panel p-2 rounded border border-outline-variant pointer-events-auto text-on-surface-variant"
+                aria-expanded={legendOpen}
+                aria-label={legendOpen ? "Hide map legend" : "Show map legend"}
+                title="Map legend"
+              >
+                <span className="material-symbols-outlined text-[18px]">legend</span>
+              </button>
+              {legendOpen && (
+                <div className="glass-panel p-2 rounded border border-outline-variant pointer-events-auto max-h-48 overflow-y-auto">
+                  <MapLegend
+                    compact
+                    visibleKinds={visibleLayerKinds}
+                    hasExclusions={scenario.geographicSelections.some(
+                      (g) => g.type === "exclusion"
+                    )}
+                  />
+                </div>
+              )}
               {drawingActive && (
                 <>
                   <button
@@ -2282,6 +2313,12 @@ export default function WorkspaceClient({
                   </button>
                 </>
               )}
+              {geoSaving && (
+                <span className="glass-panel px-2 py-1 rounded border border-outline-variant text-[10px] font-mono text-on-surface-variant flex items-center gap-1 pointer-events-auto">
+                  <span className="material-symbols-outlined animate-spin text-[12px]">progress_activity</span>
+                  Saving area…
+                </span>
+              )}
             </div>
 
             {showFinishLabel && (
@@ -2319,59 +2356,7 @@ export default function WorkspaceClient({
             )}
 
             <div
-              className={`absolute bottom-20 right-4 z-[1001] max-w-[200px] ${
-                drawingActive || drawerOpen ? "pointer-events-none opacity-60" : "pointer-events-auto"
-              }`}
-            >
-              <button
-                type="button"
-                onClick={() => setLegendOpen((v) => !v)}
-                className="glass-panel px-2.5 py-1 rounded border border-outline-variant text-[10px] font-mono uppercase text-on-surface-variant flex items-center gap-1.5 w-full pointer-events-auto"
-                aria-expanded={legendOpen}
-              >
-                <span className="material-symbols-outlined text-[14px]">legend</span>
-                Legend {legendOpen ? "▾" : "▸"}
-              </button>
-              {legendOpen && (
-                <div className="glass-panel p-2 rounded border border-outline-variant mt-1 pointer-events-auto max-h-48 overflow-y-auto">
-                  <MapLegend
-                    compact
-                    visibleKinds={visibleLayerKinds}
-                    hasExclusions={scenario.geographicSelections.some(
-                      (g) => g.type === "exclusion"
-                    )}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setLegendDocked((v) => !v)}
-                    className="mt-2 text-[10px] text-primary hover:underline"
-                  >
-                    {legendDocked ? "Float legend" : "Dock legend"}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="absolute top-16 right-4 z-[1000] pointer-events-auto flex flex-col gap-2 items-end">
-              <button
-                type="button"
-                onClick={() => void exportMapImage()}
-                disabled={exportingMap}
-                className="glass-panel px-2.5 py-1 rounded border border-outline-variant text-[10px] font-mono uppercase text-on-surface-variant disabled:opacity-50"
-                title="Export map as PNG"
-              >
-                {exportingMap ? "Exporting…" : "Export PNG"}
-              </button>
-              {geoSaving && (
-                <span className="glass-panel px-2 py-1 rounded border border-outline-variant text-[10px] font-mono text-on-surface-variant flex items-center gap-1">
-                  <span className="material-symbols-outlined animate-spin text-[12px]">progress_activity</span>
-                  Saving area…
-                </span>
-              )}
-            </div>
-
-            <div
-              className={`absolute bottom-0 left-1/2 -translate-x-1/2 z-[1010] ${
+              className={`absolute bottom-7 left-1/2 -translate-x-1/2 z-[1010] ${
                 drawingActive ? "pointer-events-none" : "pointer-events-auto"
               }`}
             >
@@ -2398,7 +2383,7 @@ export default function WorkspaceClient({
 
           <aside
             id="agent-activity-panel"
-            className={`w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0 ${
+            className={`w-inspector-width min-w-inspector-width max-w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0 ${
               runningJob || analysisBusy ? "copilot-running-glow" : ""
             }`}
           >
@@ -3411,12 +3396,12 @@ function ResultsDrawer(props: {
 
   return (
     <div
-      className={`absolute bottom-0 left-sidebar-width right-inspector-width max-h-[min(52vh,560px)] z-[1010] ${
+      className={`absolute bottom-7 left-sidebar-width right-inspector-width max-h-[min(48vh,520px)] z-[1010] ${
         props.drawingActive ? "pointer-events-none" : "pointer-events-none"
       }`}
     >
       <div
-        className={`max-h-[min(52vh,560px)] bg-surface border-t border-outline-variant flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.06)] ${
+        className={`max-h-[min(48vh,520px)] bg-surface border-t border-outline-variant flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.06)] ${
           props.drawingActive ? "pointer-events-none" : "pointer-events-auto"
         }`}
       >
@@ -3510,7 +3495,9 @@ function ResultsDrawer(props: {
               <p className="text-body-sm text-on-surface-variant mb-3">{props.housingGoalLine}</p>
             )}
             {!result ? (
-              <p className="text-body-sm text-on-surface-variant">No results yet.</p>
+              <p className="text-body-sm text-on-surface-variant">
+                Run analysis to populate ranked candidates here.
+              </p>
             ) : result.status === "failed" ? (
               <p className="text-body-sm text-error">{result.error}</p>
             ) : result.candidates.length === 0 ? (

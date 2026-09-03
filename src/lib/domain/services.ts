@@ -543,9 +543,21 @@ function assertProjectName(name: unknown) {
   return trimmed;
 }
 
+export function resolveCreateObjectiveText(body: Record<string, unknown>): unknown {
+  if (body.objectiveText !== undefined && body.objectiveText !== null) {
+    return body.objectiveText;
+  }
+  if (body.objective !== undefined && body.objective !== null) {
+    return body.objective;
+  }
+  return undefined;
+}
+
 function assertCreateObjectiveText(objectiveText: unknown) {
   if (typeof objectiveText !== "string" || !objectiveText.trim()) {
-    throw new Error("Planning objective is required.");
+    throw new Error(
+      "Planning objective is required — send objectiveText or objective with your planning question."
+    );
   }
   const quality = assessObjectiveQuality(objectiveText);
   if (!quality.interpretable) {

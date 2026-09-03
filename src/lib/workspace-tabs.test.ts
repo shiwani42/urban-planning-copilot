@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveWorkspaceTab } from "./workspace-tabs";
+import { resolveWorkspaceTab, resolveWorkspaceTabFromParams, workspaceTabHref } from "./workspace-tabs";
 
 describe("resolveWorkspaceTab", () => {
   it("honors activity and report deep-link query values", () => {
@@ -17,5 +17,13 @@ describe("resolveWorkspaceTab", () => {
   it("keeps pass-6 path tabs valid", () => {
     assert.equal(resolveWorkspaceTab("evidence"), "evidence");
     assert.equal(resolveWorkspaceTab("decision"), "decision");
+  });
+
+  it("prefers ?tab= over path segment for deep links", () => {
+    assert.equal(
+      resolveWorkspaceTabFromParams({ tab: "results", pathTab: "workspace" }),
+      "results"
+    );
+    assert.equal(workspaceTabHref("abc", "compare"), "/workspace/abc?tab=compare");
   });
 });

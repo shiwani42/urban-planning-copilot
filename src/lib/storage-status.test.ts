@@ -1,19 +1,36 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  projectsPersistReliably,
   shouldShowStorageUnavailableBanner,
+  storageReliabilityIssue,
   type ClientStorageStatus,
 } from "./storage-status";
 import { describeWorkspaceOutcome } from "./copilot/workspace-outcome";
 
 describe("storage-status banner gating", () => {
-  it("hides banner when storage is healthy with write probe ok", () => {
+  it("hides banner when postgres storage is healthy with write probe ok", () => {
     const storage: ClientStorageStatus = {
       status: "healthy",
       onPersistentMount: true,
       writeProbeOk: true,
+      persistBackend: "postgres",
+      storeExists: true,
     };
     assert.equal(shouldShowStorageUnavailableBanner(storage), false);
+    assert.equal(projectsPersistReliably(storage), true);
+  });
+
+  it("shows banner when file backend is active", () => {
+    const storage: ClientStorageStatus = {
+      status: "healthy",
+      writeProbeOk: true,
+      persistBackend: "file",
+      storeExists: true,
+    };
+    assert.equal(shouldShowStorageUnavailableBanner(storage), true);
+    assert.equal(projectsPersistReliably(storage), false);
+    assert.match(storageReliabilityIssue(storage) ?? "", /ephemeral file storage/i);
   });
 
   it("shows banner when write probe failed on persistent mount", () => {
@@ -21,6 +38,7 @@ describe("storage-status banner gating", () => {
       status: "degraded",
       onPersistentMount: true,
       writeProbeOk: false,
+      persistBackend: "postgres",
       message: "Write probe failed: EACCES",
     };
     assert.equal(shouldShowStorageUnavailableBanner(storage), true);
@@ -97,5 +115,11 @@ describe("workspace outcome sentence", () => {
       ],
     });
     assert.equal(sentence, "Analysis complete — 42 candidates ranked.");
+  });
+
+  it("avoids duplicating empty-analysis status copy", () => {
+    const sentence = describeWorkspaceOutcome({});
+    assert.doesNotMatch(sentence, /No results yet/i);
+    assert.doesNotMatch(sentence, /No analysis yet/i);
   });
 });

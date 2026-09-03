@@ -93,3 +93,11 @@ body {
   background: #f0eded;
   font: inherit;
 }
+
+.leaflet-control-attribution {
+  font-size: 10px;
+  max-width: 50%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

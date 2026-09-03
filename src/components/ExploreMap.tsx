@@ -44,19 +44,21 @@ type LayerData = {
 };
 
 type Props = {
-  layerData: LayerData;
-  candidates: Candidate[];
+  layerData?: LayerData;
+  candidates?: Candidate[];
   selectedId?: string;
-  analysisType: ExploreAnalysisType;
-  onSelectCandidate: (c: Candidate) => void;
+  analysisType?: ExploreAnalysisType;
+  onSelectCandidate?: (c: Candidate) => void;
+  fill?: boolean;
 };
 
 export function ExploreMap({
-  layerData,
-  candidates,
+  layerData = {},
+  candidates = [],
   selectedId,
-  analysisType,
+  analysisType = "transit_gap",
   onSelectCandidate,
+  fill = false,
 }: Props) {
   const candidateIds = new Set(candidates.flatMap((c) => [c.id, ...c.featureIds]));
 
@@ -80,7 +82,11 @@ export function ExploreMap({
   };
 
   return (
-    <div className="relative h-[360px] rounded border border-outline-variant overflow-hidden">
+    <div
+      className={`relative overflow-hidden ${
+        fill ? "h-full w-full" : "h-[360px] rounded border border-outline-variant"
+      }`}
+    >
       <div className="absolute inset-0 z-0 bg-surface-container-low" aria-hidden />
       <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1001] pointer-events-none">
         <div className="bg-surface/95 border border-outline-variant px-3 py-1 rounded text-[10px] text-on-surface-variant font-medium whitespace-nowrap">
@@ -125,7 +131,7 @@ export function ExploreMap({
               const candidate = candidates.find(
                 (c) => c.id === id || c.featureIds.includes(id)
               );
-              if (candidate) {
+              if (candidate && onSelectCandidate) {
                 layer.on("click", (e) => {
                   L.DomEvent.stopPropagation(e);
                   onSelectCandidate(candidate);

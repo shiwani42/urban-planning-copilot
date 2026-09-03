@@ -297,22 +297,16 @@ export default function ExplorePage() {
       <AppHeader active="explore" />
       <main className="flex-1 flex flex-col min-h-0">
         <div className="relative flex-1 min-h-[480px] flex flex-col">
-          {result?.layerData ? (
-            <div className="absolute inset-0 z-0">
-              <ExploreMap
-                layerData={result.layerData}
-                candidates={result.candidates}
-                selectedId={selectedId}
-                analysisType={result.analysisType}
-                onSelectCandidate={(c) => setSelectedId(c.id)}
-              />
-            </div>
-          ) : (
-            <div
-              className="absolute inset-0 z-0 bg-surface-container-low border-b border-outline-variant"
-              aria-hidden
+          <div className="absolute inset-0 z-0">
+            <ExploreMap
+              fill
+              layerData={result?.layerData}
+              candidates={result?.candidates ?? []}
+              selectedId={selectedId}
+              analysisType={result?.analysisType}
+              onSelectCandidate={(c) => setSelectedId(c.id)}
             />
-          )}
+          </div>
 
           <div className="relative z-10 flex flex-col lg:flex-row gap-6 p-section-padding flex-1 pointer-events-none">
             <div
@@ -406,11 +400,11 @@ export default function ExplorePage() {
                   >
                     {convertBusy ? "Creating workspace…" : "Convert to planning project →"}
                   </button>
-                ) : (
+                ) : question.trim() ? (
                   <span className="text-caption text-on-surface-variant">
-                    Run an investigation to enable conversion
+                    Run exploration to see findings on the map.
                   </span>
-                )}
+                ) : null}
               </div>
             </div>
           </div>

@@ -21,7 +21,11 @@ import {
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
 import { fetchJsonWithRetry } from "@/lib/fetch-json";
 import { projectStatusLine, projectStatusTone } from "@/lib/project-status";
-import { useStorageStatus } from "@/lib/storage-status";
+import {
+  useStorageStatus,
+  projectsPersistReliably,
+  shouldShowStorageUnavailableBanner,
+} from "@/lib/storage-status";
 
 const DELETED_LAST_PROJECT_KEY = "upc-deleted-last-project";
 
@@ -439,8 +443,7 @@ export default function HomePage() {
     );
   }
 
-  const storageHealthy =
-    storageStatus.status === "healthy" && storageStatus.writeProbeOk !== false;
+  const storageHealthy = projectsPersistReliably(storageStatus);
   const showOrphanHints =
     !loading &&
     !error &&
@@ -749,7 +752,8 @@ export default function HomePage() {
     <div className="min-h-screen bg-background flex flex-col" onClick={() => setMenuId(null)}>
       <AppHeader active="projects" />
       <StorageBanner />
-      {storageStatus.lastBoot === "empty-after-missing-file" && (
+      {storageStatus.lastBoot === "empty-after-missing-file" &&
+        !shouldShowStorageUnavailableBanner(storageStatus) && (
         <div
           role="status"
           className="bg-error-container/40 border-b border-error px-section-padding py-3 text-body-sm text-error"
@@ -846,6 +850,7 @@ export default function HomePage() {
 
                 {!loading && !error && renderRecentAnalysesTable()}
 
+                {(allProjectsExcludingContinue.length > 0 || search.trim()) && (
                 <section ref={allSectionRef} id="all-projects">
                   <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                     <h3 className="font-mono text-data-label uppercase text-on-surface-variant">
@@ -932,8 +937,10 @@ export default function HomePage() {
                           <p className="text-headline-md text-on-surface mb-2">No projects yet</p>
                           <p className="text-body-sm text-on-surface-variant mb-6">
                             Create a workspace and describe your planning question in natural
-                            language. Projects are saved on the server and persist across
-                            sessions.
+                            language.
+                            {storageHealthy
+                              ? " Projects are saved on the server and persist across sessions."
+                              : " On this server, projects may not survive restarts until DATABASE_URL is configured — check the storage banner above."}
                           </p>
                           <Link
                             href="/new"
@@ -989,6 +996,7 @@ export default function HomePage() {
                     </div>
                   )}
                 </section>
+                )}
               </>
             )}
           </div>
