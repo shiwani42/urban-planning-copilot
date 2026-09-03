@@ -99,7 +99,7 @@ npm run build
 ## Data & persistence
 
 - Initial geography is **synthetic** seed data (clearly labeled in UI and reports).
-- On Render free, set **`DATABASE_URL`** (Neon Postgres pooled URI) so projects survive deploys; `store.json` remains a local/dev fallback when unset.
+- On Render free, set **`DATABASE_URL`** to the pooled URI for Neon project **`falling-darkness-05470105`** (`production` branch) so projects survive deploys; `store.json` remains a local/dev fallback when unset. See `neon.ts` and `docs/passes/PASS-34.md`.
 - `npm run seed` creates demo projects when the store is empty (also runs on Render start).
 - Disabling or missing required datasets (e.g. flood) causes analysis to **fail closed** — no fabricated results.
 

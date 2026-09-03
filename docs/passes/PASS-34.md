@@ -10,13 +10,13 @@ When **`DATABASE_URL`** is set (Neon pooled Postgres URI), the compact catalog J
 
 ## Render setup
 
-1. Create a free [Neon](https://neon.tech) project (or another claimable Postgres).
-2. Copy the **pooled** connection string (`-pooler` hostname).
-3. In the Render Dashboard for **urban-planning-copilot**, add env var **`DATABASE_URL`** (sync: false — never commit the URI).
-4. **Claim** the Neon database so it does not expire on the free tier.
-5. Redeploy. Studies and projects survive deploys even when `store.json` is missing from the ephemeral filesystem.
+Production Neon project: **`falling-darkness-05470105`** (claimed; use the **`production`** branch). Do not use the earlier unclaimed `damp-sea-35723814` neon.new project.
 
-`render.yaml` keeps `plan: free` and declares `DATABASE_URL` with `sync: false`. No Render Postgres add-on (paid) is required.
+1. From the Neon console for **falling-darkness-05470105**, copy the **pooled** connection string for the **`production`** branch (`-pooler` hostname).
+2. In the Render Dashboard for **urban-planning-copilot**, set env var **`DATABASE_URL`** to that URI (`sync: false` in `render.yaml` — never commit the URI).
+3. Redeploy. Studies and projects survive deploys even when `store.json` is missing from the ephemeral filesystem.
+
+`render.yaml` keeps `plan: free` and declares `DATABASE_URL` with `sync: false`. No Render Postgres add-on (paid) is required. Repo root `neon.ts` (`@neon/config`) documents the Neon project policy; connection strings stay in Render env only.
 
 ## Health
 
