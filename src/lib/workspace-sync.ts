@@ -68,6 +68,8 @@ export function onWorkspaceMutated(
 /** Tools that mutate persisted workspace state and should refresh the open UI. */
 export const WORKSPACE_MUTATING_TOOLS = new Set([
   "start_planning_project",
+  "open_project",
+  "set_active_scenario",
   "set_planning_objective",
   "set_transit_threshold",
   "set_priority_weights",
@@ -166,8 +168,9 @@ export function mutationDetailFromToolResult(
         : undefined,
   };
 
-  if (name === "create_scenario_branch") {
-    const activeScenarioId = (result as { activeScenarioId?: string } | null)?.activeScenarioId;
+  if (name === "create_scenario_branch" || name === "set_active_scenario") {
+    const activeScenarioId = (result as { activeScenarioId?: string; scenarioId?: string } | null)
+      ?.activeScenarioId ?? (result as { scenarioId?: string } | null)?.scenarioId;
     if (activeScenarioId) {
       detail.activeScenarioId = activeScenarioId;
     }

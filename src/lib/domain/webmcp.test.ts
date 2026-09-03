@@ -424,4 +424,91 @@ describe("WebMCP pass 10 hardening", () => {
       assert.equal((result.result as { name?: string }).name, "Transit sensitivity");
     }
   });
+
+  it("list_scenarios returns all branches with active flag", async () => {
+    const ws = await services.createProject({
+      name: "Scenario list",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const branch = await services.createScenario(
+      ws.project.id,
+      "Alt branch",
+      ws.project.activeScenarioId!
+    );
+    const branchId = branch!.scenarios.find((s) => s.name === "Alt branch")!.id;
+    const result = await invokeTool("list_scenarios", { projectId: ws.project.id });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      const payload = result.result as {
+        count: number;
+        scenarios: Array<{ id: string; name: string; isActive: boolean }>;
+      };
+      assert.equal(payload.count, 2);
+      assert.ok(payload.scenarios.some((s) => s.id === branchId));
+      assert.equal(payload.scenarios.find((s) => s.isActive)?.id, branchId);
+    }
+  });
+
+  it("open_project resolves project by name", async () => {
+    const ws = await services.createProject({
+      name: "SF Infill ChatGPT Test",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const result = await invokeTool("open_project", {
+      name: "SF Infill ChatGPT Test",
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      const payload = result.result as { projectId: string; workspaceUrl: string };
+      assert.equal(payload.projectId, ws.project.id);
+      assert.equal(payload.workspaceUrl, `/workspace/${ws.project.id}`);
+    }
+  });
+
+  it("open_project returns not found for unknown name", async () => {
+    const result = await invokeTool("open_project", {
+      name: "This Project Definitely Does Not Exist 12345",
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "NOT_FOUND");
+  });
+
+  it("set_active_scenario switches the active branch", async () => {
+    const ws = await services.createProject({
+      name: "Switch scenario",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const baselineId = ws.project.activeScenarioId!;
+    const branch = await services.createScenario(ws.project.id, "Branch B", baselineId);
+    const branchId = branch!.scenarios.find((s) => s.name === "Branch B")!.id;
+    await services.setActiveScenario(ws.project.id, baselineId);
+    const switched = await invokeTool("set_active_scenario", {
+      projectId: ws.project.id,
+      scenarioId: branchId,
+    });
+    assert.equal(switched.ok, true);
+    const reloaded = await services.getWorkspace(ws.project.id);
+    assert.equal(reloaded?.project.activeScenarioId, branchId);
+  });
+
+  it("open_workspace_tab validates tab names", async () => {
+    const ws = await services.createProject({
+      name: "Tab test",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const good = await invokeTool("open_workspace_tab", {
+      projectId: ws.project.id,
+      tab: "decision",
+    });
+    assert.equal(good.ok, true);
+    if (good.ok) {
+      assert.equal((good.result as { tab: string }).tab, "decision");
+    }
+    const bad = await invokeTool("open_workspace_tab", {
+      projectId: ws.project.id,
+      tab: "not-a-tab",
+    });
+    assert.equal(bad.ok, false);
+    if (!bad.ok) assert.equal(bad.error.field, "tab");
+  });
 });

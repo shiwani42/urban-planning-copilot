@@ -24,6 +24,9 @@ const TOOL_GROUP_BY_NAME: Record<string, CopilotToolGroupId> = {
   list_datasets: "analysis",
   verify_operation: "analysis",
   get_workspace: "scenarios",
+  list_scenarios: "scenarios",
+  set_active_scenario: "scenarios",
+  open_workspace_tab: "scenarios",
   set_planning_objective: "scenarios",
   set_transit_threshold: "scenarios",
   set_priority_weights: "scenarios",
@@ -37,6 +40,7 @@ const TOOL_GROUP_BY_NAME: Record<string, CopilotToolGroupId> = {
   approve_proposal: "scenarios",
   generate_report: "reports",
   start_planning_project: "projects",
+  open_project: "projects",
 };
 
 const GROUP_LABELS: Record<CopilotToolGroupId, string> = {
