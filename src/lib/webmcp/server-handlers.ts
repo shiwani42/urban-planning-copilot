@@ -76,7 +76,8 @@ async function waitForAnalysisWithinBudget(
   projectId: string,
   scenarioId: string,
   runPromise: Promise<unknown>,
-  budgetMs: number = getPageToolBudgetMs()
+  budgetMs: number = getPageToolBudgetMs(),
+  expectedJobId?: string
 ) {
   const deadline = Date.now() + budgetMs;
   let runSettled = false;
@@ -86,6 +87,14 @@ async function waitForAnalysisWithinBudget(
   while (Date.now() < deadline) {
     const status = await services.getAnalysisRunStatus(projectId, scenarioId);
     if (status.status === "completed") {
+      if (
+        expectedJobId &&
+        "resultJobId" in status &&
+        status.resultJobId !== expectedJobId
+      ) {
+        await sleep(ANALYSIS_POLL_MS);
+        continue;
+      }
       if (!runSettled && status.stale) {
         await sleep(ANALYSIS_POLL_MS);
         continue;
@@ -111,6 +120,21 @@ async function waitForAnalysisWithinBudget(
 
   const latest = await services.getAnalysisRunStatus(projectId, scenarioId);
   if (latest.status === "completed") {
+    if (
+      expectedJobId &&
+      "resultJobId" in latest &&
+      latest.resultJobId !== expectedJobId
+    ) {
+      void runPromise.catch(() => undefined);
+      return {
+        status: "running" as const,
+        jobId: expectedJobId,
+        currentStep: "Analysis in progress",
+        message:
+          "Analysis still running — poll get_workspace or list_candidates until candidates appear, then retry run_analysis if needed.",
+        pollTools: [...ANALYSIS_IN_PROGRESS_PAYLOAD.pollTools],
+      };
+    }
     if ((latest.candidateCount ?? 0) < 1) {
       throw new ToolError(
         "ANALYSIS_EMPTY",
@@ -390,24 +414,32 @@ export async function executePlanningTool(
           projectId,
           scenarioId,
           Promise.resolve(),
-          getPageToolBudgetMs()
+          getPageToolBudgetMs(),
+          inFlight.jobId
         );
       }
 
-      const runPromise = services.runAnalysis(projectId, scenarioId).catch((err) => {
-        throw err;
-      });
+      await services.runAnalysis(projectId, scenarioId);
+      const started = await services.getAnalysisRunStatus(projectId, scenarioId);
+      const expectedJobId =
+        started.status === "running" ? started.jobId : undefined;
 
       try {
         return await waitForAnalysisWithinBudget(
           projectId,
           scenarioId,
-          runPromise,
-          getPageToolBudgetMs()
+          Promise.resolve(),
+          getPageToolBudgetMs(),
+          expectedJobId
         );
       } catch (err) {
         const recovery = await services.getAnalysisRunStatus(projectId, scenarioId);
-        if (recovery.status === "completed") {
+        if (
+          recovery.status === "completed" &&
+          (!expectedJobId ||
+            !("resultJobId" in recovery) ||
+            recovery.resultJobId === expectedJobId)
+        ) {
           return { ...recovery, recovered: true };
         }
         if (recovery.status === "running") {
