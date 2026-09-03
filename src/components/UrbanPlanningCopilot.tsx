@@ -25,7 +25,7 @@ import {
   toolLabel,
 } from "@/lib/copilot/tool-groups";
 import { formatLocaleTime } from "@/lib/format";
-import { COPILOT_PANEL_FOOTER } from "@/lib/planner-copy";
+import { COPILOT_PANEL_FOOTER, COPILOT_HOME_PLACEHOLDER, COPILOT_FEED_HEADING } from "@/lib/planner-copy";
 import { notifyWorkspaceMutated } from "@/lib/workspace-sync";
 import type { WorkspaceTab } from "@/lib/workspace-tabs";
 
@@ -455,7 +455,7 @@ export function UrbanPlanningCopilot({
             </h2>
             <p className="text-caption text-on-surface-variant mt-0.5">
               {hasProject
-                ? "Commands update this study — activity is the feed."
+                ? "Commands update this study. Plan, feed, and findings live here — not a chat thread."
                 : "Start a project from the header or explore open data."}
             </p>
           </div>
@@ -466,12 +466,11 @@ export function UrbanPlanningCopilot({
         {showActivityFeed && (
           <div>
             <h3 className="font-mono text-data-label uppercase text-on-surface-variant mb-2">
-              Agent activity
+              {COPILOT_FEED_HEADING}
             </h3>
             {activity.length === 0 ? (
               <p className="text-body-sm text-on-surface-variant">
-                When you run a tool or ask a question, steps appear here with Working… status and
-                outcomes.
+                When you run a command, steps appear here with Working… status and outcomes.
               </p>
             ) : (
               <ul className="space-y-2" aria-live="polite">
@@ -613,7 +612,7 @@ export function UrbanPlanningCopilot({
           </p>
         )}
         <label className="sr-only" htmlFor="urban-planning-copilot-input">
-          Ask Urban Planning Copilot
+          Study command
         </label>
         <div className="flex gap-2">
           <input
@@ -626,7 +625,7 @@ export function UrbanPlanningCopilot({
             placeholder={
               hasProject
                 ? "e.g. pin top site · run analysis · compare scenarios"
-                : "Ask without a project — e.g. list datasets"
+                : COPILOT_HOME_PLACEHOLDER
             }
             className="flex-1 min-w-0 border border-outline-variant bg-surface px-3 py-2 text-body-sm rounded focus-ring focus:border-primary"
           />
@@ -644,7 +643,7 @@ export function UrbanPlanningCopilot({
                 Working…
               </>
             ) : (
-              "Ask"
+              "Run"
             )}
           </button>
         </div>
@@ -654,7 +653,7 @@ export function UrbanPlanningCopilot({
   );
 }
 
-/** Feed entries for embedding in the workspace Agent activity panel. */
+/** Feed entries for embedding in the workspace Findings panel. */
 export function CopilotActivityFeed({
   limit = 4,
   className = "",
@@ -674,7 +673,7 @@ export function CopilotActivityFeed({
   return (
     <div className={className}>
       <h3 className="font-mono text-data-label text-on-surface-variant uppercase mb-2 border-b border-outline-variant pb-2">
-        Copilot tool runs
+        {COPILOT_FEED_HEADING}
       </h3>
       <ul className="space-y-2" aria-live="polite">
         {recent.map((entry) => (

@@ -25,7 +25,7 @@ export const DEMO_AOI = {
   east: -122.408,
   north: 37.772,
   neighborhoods: ["Mission", "South of Market"],
-  label: "San Francisco — Mission & SoMa demo area",
+  label: "Mission/SoMa, San Francisco",
 };
 
 const SOURCES = {

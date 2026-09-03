@@ -1,4 +1,5 @@
 import type { WorkspaceTab } from "@/lib/workspace-tabs";
+import { ANALYSIS_RUNNING_FEED } from "@/lib/planner-copy";
 
 export type PlannerSuggestion = {
   id: string;
@@ -574,7 +575,7 @@ export function summarizeToolResult(
       return `${tool.replace(/_/g, " ")} is waiting for your approval in the workspace banner.`;
     }
     if (status === "running") {
-      return "Analysis is running — watch Agent activity for progress.";
+      return ANALYSIS_RUNNING_FEED;
     }
     if (status === "incomplete") {
       const message = (result as { message?: string }).message;

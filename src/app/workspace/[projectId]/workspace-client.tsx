@@ -14,6 +14,11 @@ import {
   PROJECT_UNAVAILABLE_DETAIL,
   RANKING_STALE_FALLBACK,
   SHORTLIST_SAVE_FAILED,
+  EXCLUDE_AREA_HELP,
+  FINDINGS_PLAN_HEADING,
+  FINDINGS_PLAN_INTRO,
+  LAYERS_SCORE_NOTE,
+  ZONING_OVERLAY_LABEL,
 } from "@/lib/planner-copy";
 import { StorageBanner } from "@/components/StorageBanner";
 import { ServerWakeBanner } from "@/components/ServerWakeBanner";
@@ -294,6 +299,7 @@ export default function WorkspaceClient({
   const [compareError, setCompareError] = useState<string | null>(null);
   const [compareHint, setCompareHint] = useState<string | null>(null);
   const [legendOpen, setLegendOpen] = useState(false);
+  const [zoningOverlay, setZoningOverlay] = useState(false);
   const [inspectDatasetId, setInspectDatasetId] = useState<string | null>(null);
   const [analysisProgress, setAnalysisProgress] = useState<string | null>(null);
   const [renamingScenarioId, setRenamingScenarioId] = useState<string | null>(null);
@@ -1963,7 +1969,7 @@ export default function WorkspaceClient({
                       Exclude this area
                     </button>
                     <p className="text-caption text-on-surface-variant mt-1">
-                      Click map corners, then Finish. Edit or delete a polygon from the list below without fighting the map — drawing mode ignores parcel clicks.
+                      {EXCLUDE_AREA_HELP}
                     </p>
                   </div>
                   {scenario.constraints
@@ -2265,7 +2271,24 @@ export default function WorkspaceClient({
                       </label>
                     );
                   })}
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={zoningOverlay}
+                      onChange={(e) => {
+                        setZoningOverlay(e.target.checked);
+                        if (e.target.checked) setLegendOpen(true);
+                      }}
+                      className="rounded border-outline text-primary h-4 w-4"
+                    />
+                    <span
+                      className="w-3 h-3 shrink-0 border border-[#4a6b44] bg-[#7d9b76]/70"
+                      aria-hidden
+                    />
+                    <span className="text-body-sm">{ZONING_OVERLAY_LABEL}</span>
+                  </label>
                 </div>
+                <p className="text-caption text-on-surface-variant mt-2">{LAYERS_SCORE_NOTE}</p>
               </section>
 
               <section>
@@ -2395,6 +2418,7 @@ export default function WorkspaceClient({
               onSelectGeographic={(sel) => {
                 if (drawMode === "none") beginEditSelection(sel);
               }}
+              showZoningOverlay={zoningOverlay}
             />
 
             {selectedCandidate && !drawingActive && (
@@ -2505,6 +2529,7 @@ export default function WorkspaceClient({
                     hasFloodCoverageGaps={Boolean(
                       workspace.datasets.find((d) => d.kind === "flood")?.incompleteCoverage
                     )}
+                    showZoningOverlay={zoningOverlay}
                   />
                 </div>
               )}
@@ -2672,14 +2697,13 @@ export default function WorkspaceClient({
                 <>
                   <div className="bg-primary-fixed/20 p-3 rounded-r-lg rounded-bl-lg border border-primary-fixed">
                     <p className="text-body-sm">
-                      I&apos;ve translated your planning question into an analysis plan. Review
-                      it before I run the analysis.
+                      {FINDINGS_PLAN_INTRO}
                     </p>
                   </div>
                   <div>
                     <div className="flex justify-between items-end mb-4">
                       <h3 className="font-mono text-data-label text-on-surface-variant uppercase">
-                        Agent logic feed
+                        {FINDINGS_PLAN_HEADING}
                       </h3>
                       <span className="text-caption text-outline">
                         {scenario.analysisPlan.steps.length} steps
@@ -4307,7 +4331,11 @@ function EvidenceView({
               <p className="mt-2 text-caption text-error">Disabled in global catalog.</p>
             )}
             {d.incompleteCoverage && (
-              <p className="mt-2 text-caption text-secondary">Incomplete geographic coverage.</p>
+              <p className="mt-2 text-caption text-secondary">
+                {d.kind === "flood"
+                  ? "SFPUC July 2022 100-year storm clip — not FEMA. Scores use this visible layer."
+                  : "Incomplete geographic coverage."}
+              </p>
             )}
             <ul className="mt-3 text-caption text-on-surface-variant list-disc pl-4">
               {d.limitations.map((l) => (

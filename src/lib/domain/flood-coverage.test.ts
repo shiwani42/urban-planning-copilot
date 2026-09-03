@@ -42,7 +42,9 @@ describe("flood-coverage", () => {
 
     assert.ok(detail);
     assert.equal(detail.excludedCount, 41);
-    assert.match(detail.incompleteReason, /partial/);
+    assert.match(detail.incompleteReason, /SFPUC/);
+    assert.match(detail.incompleteReason, /not FEMA/i);
+    assert.match(detail.summary, /SFPUC/);
     assert.ok(detail.exclusionReasons.length >= 2);
   });
 
@@ -107,7 +109,8 @@ describe("flood-coverage", () => {
 
     const caveat = candidateFloodIncompleteCaveat(floodDataset, candidate);
     assert.ok(caveat);
-    assert.match(caveat ?? "", /incomplete/i);
+    assert.match(caveat ?? "", /SFPUC/);
+    assert.match(caveat ?? "", /not FEMA/i);
 
     const lowRisk = {
       ...candidate,

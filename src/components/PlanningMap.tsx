@@ -14,10 +14,17 @@ import {
 import type { WorkspaceSnapshot, Candidate, GeographicSelection } from "@/lib/domain/types";
 import { featureIdsInExclusions, ringFromPolygon } from "@/lib/domain/geographic";
 import { featureIdsOutsideFloodCoverage } from "@/lib/domain/flood-coverage";
+import { isResidentialParcel, parcelZoningLabel } from "@/lib/domain/zoning";
 import { STUDY_BOUNDS } from "@/lib/domain/study-bounds";
 import BasemapLayer from "@/components/BasemapLayer";
 import { onWorkspaceMutated } from "@/lib/workspace-sync";
 import { layerSwatch } from "@/lib/domain/layer-styles";
+import {
+  DRAWING_MAP_HINT,
+  LAYERS_SCORE_NOTE,
+  ZONING_OTHER_SWATCH,
+  ZONING_RESIDENTIAL_SWATCH,
+} from "@/lib/planner-copy";
 import L from "leaflet";
 
 export type MapDrawMode = "none" | "exclude" | "include" | "edit";
@@ -98,6 +105,7 @@ type Props = {
   suppressGeoLabel?: boolean;
   hideEmptyState?: boolean;
   floodCoverageGapIds?: Set<string>;
+  showZoningOverlay?: boolean;
 };
 
 function MapViewportReporter({
@@ -138,6 +146,7 @@ export default function PlanningMap({
   suppressGeoLabel = false,
   hideEmptyState = false,
   floodCoverageGapIds,
+  showZoningOverlay = false,
 }: Props) {
   const { mapState } = workspace.project;
   const [liveViewport, setLiveViewport] = useState<{
@@ -241,6 +250,20 @@ export default function PlanningMap({
       };
     }
 
+    if (showZoningOverlay) {
+      const residential = isResidentialParcel(feature);
+      return {
+        color: selected ? "#00455d" : rejected ? "#ba1a1a" : shortlisted ? "#815504" : residential ? "#4a6b44" : "#8a7a5c",
+        weight: selected ? 2.5 : shortlisted || coverageGap ? 2 : 1,
+        dashArray: coverageGap && !selected && !shortlisted ? "5 4" : undefined,
+        fillColor: residential
+          ? `rgba(125, 155, 118, ${0.5 * staleDim})`
+          : `rgba(212, 196, 168, ${0.45 * staleDim})`,
+        fillOpacity: 0.55 * staleDim,
+        opacity: staleDim,
+      };
+    }
+
     if (coverageGap && !candidate) {
       return {
         color: "#815504",
@@ -287,6 +310,13 @@ export default function PlanningMap({
           </div>
         </div>
       )}
+        {drawingActive && (
+          <div className="absolute top-12 left-1/2 -translate-x-1/2 z-[1002] pointer-events-none px-3">
+            <div className="bg-surface/95 border border-outline-variant px-3 py-1.5 rounded shadow-sm text-caption text-on-surface text-center max-w-md">
+              {DRAWING_MAP_HINT}
+            </div>
+          </div>
+        )}
       <MapContainer
         center={[viewport.center[1], viewport.center[0]]}
         zoom={viewport.zoom}
@@ -319,9 +349,9 @@ export default function PlanningMap({
           />
         )}
 
-        {visibleKinds.has("parcels") && layerData.parcels && candidates.length > 0 && (
+        {(visibleKinds.has("parcels") || showZoningOverlay) && layerData.parcels && (
           <GeoJSON
-            key={`parcels-${candidates.length}-${selectedId}-${stale}-${excludedFeatureIds.size}-${drawingActive}`}
+            key={`parcels-${candidates.length}-${selectedId}-${stale}-${excludedFeatureIds.size}-${drawingActive}-${showZoningOverlay}`}
             data={layerData.parcels}
             style={parcelStyle}
             interactive={!drawingActive}
@@ -337,12 +367,15 @@ export default function PlanningMap({
                   L.DomEvent.stopPropagation(e);
                   onSelectCandidate(candidate);
                 });
+                const zoning = showZoningOverlay ? ` · ${parcelZoningLabel(feature)}` : "";
                 const tooltip = geoExcluded
-                  ? `${candidate.label} (geographically excluded)`
-                  : candidate.label;
+                  ? `${candidate.label} (geographically excluded)${zoning}`
+                  : `${candidate.label}${zoning}`;
                 layer.bindTooltip(tooltip, { sticky: true });
               } else if (geoExcluded) {
                 layer.bindTooltip("Geographically excluded parcel", { sticky: true });
+              } else if (showZoningOverlay) {
+                layer.bindTooltip(parcelZoningLabel(feature), { sticky: true });
               }
             }}
           />
@@ -612,10 +645,22 @@ function DrawModeHandler({ enabled }: { enabled: boolean }) {
   const map = useMap();
   useEffect(() => {
     if (enabled) {
+      map.dragging.disable();
       map.doubleClickZoom.disable();
+      map.boxZoom.disable();
+      map.keyboard.disable();
     } else {
+      map.dragging.enable();
       map.doubleClickZoom.enable();
+      map.boxZoom.enable();
+      map.keyboard.enable();
     }
+    return () => {
+      map.dragging.enable();
+      map.doubleClickZoom.enable();
+      map.boxZoom.enable();
+      map.keyboard.enable();
+    };
   }, [map, enabled]);
   return null;
 }
@@ -625,11 +670,13 @@ export function MapLegend({
   visibleKinds,
   hasExclusions,
   hasFloodCoverageGaps,
+  showZoningOverlay,
   compact,
 }: {
   visibleKinds: Set<string>;
   hasExclusions?: boolean;
   hasFloodCoverageGaps?: boolean;
+  showZoningOverlay?: boolean;
   compact?: boolean;
 }) {
   const items: Array<{ label: string; swatch: ReactNode }> = [];
@@ -651,7 +698,17 @@ export function MapLegend({
     });
   };
   if (visibleKinds.has("flood")) push("flood");
-  if (visibleKinds.has("parcels")) push("parcels");
+  if (visibleKinds.has("parcels") || showZoningOverlay) push("parcels");
+  if (showZoningOverlay) {
+    items.push({
+      label: ZONING_RESIDENTIAL_SWATCH,
+      swatch: <div className="w-3 h-3 shrink-0 border border-[#4a6b44] bg-[#7d9b76]/70" />,
+    });
+    items.push({
+      label: ZONING_OTHER_SWATCH,
+      swatch: <div className="w-3 h-3 shrink-0 border border-[#8a7a5c] bg-[#d4c4a8]/80" />,
+    });
+  }
   if (hasExclusions) {
     items.push({
       label: "Geographically excluded",
@@ -695,6 +752,11 @@ export function MapLegend({
           <span className="truncate">{item.label}</span>
         </div>
       ))}
+      {(visibleKinds.has("flood") || visibleKinds.has("transit")) && (
+        <p className="text-[10px] text-on-surface-variant leading-snug pt-1">
+          {LAYERS_SCORE_NOTE}
+        </p>
+      )}
     </div>
   );
 }
