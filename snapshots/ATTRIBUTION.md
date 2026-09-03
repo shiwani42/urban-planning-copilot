@@ -20,12 +20,13 @@ Refresh with `npm run ingest:sf`. Outputs live in `snapshots/sf/` (gzipped GeoJS
 | Muni stops | [Muni Stops (i28k-bkz6)](https://data.sfgov.org/Transportation/Muni-Stops/i28k-bkz6) | PDDL | See manifest |
 | 100-year storm flood | [SFPUC flood risk (jzu3-4yxp)](https://data.sfgov.org/Public-Safety/100-Year-Storm-Flood-Risk-Zone-July-2022-/jzu3-4yxp) | PDDL | July 2022 model (see manifest) |
 | Recreation and Parks | [Recreation and Parks Properties (gtr9-ntp6)](https://data.sfgov.org/Culture-and-Recreation/Recreation-and-Parks-Properties/gtr9-ntp6) | PDDL | See manifest |
+| Schools | [Schools (7e7j-59qk)](https://data.sfgov.org/Economy-and-Community/Schools/7e7j-59qk) | PDDL | See manifest |
 
 **Demo AOI:** Mission & South of Market — clipped and simplified for browser performance. Not full city coverage.
 
 ## Illustrative layers (not city open data)
 
-Population grid, schools, and infrastructure nodes remain **illustrative** synthetic supplements until a future ingest pass. They are labeled in the Data explorer and marked `synthetic: true` in dataset metadata where applicable. Parks in Mission/SoMa use the Recreation and Parks snapshot above.
+Population grid and infrastructure nodes remain **illustrative** synthetic supplements until a future ingest pass. They are labeled in the Data explorer and marked `synthetic: true` in dataset metadata where applicable. Parks and schools in Mission/SoMa use the snapshots above.
 
 ## What we do not use
 

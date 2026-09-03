@@ -13,7 +13,7 @@ import { compactLegacyStoreJsonBeforeParse } from "./store-legacy-compact";
 import { normalizeStoreShape } from "./store-shape";
 import { generateSyntheticCity } from "./seed";
 import {
-  attachSanFranciscoParks,
+  attachSanFranciscoSnapshotLayers,
   loadSanFranciscoCity,
   syntheticSupplementDatasets,
 } from "./sf-data";
@@ -777,7 +777,7 @@ export async function ensureStore(): Promise<AppStore> {
   if (memory) return memory;
   memory = await readStoreFromDisk();
   memoryDataDir = dir;
-  await attachSanFranciscoParks(memory);
+  await attachSanFranciscoSnapshotLayers(memory);
   return memory;
 }
 

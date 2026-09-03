@@ -267,6 +267,9 @@ export default function WorkspaceClient({
   const layerDataRef = useRef<Record<string, GeoJSON.FeatureCollection>>({});
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerPanel, setDrawerPanel] = useState<DrawerPanel>("candidates");
+  const [narrowWorkspace, setNarrowWorkspace] = useState(false);
+  const [planPaneOpen, setPlanPaneOpen] = useState(false);
+  const [findingsPaneOpen, setFindingsPaneOpen] = useState(false);
   const [drawMode, setDrawMode] = useState<MapDrawMode>("none");
   const [drawClicks, setDrawClicks] = useState<[number, number][]>([]);
   const [editingSelectionId, setEditingSelectionId] = useState<string | null>(null);
@@ -565,6 +568,20 @@ export default function WorkspaceClient({
     }
     return latestFailed;
   }, [workspace?.analysisJobs, scenario?.id, result?.completedAt, result?.createdAt, result?.status, result?.stale]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1099px)");
+    const apply = () => {
+      setNarrowWorkspace(mq.matches);
+      if (!mq.matches) {
+        setPlanPaneOpen(false);
+        setFindingsPaneOpen(false);
+      }
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}`, {
@@ -1924,7 +1941,15 @@ export default function WorkspaceClient({
 
       {tab === "workspace" ? (
         <main className="flex-1 flex overflow-hidden relative min-h-0">
-          <aside className="w-[min(360px,28vw)] min-w-[220px] max-w-sidebar-width bg-surface border-r border-outline-variant flex flex-col z-30 shrink-0 min-h-0">
+          <aside
+            className={
+              narrowWorkspace
+                ? `${
+                    planPaneOpen ? "flex" : "hidden"
+                  } absolute inset-y-0 left-0 z-40 w-[min(360px,92vw)] shadow-lg bg-surface border-r border-outline-variant flex-col min-h-0`
+                : "w-[min(360px,28vw)] min-w-[220px] max-w-sidebar-width bg-surface border-r border-outline-variant flex flex-col z-30 shrink-0 min-h-0"
+            }
+          >
             <div className="p-4 border-b border-outline-variant bg-surface-container-low flex justify-between items-center">
               <div>
                 <h2 className="text-headline-md text-primary">Plan</h2>
@@ -1932,7 +1957,18 @@ export default function WorkspaceClient({
                   {workspace.project.geographyLabel}
                 </p>
               </div>
-              <span className="material-symbols-outlined text-outline">map</span>
+              {narrowWorkspace ? (
+                <button
+                  type="button"
+                  onClick={() => setPlanPaneOpen(false)}
+                  className="p-1 hover:bg-surface-variant rounded"
+                  aria-label="Close plan"
+                >
+                  <span className="material-symbols-outlined text-outline">close</span>
+                </button>
+              ) : (
+                <span className="material-symbols-outlined text-outline">map</span>
+              )}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-6">
               <section>
@@ -2391,6 +2427,41 @@ export default function WorkspaceClient({
           </aside>
 
           <section className="flex-1 relative bg-surface-container-low min-w-0 overflow-visible">
+            {narrowWorkspace && (planPaneOpen || findingsPaneOpen) && (
+              <button
+                type="button"
+                className="absolute inset-0 z-[35] bg-black/20"
+                aria-label="Close side panels"
+                onClick={() => {
+                  setPlanPaneOpen(false);
+                  setFindingsPaneOpen(false);
+                }}
+              />
+            )}
+            {narrowWorkspace && !planPaneOpen && !findingsPaneOpen && (
+              <div className="absolute bottom-20 left-3 right-3 z-[1002] flex justify-between pointer-events-none">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlanPaneOpen(true);
+                    setFindingsPaneOpen(false);
+                  }}
+                  className="pointer-events-auto bg-surface/95 border border-outline-variant px-3 py-1.5 rounded shadow-sm text-caption font-medium text-on-surface"
+                >
+                  Plan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFindingsPaneOpen(true);
+                    setPlanPaneOpen(false);
+                  }}
+                  className="pointer-events-auto bg-surface/95 border border-outline-variant px-3 py-1.5 rounded shadow-sm text-caption font-medium text-on-surface"
+                >
+                  Findings
+                </button>
+              </div>
+            )}
             <PlanningMap
               workspace={workspace}
               layerData={layerData}
@@ -2641,7 +2712,13 @@ export default function WorkspaceClient({
 
           <aside
             id="agent-activity-panel"
-            className={`w-[min(320px,26vw)] min-w-[200px] max-w-inspector-width bg-surface border-l border-outline-variant flex flex-col z-30 shrink-0 min-h-0 ${
+            className={`${
+              narrowWorkspace
+                ? `${
+                    findingsPaneOpen ? "flex" : "hidden"
+                  } absolute inset-y-0 right-0 z-40 w-[min(320px,92vw)] shadow-lg`
+                : "w-[min(320px,26vw)] min-w-[200px] max-w-inspector-width shrink-0"
+            } bg-surface border-l border-outline-variant flex flex-col z-30 min-h-0 ${
               runningJob || analysisBusy ? "copilot-running-glow" : ""
             }`}
           >
@@ -2663,9 +2740,22 @@ export default function WorkspaceClient({
                     {inspectorOutcome}
                   </p>
                 </div>
-                <span className="material-symbols-outlined text-[18px] text-on-surface-variant shrink-0">
-                  smart_toy
-                </span>
+                {narrowWorkspace ? (
+                  <button
+                    type="button"
+                    onClick={() => setFindingsPaneOpen(false)}
+                    className="p-1 hover:bg-surface-variant rounded shrink-0"
+                    aria-label="Close findings"
+                  >
+                    <span className="material-symbols-outlined text-[18px] text-on-surface-variant">
+                      close
+                    </span>
+                  </button>
+                ) : (
+                  <span className="material-symbols-outlined text-[18px] text-on-surface-variant shrink-0">
+                    smart_toy
+                  </span>
+                )}
               </div>
               {(runningJob || analysisBusy) && (
                 <div className="flex gap-2 mt-3">
@@ -3756,7 +3846,7 @@ function ResultsDrawer(props: {
       className={
         isPage
           ? "flex-1 min-h-0 flex flex-col overflow-hidden bg-surface"
-          : `absolute bottom-7 left-[min(360px,28vw)] right-[min(320px,26vw)] max-h-[min(48vh,520px)] z-[1010] ${
+          : `absolute bottom-7 left-[min(360px,28vw)] right-[min(320px,26vw)] max-[1099px]:left-0 max-[1099px]:right-0 max-h-[min(48vh,520px)] z-[1010] ${
               props.drawingActive ? "pointer-events-none" : "pointer-events-none"
             }`
       }
@@ -3849,9 +3939,9 @@ function ResultsDrawer(props: {
             <span className="material-symbols-outlined">{isPage ? "map" : "close"}</span>
           </button>
         </div>
-        <div className="flex-1 min-h-0 overflow-hidden grid md:grid-cols-2 gap-px bg-outline-variant">
+        <div className="flex-1 min-h-0 overflow-hidden grid min-[1100px]:grid-cols-2 gap-px bg-outline-variant">
           <div
-            className={`bg-surface p-4 overflow-auto min-h-0 ${panel === "evidence" ? "hidden md:block" : ""}`}
+            className={`bg-surface p-4 overflow-auto min-h-0 ${panel === "evidence" ? "hidden min-[1100px]:block" : ""}`}
           >
             {props.floodCoverageDetail && (
               <FloodCoverageAlert
@@ -4030,7 +4120,7 @@ function ResultsDrawer(props: {
           </div>
 
           <div
-            className={`bg-surface p-4 overflow-auto min-h-0 ${panel === "candidates" ? "hidden md:block" : ""}`}
+            className={`bg-surface p-4 overflow-auto min-h-0 ${panel === "candidates" ? "hidden min-[1100px]:block" : ""}`}
           >
             {!showEvidence || !selected ? (
               <p className="text-body-sm text-on-surface-variant">
