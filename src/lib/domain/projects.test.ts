@@ -92,7 +92,7 @@ describe("project list services", () => {
           name: "Valid name",
           objectiveText: undefined as unknown as string,
         }),
-      /Planning objective is required/
+      /objectiveText or objective/i
     );
   });
 

@@ -95,6 +95,7 @@ type Props = {
   controlledViewport?: { center: [number, number]; zoom: number } | null;
   onViewportChange?: (center: [number, number], zoom: number) => void;
   suppressGeoLabel?: boolean;
+  hideEmptyState?: boolean;
 };
 
 function MapViewportReporter({
@@ -133,6 +134,7 @@ export default function PlanningMap({
   controlledViewport = null,
   onViewportChange,
   suppressGeoLabel = false,
+  hideEmptyState = false,
 }: Props) {
   const { mapState } = workspace.project;
   const [liveViewport, setLiveViewport] = useState<{
@@ -443,7 +445,7 @@ export default function PlanningMap({
           onClick={(lat, lng) => onMapClickDraw?.({ lat, lng })}
         />
       </MapContainer>
-      {candidates.length === 0 && (
+      {candidates.length === 0 && !hideEmptyState && (
         <div className="absolute inset-0 z-[2] flex items-center justify-center pointer-events-none">
           <div className="bg-surface/95 border border-outline-variant rounded px-6 py-4 text-center max-w-sm shadow-sm">
             <p className="text-body-sm font-medium text-on-surface mb-1">No analysis results yet</p>

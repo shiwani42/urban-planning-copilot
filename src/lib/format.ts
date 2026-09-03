@@ -1,16 +1,11 @@
 /** Locale-aware formatting helpers for planner-facing UI. */
 
-/** Planner-facing timestamps use IST so list, detail, and report bodies agree. */
-export const PLANNER_TIME_ZONE = "Asia/Kolkata";
-
 const plannerDateTimeOptions: Intl.DateTimeFormatOptions = {
-  timeZone: PLANNER_TIME_ZONE,
   dateStyle: "medium",
   timeStyle: "short",
 };
 
 const plannerTimeOptions: Intl.DateTimeFormatOptions = {
-  timeZone: PLANNER_TIME_ZONE,
   hour: "numeric",
   minute: "2-digit",
 };

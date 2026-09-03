@@ -49,7 +49,7 @@ export function describeWorkspaceOutcome(ctx: WorkspaceOutcomeContext): string {
     return `Results are stale (${result.candidates.length} candidates from the last run) — recalculate to apply your latest changes.`;
   }
 
-  return "No analysis results yet — review the plan and run analysis, or ask the copilot to run it for you.";
+  return "Review the analysis plan, then run analysis from the copilot panel or footer.";
 }
 
 export function outcomeFromWorkspace(

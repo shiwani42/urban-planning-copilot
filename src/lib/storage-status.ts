@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+export type PersistBackend = "postgres" | "file";
+
 export type ClientStorageStatus = {
   status: "loading" | "healthy" | "degraded" | "unknown" | "error";
   onPersistentMount?: boolean;
   writeProbeOk?: boolean;
+  persistBackend?: PersistBackend;
   projectCount?: number;
   storeExists?: boolean;
   lastBoot?: string;
@@ -19,6 +22,7 @@ type HealthPayload = {
     status?: string;
     onPersistentMount?: boolean;
     writeProbeOk?: boolean;
+    persistBackend?: PersistBackend;
     projectCount?: number;
     storeExists?: boolean;
     lastBoot?: string;
@@ -27,75 +31,111 @@ type HealthPayload = {
   };
 };
 
+/** True when the server catalog is expected to survive instance restarts and deploys. */
+export function projectsPersistReliably(storage: ClientStorageStatus | null): boolean {
+  if (!storage || storage.status === "loading") return false;
+  if (storage.status === "error" || storage.status === "degraded") return false;
+  if (storage.writeProbeOk === false) return false;
+  if (storage.persistBackend === "file") return false;
+  if (storage.storeExists === false) return false;
+  if (storage.lastBoot === "empty-after-missing-file") return false;
+  return storage.status === "healthy";
+}
+
+export function storageReliabilityIssue(storage: ClientStorageStatus | null): string | null {
+  if (!storage || storage.status === "loading") return null;
+  if (storage.fetchError) return storage.fetchError;
+  if (storage.status === "error") {
+    return storage.message ?? "Could not verify workspace storage health.";
+  }
+  if (storage.writeProbeOk === false) {
+    return storage.message ?? "Workspace storage write probe failed.";
+  }
+  if (storage.persistBackend === "file") {
+    return "Workspace catalog uses ephemeral file storage — projects are lost when this server instance restarts. Set DATABASE_URL for durable Postgres storage.";
+  }
+  if (storage.lastBoot === "empty-after-missing-file" || storage.storeExists === false) {
+    return "Workspace catalog is missing or was reset after a deploy — saved projects may not be available.";
+  }
+  if (storage.status === "degraded") {
+    return storage.message ?? "Workspace storage is degraded.";
+  }
+  return null;
+}
+
 function normalizeHealthPayload(data: HealthPayload): ClientStorageStatus {
   const storage = data.storage ?? {};
   const topStatus = data.status ?? storage.status ?? "unknown";
   const writeProbeOk = storage.writeProbeOk;
   const onPersistentMount = storage.onPersistentMount;
 
+  const base = {
+    onPersistentMount,
+    writeProbeOk,
+    persistBackend: storage.persistBackend,
+    projectCount: storage.projectCount,
+    storeExists: storage.storeExists,
+    lastBoot: storage.lastBoot,
+    message: storage.message ?? storage.storeReadError,
+  };
+
   if (writeProbeOk === false) {
     return {
+      ...base,
       status: "degraded",
-      onPersistentMount,
       writeProbeOk: false,
-      projectCount: storage.projectCount,
-      storeExists: storage.storeExists,
-      lastBoot: storage.lastBoot,
-      message: storage.message ?? storage.storeReadError ?? "Write probe failed",
+      message: base.message ?? "Write probe failed",
+    };
+  }
+
+  if (storage.persistBackend === "file") {
+    return {
+      ...base,
+      status: "degraded",
+      writeProbeOk: writeProbeOk ?? true,
+      message:
+        base.message ??
+        "Workspace catalog uses ephemeral file storage — projects are lost when this server instance restarts.",
+    };
+  }
+
+  if (storage.lastBoot === "empty-after-missing-file" || storage.storeExists === false) {
+    return {
+      ...base,
+      status: "degraded",
+      writeProbeOk: writeProbeOk ?? true,
+      message:
+        base.message ??
+        "Workspace catalog is missing or was reset — saved projects may not be available.",
     };
   }
 
   if (topStatus === "healthy") {
     return {
+      ...base,
       status: "healthy",
-      onPersistentMount,
       writeProbeOk: writeProbeOk ?? true,
-      projectCount: storage.projectCount,
-      storeExists: storage.storeExists,
-      lastBoot: storage.lastBoot,
-      message: storage.message,
     };
   }
 
   if (topStatus === "degraded") {
     return {
+      ...base,
       status: "degraded",
-      onPersistentMount,
-      writeProbeOk,
-      projectCount: storage.projectCount,
-      storeExists: storage.storeExists,
-      lastBoot: storage.lastBoot,
-      message: storage.message ?? storage.storeReadError,
     };
   }
 
   return {
+    ...base,
     status: "unknown",
-    onPersistentMount,
-    writeProbeOk,
-    projectCount: storage.projectCount,
-    storeExists: storage.storeExists,
-    lastBoot: storage.lastBoot,
-    message: storage.message,
   };
 }
 
 export function shouldShowStorageUnavailableBanner(
   storage: ClientStorageStatus | null
 ): boolean {
-  if (!storage || storage.status === "loading" || storage.status === "healthy") {
-    return false;
-  }
-  if (storage.status === "error") {
-    return true;
-  }
-  if (storage.status === "degraded") {
-    return true;
-  }
-  if (storage.status === "unknown" && storage.writeProbeOk === false) {
-    return true;
-  }
-  return false;
+  if (!storage || storage.status === "loading") return false;
+  return storageReliabilityIssue(storage) !== null;
 }
 
 export function useStorageStatus(): ClientStorageStatus & { refresh: () => void } {

@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import WorkspaceClient from "./workspace-client";
-import { resolveWorkspaceTab } from "@/lib/workspace-tabs";
+import { resolveWorkspaceTabFromParams } from "@/lib/workspace-tabs";
 
 function WorkspaceFallback() {
   return (
@@ -30,15 +30,15 @@ export default async function WorkspacePage({
   searchParams,
 }: {
   params: Promise<{ projectId: string }>;
-  searchParams: Promise<{ initialTab?: string }>;
+  searchParams: Promise<{ tab?: string; initialTab?: string }>;
 }) {
   const { projectId } = await params;
-  const { initialTab } = await searchParams;
+  const { tab, initialTab } = await searchParams;
   return (
     <Suspense fallback={<WorkspaceFallback />}>
       <WorkspaceClient
         projectId={projectId}
-        initialTab={resolveWorkspaceTab(initialTab)}
+        initialTab={resolveWorkspaceTabFromParams({ tab, initialTab })}
       />
     </Suspense>
   );

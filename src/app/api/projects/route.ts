@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   return runApiHandler(() =>
     services.createProject({
       name: body.name as string,
-      objectiveText: body.objectiveText as string,
+      objectiveText: services.resolveCreateObjectiveText(body) as string,
       geographyLabel: body.geographyLabel as string | undefined,
       mode: body.mode as "explore" | "planning" | undefined,
       fromExplore: body.fromExplore === true,

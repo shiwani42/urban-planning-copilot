@@ -299,6 +299,15 @@ export default function NewProjectPage() {
               )}
             </div>
 
+            <p className="text-caption text-on-surface-variant mb-6 flex items-start gap-2">
+              <span className="material-symbols-outlined text-[16px] shrink-0 mt-0.5">map</span>
+              <span>
+                <strong className="text-on-surface">Demo area of interest:</strong> San Francisco —
+                Mission &amp; SoMa (open-data sandbox). Broader geographies are not yet selectable in
+                this build.
+              </span>
+            </p>
+
             <div className="relative w-full mb-2 group">
               <label
                 htmlFor="planning-objective"
