@@ -1,0 +1,493 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "urban-planning-copilot",
+  "elements": [
+    {
+      "id": "title",
+      "type": "text",
+      "x": 40,
+      "y": 24,
+      "width": 560,
+      "height": 34,
+      "angle": 0,
+      "strokeColor": "#1e293b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300001,
+      "updated": 1,
+      "text": "Planning Journey \u2014 Data Flow",
+      "fontSize": 28,
+      "fontFamily": 2,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "boundElements": null
+    },
+    {
+      "id": "s1",
+      "type": "rectangle",
+      "x": 60,
+      "y": 140,
+      "width": 150,
+      "height": 72,
+      "angle": 0,
+      "strokeColor": "#c2410c",
+      "backgroundColor": "#fed7aa",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300010,
+      "updated": 1,
+      "boundElements": [
+        {
+          "id": "s1_lbl",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "s1_lbl",
+      "type": "text",
+      "x": 60,
+      "y": 164.0,
+      "width": 150,
+      "height": 48,
+      "angle": 0,
+      "strokeColor": "#1e293b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300011,
+      "updated": 1,
+      "text": "Set objective\nconstraints weights",
+      "fontSize": 18,
+      "fontFamily": 2,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "boundElements": null,
+      "containerId": "s1"
+    },
+    {
+      "id": "s2",
+      "type": "rectangle",
+      "x": 260,
+      "y": 140,
+      "width": 150,
+      "height": 72,
+      "angle": 0,
+      "strokeColor": "#0369a1",
+      "backgroundColor": "#e0f2fe",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300020,
+      "updated": 1,
+      "boundElements": [
+        {
+          "id": "s2_lbl",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "s2_lbl",
+      "type": "text",
+      "x": 260,
+      "y": 164.0,
+      "width": 150,
+      "height": 48,
+      "angle": 0,
+      "strokeColor": "#1e293b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300021,
+      "updated": 1,
+      "text": "PATCH update_*",
+      "fontSize": 20,
+      "fontFamily": 2,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "boundElements": null,
+      "containerId": "s2"
+    },
+    {
+      "id": "ar_1",
+      "type": "arrow",
+      "x": 210,
+      "y": 176,
+      "width": 50,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#475569",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300101,
+      "updated": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          50,
+          0
+        ]
+      ],
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "boundElements": null
+    },
+    {
+      "id": "s3",
+      "type": "rectangle",
+      "x": 460,
+      "y": 140,
+      "width": 150,
+      "height": 72,
+      "angle": 0,
+      "strokeColor": "#0369a1",
+      "backgroundColor": "#e0f2fe",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300030,
+      "updated": 1,
+      "boundElements": [
+        {
+          "id": "s3_lbl",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "s3_lbl",
+      "type": "text",
+      "x": 460,
+      "y": 164.0,
+      "width": 150,
+      "height": 48,
+      "angle": 0,
+      "strokeColor": "#1e293b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300031,
+      "updated": 1,
+      "text": "services.ts\nupdateStore()",
+      "fontSize": 18,
+      "fontFamily": 2,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "boundElements": null,
+      "containerId": "s3"
+    },
+    {
+      "id": "ar_2",
+      "type": "arrow",
+      "x": 410,
+      "y": 176,
+      "width": 50,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#475569",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300102,
+      "updated": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          50,
+          0
+        ]
+      ],
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "boundElements": null
+    },
+    {
+      "id": "s4",
+      "type": "rectangle",
+      "x": 660,
+      "y": 140,
+      "width": 150,
+      "height": 72,
+      "angle": 0,
+      "strokeColor": "#0369a1",
+      "backgroundColor": "#e0f2fe",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300040,
+      "updated": 1,
+      "boundElements": [
+        {
+          "id": "s4_lbl",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "s4_lbl",
+      "type": "text",
+      "x": 660,
+      "y": 164.0,
+      "width": 150,
+      "height": 48,
+      "angle": 0,
+      "strokeColor": "#1e293b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300041,
+      "updated": 1,
+      "text": "run_analysis",
+      "fontSize": 20,
+      "fontFamily": 2,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "boundElements": null,
+      "containerId": "s4"
+    },
+    {
+      "id": "ar_3",
+      "type": "arrow",
+      "x": 610,
+      "y": 176,
+      "width": 50,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#475569",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300103,
+      "updated": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          50,
+          0
+        ]
+      ],
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "boundElements": null
+    },
+    {
+      "id": "s5",
+      "type": "rectangle",
+      "x": 860,
+      "y": 140,
+      "width": 150,
+      "height": 72,
+      "angle": 0,
+      "strokeColor": "#0369a1",
+      "backgroundColor": "#e0f2fe",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300050,
+      "updated": 1,
+      "boundElements": [
+        {
+          "id": "s5_lbl",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "s5_lbl",
+      "type": "text",
+      "x": 860,
+      "y": 164.0,
+      "width": 150,
+      "height": 48,
+      "angle": 0,
+      "strokeColor": "#1e293b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300051,
+      "updated": 1,
+      "text": "spatial.ts\nTurf ranking",
+      "fontSize": 18,
+      "fontFamily": 2,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "boundElements": null,
+      "containerId": "s5"
+    },
+    {
+      "id": "ar_4",
+      "type": "arrow",
+      "x": 810,
+      "y": 176,
+      "width": 50,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#475569",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300104,
+      "updated": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          50,
+          0
+        ]
+      ],
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "boundElements": null
+    },
+    {
+      "id": "s6",
+      "type": "rectangle",
+      "x": 1060,
+      "y": 140,
+      "width": 150,
+      "height": 72,
+      "angle": 0,
+      "strokeColor": "#166534",
+      "backgroundColor": "#dcfce7",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300060,
+      "updated": 1,
+      "boundElements": [
+        {
+          "id": "s6_lbl",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "s6_lbl",
+      "type": "text",
+      "x": 1060,
+      "y": 164.0,
+      "width": 150,
+      "height": 48,
+      "angle": 0,
+      "strokeColor": "#1e293b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300061,
+      "updated": 1,
+      "text": "WorkspaceSnapshot\n\u2192 UI + map",
+      "fontSize": 18,
+      "fontFamily": 2,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "boundElements": null,
+      "containerId": "s6"
+    },
+    {
+      "id": "ar_5",
+      "type": "arrow",
+      "x": 1010,
+      "y": 176,
+      "width": 50,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#475569",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300105,
+      "updated": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          50,
+          0
+        ]
+      ],
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "boundElements": null
+    },
+    {
+      "id": "note",
+      "type": "text",
+      "x": 60,
+      "y": 280,
+      "width": 900,
+      "height": 22,
+      "angle": 0,
+      "strokeColor": "#64748b",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "roughness": 0,
+      "opacity": 100,
+      "seed": 300200,
+      "updated": 1,
+      "text": "Single authority: every mutation converges on services.ts \u2192 updateStore()",
+      "fontSize": 16,
+      "fontFamily": 2,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "boundElements": null
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff"
+  }
+}
