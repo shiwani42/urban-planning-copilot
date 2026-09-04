@@ -10,6 +10,114 @@ A map-first planning application where human planners and an AI collaborator sha
 
 Stitch screens in `stitch_urban_planning_copilot/` are the visual reference. Application architecture follows `SPEC.md` and is evaluated by `EVAL.md`.
 
+## Architecture
+
+Urban Planning Copilot is a **single-deployable, server-authoritative monolith**: Next.js UI + API routes + domain logic + in-process spatial analysis. Humans and WebMCP agents share one domain state — every mutation converges on `src/lib/domain/services.ts`.
+
+### System context
+
+```mermaid
+flowchart TB
+  subgraph actors["Actors"]
+    HP["Human planner"]
+    AI["AI agents (WebMCP)"]
+    CI["CI / eval harness"]
+  end
+
+  subgraph system["Urban Planning Copilot"]
+    UPC["Next.js app\n(UI + API + domain)"]
+  end
+
+  subgraph external["External"]
+    CARTO["Carto basemap"]
+    SF["SF Open Data snapshots"]
+    NEON["Neon Postgres"]
+    RENDER["Render host + disk"]
+  end
+
+  HP --> UPC
+  AI --> UPC
+  CI --> UPC
+  UPC --> CARTO
+  UPC --> NEON
+  UPC --> RENDER
+  SF -.-> UPC
+```
+
+### Layers
+
+```mermaid
+flowchart TB
+  subgraph presentation["Presentation"]
+    PAGES["page.tsx · workspace-client.tsx"]
+    MAP["PlanningMap · UrbanPlanningCopilot"]
+    HOOKS["useWorkspace()"]
+  end
+
+  subgraph api["API boundary"]
+    API["/api/projects · /api/mcp\n/api/datasets · /api/explore"]
+  end
+
+  subgraph domain["Domain core"]
+    SVC["services.ts"]
+    SPA["spatial.ts · objective.ts"]
+    CMP["compare · decision · shortlist"]
+  end
+
+  subgraph integration["Agent integration"]
+    WMCP["server-handlers · register-browser"]
+    SYNC["workspace-sync event bus"]
+  end
+
+  subgraph storage["Persistence"]
+    STORE["store.ts cache"]
+    PG["Postgres or store.json"]
+    SNAP["snapshots/sf/*.geojson.gz"]
+  end
+
+  presentation --> api --> domain --> storage
+  integration --> api
+  integration --> domain
+  domain --> SNAP
+```
+
+### Planning journey
+
+```mermaid
+sequenceDiagram
+  actor Planner
+  participant UI as workspace-client
+  participant API as /api/projects
+  participant Svc as services.ts
+  participant Spa as spatial.ts
+
+  Planner->>UI: Set weights / constraints
+  UI->>API: PATCH update_*
+  API->>Svc: updateStore()
+  Planner->>UI: Run analysis
+  UI->>API: PATCH run_analysis
+  API->>Svc: runAnalysis()
+  Svc-->>Spa: setImmediate → Turf ranking
+  UI->>API: GET refresh
+  API-->>UI: WorkspaceSnapshot + candidates
+```
+
+### Dual client — one state
+
+```mermaid
+flowchart LR
+  BTN["UI controls"] --> ACT["useWorkspace().act()"]
+  ACT --> PATCH["PATCH /api/projects"]
+  TOOL["WebMCP tool"] --> MCP["POST /api/mcp"]
+  MCP --> SVC["services.*()"]
+  PATCH --> SVC
+  SVC --> STORE["updateStore()"]
+  MCP --> EVT["notifyWorkspaceMutated"]
+  EVT --> REFRESH["refresh()"]
+```
+
+Key paths: `src/app/workspace/[projectId]/workspace-client.tsx` (planner shell), `src/lib/domain/services.ts` (mutations), `src/lib/webmcp/` (agent tools), `src/lib/domain/store.ts` (persistence).
+
 ## Why WebMCP
 
 Urban Planning Copilot is built for **browser WebMCP** — the AI agent operates the **same live application** the human sees, via semantic domain tools (not DOM scraping).
