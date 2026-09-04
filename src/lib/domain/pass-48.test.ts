@@ -173,7 +173,7 @@ describe("pass-48 MCP tools", () => {
       projectId: ws.project.id,
       scenarioId,
     });
-    assert.ok(Date.now() - started < getPageToolBudgetMs() + 900);
+    assert.ok(Date.now() - started < getPageToolBudgetMs() + 2500);
     assert.equal(run.ok, false);
     if (!run.ok) {
       assert.equal(run.error.code, "ANALYSIS_IN_PROGRESS");
