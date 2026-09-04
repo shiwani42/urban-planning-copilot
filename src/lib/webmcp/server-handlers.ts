@@ -28,6 +28,7 @@ import type { ToolErrorPayload } from "@/lib/domain/tool-errors";
 import { ToolError } from "@/lib/domain/tool-errors";
 import { parseMapCenter } from "@/lib/domain/map-center";
 import { resolveObjectiveTextWithGeography } from "@/lib/domain/objective-geography";
+import { buildPlanningConstraintsSnapshot } from "@/lib/domain/planning-constraints-snapshot";
 import { resolvePlanningToolAlias } from "./tool-aliases";
 import { getPageToolBudgetMs, PAGE_TOOL_POLL_MS, sleep } from "@/lib/webmcp/page-tool-budget";
 import { resolveWorkspaceTab, WORKSPACE_TABS } from "@/lib/workspace-tabs";
@@ -400,6 +401,46 @@ export async function executePlanningTool(
     }
     case "list_datasets":
       return services.listDatasets();
+    case "get_planning_constraints": {
+      const projectId = resolveProjectId(input, context);
+      const ws = await services.getWorkspace(projectId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+      const scenarioId = input.scenarioId
+        ? await resolveScenarioId(projectId, input, services.getWorkspace)
+        : undefined;
+      const snapshot = buildPlanningConstraintsSnapshot(ws, scenarioId);
+      if (!snapshot) throw new ToolError("NOT_FOUND", "Scenario not found", "scenarioId");
+      return snapshot;
+    }
+    case "list_decisions": {
+      const projectId = resolveProjectId(input, context);
+      const ws = await services.getWorkspace(projectId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+      const scenarioFilter =
+        typeof input.scenarioId === "string" && input.scenarioId.trim()
+          ? input.scenarioId.trim()
+          : undefined;
+      const limit = Math.min(100, Math.max(1, Number(input.limit ?? 20)));
+      let decisions = ws.decisions;
+      if (scenarioFilter) {
+        decisions = decisions.filter((d) => d.scenarioId === scenarioFilter);
+      }
+      const scenarioNames = new Map(ws.scenarios.map((s) => [s.id, s.name]));
+      return {
+        projectId,
+        count: decisions.length,
+        decisions: decisions.slice(0, limit).map((d) => ({
+          id: d.id,
+          type: d.type,
+          scenarioId: d.scenarioId,
+          scenarioName: scenarioNames.get(d.scenarioId),
+          subjectId: d.subjectId,
+          reason: d.reason,
+          actor: d.actor,
+          createdAt: d.createdAt,
+        })),
+      };
+    }
     case "compare_scenarios":
       return services.compareScenarios(
         resolveProjectId(input, context),

@@ -511,4 +511,72 @@ describe("WebMCP pass 10 hardening", () => {
     assert.equal(bad.ok, false);
     if (!bad.ok) assert.equal(bad.error.field, "tab");
   });
+
+  it("get_planning_constraints returns objective, constraints, and yield gap", async () => {
+    const ws = await services.createProject({
+      name: "Client Demo SF Housing",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    await services.runAnalysis(ws.project.id, ws.project.activeScenarioId!);
+    const result = await invokeTool("get_planning_constraints", {
+      projectId: ws.project.id,
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      const payload = result.result as {
+        housingTarget: number | null;
+        enabledConstraints: Array<{ label: string }>;
+        transitThresholdMeters?: number;
+        floodConstraint: { enabled: boolean } | null;
+        stale: boolean;
+        hasResults: boolean;
+        yieldGap: { headline: string } | null;
+      };
+      assert.equal(payload.housingTarget, 2000);
+      assert.ok(payload.enabledConstraints.length > 0);
+      assert.ok(typeof payload.transitThresholdMeters === "number");
+      assert.ok(payload.floodConstraint?.enabled);
+      assert.equal(payload.hasResults, true);
+      assert.ok(payload.yieldGap?.headline);
+    }
+  });
+
+  it("list_decisions returns recorded planner decisions", async () => {
+    const ws = await services.createProject({
+      name: "Decision audit",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const scenarioId = ws.project.activeScenarioId!;
+    await services.runAnalysis(ws.project.id, scenarioId);
+    await services.recordDecision({
+      projectId: ws.project.id,
+      scenarioId,
+      type: "approve_scenario",
+      reason: "Best balance of transit and flood resilience",
+    });
+    const result = await invokeTool("list_decisions", { projectId: ws.project.id });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      const payload = result.result as {
+        count: number;
+        decisions: Array<{ type: string; reason?: string; scenarioName?: string }>;
+      };
+      assert.ok(payload.count >= 1);
+      const approval = payload.decisions.find((d) => d.type === "approve_scenario");
+      assert.ok(approval);
+      assert.match(approval?.reason ?? "", /transit and flood/);
+    }
+  });
+
+  it("list_activity alias resolves to list_decisions", async () => {
+    const ws = await services.createProject({
+      name: "Activity alias",
+      objectiveText: HOUSING_OBJECTIVE,
+    });
+    const result = await invokeTool("list_activity", { projectId: ws.project.id });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.ok(Array.isArray((result.result as { decisions: unknown[] }).decisions));
+    }
+  });
 });

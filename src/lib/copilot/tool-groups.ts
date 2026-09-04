@@ -22,6 +22,8 @@ const TOOL_GROUP_BY_NAME: Record<string, CopilotToolGroupId> = {
   remove_from_shortlist: "analysis",
   run_analysis: "analysis",
   list_datasets: "analysis",
+  get_planning_constraints: "analysis",
+  list_decisions: "scenarios",
   verify_operation: "analysis",
   get_workspace: "scenarios",
   list_scenarios: "scenarios",
