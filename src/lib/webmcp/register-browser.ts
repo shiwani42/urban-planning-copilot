@@ -327,7 +327,7 @@ async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
     data.projectId ??
     (typeof args.projectId === "string" ? args.projectId : context.projectId);
 
-  const toolEvent = workspaceToolEventDetail(name, args, result, resolvedProjectId);
+  const toolEvent = workspaceToolEventDetail(resolvedName, args, result, resolvedProjectId);
   if (toolEvent) {
     notifyWorkspaceMutated(toolEvent);
   }
