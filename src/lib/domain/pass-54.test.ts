@@ -35,7 +35,7 @@ test("documents persist patch omits analysis results and GIS catalog", () => {
   assert.equal("featuresByDataset" in patch, false);
 });
 
-test("home continue prefers the client demo card and hides the duplicate Mission/SoMa study", () => {
+test("home continue prefers the client demo card and fills up to three without Mission/SoMa duplicates", () => {
   const now = new Date().toISOString();
   const picked = pickContinueProjects(
     [
@@ -53,11 +53,30 @@ test("home continue prefers the client demo card and hides the duplicate Mission
         lastOpenedAt: now,
         geographyLabel: "Mission/SoMa, San Francisco",
       },
+      {
+        id: "east",
+        name: "East Side Commercial Zone",
+        updatedAt: now,
+        lastOpenedAt: now,
+        geographyLabel: "East Side",
+      },
+      {
+        id: "transit",
+        name: "Transit Center Strategy",
+        updatedAt: now,
+        lastOpenedAt: now,
+        geographyLabel: "Downtown",
+      },
     ],
-    1
+    3
   );
-  assert.equal(picked.length, 1);
+  assert.equal(picked.length, 3);
   assert.equal(picked[0]?.id, "demo");
+  assert.ok(!picked.some((p) => p.id === "infill"));
+  assert.deepEqual(
+    picked.map((p) => p.id),
+    ["demo", "east", "transit"]
+  );
 });
 
 test("optimistic pin adds the candidate without waiting on persist", () => {
