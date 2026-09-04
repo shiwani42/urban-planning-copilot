@@ -28,7 +28,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "answer",
     name: "get_workspace",
     description:
-      "Read the active project/scenario: objective, constraints, decision status, resume note.",
+      "Read the active project and currently active scenario only: objective, constraints, decision status, resume note, and analysis summary. Call list_scenarios for all branches.",
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
@@ -54,7 +54,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "answer",
     name: "list_candidates",
     description:
-      "List ranked analysis candidates (top N by default) with total count and score spread — does not return the full candidate set.",
+      "List ranked analysis candidates (top N by default) with total count and score spread — does not return the full candidate set. For housing capacity and detailed metrics per site, call inspect_candidate.",
     annotations: { readOnlyHint: true, untrustedContentHint: true },
     inputSchema: {
       type: "object",
@@ -148,6 +148,18 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
   },
   {
     layer: "answer",
+    name: "list_scenarios",
+    description:
+      "List all scenario branches for a project: id, name, active flag, whether results exist, stale flag, and decision status.",
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: "object",
+      properties: { projectId: PROJECT_ID },
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "answer",
     name: "list_datasets",
     description: "List datasets with version, freshness, coverage, and limitations.",
     annotations: { readOnlyHint: true, untrustedContentHint: true },
@@ -155,8 +167,46 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
   },
   {
     layer: "answer",
+    name: "get_planning_constraints",
+    description:
+      "One-shot read of planning constraints for the active scenario: objective, enabled constraints, dataset limitations, flood/transit thresholds, stale flag, and housing target vs eligible capacity.",
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "answer",
+    name: "list_decisions",
+    description:
+      "Recent planner decisions and scenario preferences (approvals, rejections, candidate rejections, prefer_scenario). Use for audit — get_workspace only shows decisionStatus on the active scenario.",
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: PROJECT_ID,
+        scenarioId: {
+          type: "string",
+          description: "Optional — filter to one scenario; omit for all branches",
+        },
+        limit: {
+          type: "number",
+          description: "Max decisions to return (default 20, max 100)",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "answer",
     name: "compare_scenarios",
-    description: "Compare scenarios using consistent calculated metrics (capacity, transit, scores).",
+    description:
+      "Compare scenarios using consistent calculated metrics (capacity, transit, scores). Requires two scenario IDs from list_scenarios with hasResults: true.",
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
@@ -191,7 +241,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "action",
     name: "start_planning_project",
     description:
-      "Create a planning project, navigate the browser to its workspace URL, and return projectId plus workspaceUrl.",
+      "Create a planning project, navigate the browser to its workspace URL, and return projectId plus workspaceUrl. Geography data is Mission/SoMa, San Francisco.",
     inputSchema: {
       type: "object",
       properties: {
@@ -200,6 +250,26 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
         geographyLabel: { type: "string", description: "Optional geography label" },
       },
       required: ["name", "objectiveText"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "open_project",
+    description:
+      "Open an existing planning project in the browser (navigates to its workspace URL). Pass projectId or name (case-insensitive; unique partial match allowed).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: {
+          type: "string",
+          description: "Planning project id from list_projects",
+        },
+        name: {
+          type: "string",
+          description: "Project display name when projectId is unknown",
+        },
+      },
       additionalProperties: false,
     },
   },
@@ -263,7 +333,8 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
   {
     layer: "action",
     name: "run_analysis",
-    description: "Run spatial analysis for a scenario; returns summary and candidate count.",
+    description:
+      "Run spatial analysis for a scenario. Returns running — poll list_candidates or get_workspace; do not re-run on stale Client Demo if results exist.",
     inputSchema: {
       type: "object",
       properties: {
@@ -276,7 +347,8 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
   {
     layer: "action",
     name: "create_scenario_branch",
-    description: "Duplicate a scenario so edits do not mutate the parent.",
+    description:
+      "Duplicate a scenario so edits do not mutate the parent. Call set_active_scenario to work on the new branch.",
     inputSchema: {
       type: "object",
       properties: {
@@ -291,6 +363,49 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
         },
       },
       required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "set_active_scenario",
+    description:
+      "Switch the workspace to a scenario branch (same as the header scenario picker). Use before run_analysis or list_candidates on a non-active branch.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: PROJECT_ID,
+        scenarioId: SCENARIO_ID,
+      },
+      required: ["scenarioId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    layer: "action",
+    name: "open_workspace_tab",
+    description:
+      "Switch the workspace UI to a tab. Requires the project workspace to be open in the browser.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: PROJECT_ID,
+        tab: {
+          type: "string",
+          description:
+            "Tab to open: workspace (map), results, evidence, compare, decision, activity, or report",
+          enum: [
+            "workspace",
+            "results",
+            "evidence",
+            "compare",
+            "decision",
+            "activity",
+            "report",
+          ],
+        },
+      },
+      required: ["tab"],
       additionalProperties: false,
     },
   },
@@ -504,7 +619,7 @@ export const PLANNING_TOOL_META: PlanningToolMeta[] = [
     layer: "sensitive",
     name: "approve_scenario",
     description:
-      "Approve a scenario as a formal planning decision. Without confirmed:true returns pending_planner for on-screen review.",
+      "Use when the user says 'record decision' or 'approve scenario'; returns pending_planner until planner clicks Approve. Without confirmed:true the decision is not saved until the planner confirms in the workspace banner.",
     annotations: { destructiveHint: true },
     inputSchema: {
       type: "object",

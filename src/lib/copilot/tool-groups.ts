@@ -22,8 +22,13 @@ const TOOL_GROUP_BY_NAME: Record<string, CopilotToolGroupId> = {
   remove_from_shortlist: "analysis",
   run_analysis: "analysis",
   list_datasets: "analysis",
+  get_planning_constraints: "analysis",
+  list_decisions: "scenarios",
   verify_operation: "analysis",
   get_workspace: "scenarios",
+  list_scenarios: "scenarios",
+  set_active_scenario: "scenarios",
+  open_workspace_tab: "scenarios",
   set_planning_objective: "scenarios",
   set_transit_threshold: "scenarios",
   set_priority_weights: "scenarios",
@@ -37,6 +42,7 @@ const TOOL_GROUP_BY_NAME: Record<string, CopilotToolGroupId> = {
   approve_proposal: "scenarios",
   generate_report: "reports",
   start_planning_project: "projects",
+  open_project: "projects",
 };
 
 const GROUP_LABELS: Record<CopilotToolGroupId, string> = {

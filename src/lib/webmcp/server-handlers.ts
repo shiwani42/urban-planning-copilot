@@ -28,8 +28,10 @@ import type { ToolErrorPayload } from "@/lib/domain/tool-errors";
 import { ToolError } from "@/lib/domain/tool-errors";
 import { parseMapCenter } from "@/lib/domain/map-center";
 import { resolveObjectiveTextWithGeography } from "@/lib/domain/objective-geography";
+import { buildPlanningConstraintsSnapshot } from "@/lib/domain/planning-constraints-snapshot";
 import { resolvePlanningToolAlias } from "./tool-aliases";
 import { getPageToolBudgetMs, PAGE_TOOL_POLL_MS, sleep } from "@/lib/webmcp/page-tool-budget";
+import { resolveWorkspaceTab, WORKSPACE_TABS } from "@/lib/workspace-tabs";
 
 function isKnownPlanningToolName(name: string): boolean {
   const resolved = resolvePlanningToolAlias(name);
@@ -43,6 +45,65 @@ function activeContext(ws: WorkspaceLike) {
     ws.scenarios.find((s) => s.id === ws.project.activeScenarioId) ?? ws.scenarios[0];
   const result = ws.analysisResults.find((r) => r.id === scenario?.latestResultId);
   return { scenario, result };
+}
+
+async function resolveOpenProjectRef(
+  input: Record<string, unknown>,
+  context?: ToolExecutionContext
+): Promise<string> {
+  const projectId =
+    typeof input.projectId === "string" && input.projectId.trim()
+      ? input.projectId.trim()
+      : undefined;
+  if (projectId) return projectId;
+
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (name) {
+    const projects = await services.listProjects();
+    const exact = projects.filter((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (exact.length === 1) return exact[0]!.id;
+    if (exact.length > 1) {
+      throw new ToolError(
+        "AMBIGUOUS",
+        `Multiple projects named "${name}" — pass projectId`,
+        "name"
+      );
+    }
+    const partial = projects.filter((p) => p.name.toLowerCase().includes(name.toLowerCase()));
+    if (partial.length === 1) return partial[0]!.id;
+    if (partial.length > 1) {
+      throw new ToolError(
+        "AMBIGUOUS",
+        `Multiple projects match "${name}" — pass projectId`,
+        "name"
+      );
+    }
+    throw new ToolError("NOT_FOUND", `No project named "${name}"`, "name");
+  }
+
+  const fromContext = context?.projectId?.trim();
+  if (fromContext) return fromContext;
+
+  throw new ToolError(
+    "MISSING_FIELD",
+    "projectId or name is required — call list_projects first",
+    "projectId"
+  );
+}
+
+function assertWorkspaceTab(input: Record<string, unknown>) {
+  const raw = typeof input.tab === "string" ? input.tab.trim() : "";
+  if (!raw) {
+    throw new ToolError("MISSING_FIELD", "tab is required", "tab");
+  }
+  if (!(WORKSPACE_TABS as readonly string[]).includes(raw)) {
+    throw new ToolError(
+      "INVALID_INPUT",
+      `tab must be one of: ${WORKSPACE_TABS.join(", ")}`,
+      "tab"
+    );
+  }
+  return resolveWorkspaceTab(raw);
 }
 
 const ANALYSIS_POLL_MS = PAGE_TOOL_POLL_MS;
@@ -232,6 +293,35 @@ export async function executePlanningTool(
         pendingProposals: ws.proposals.length,
       };
     }
+    case "list_scenarios": {
+      const projectId = resolveProjectId(input, context);
+      const ws = await services.getWorkspace(projectId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+      const activeId = ws.project.activeScenarioId;
+      const scenarios = ws.scenarios.map((scenario) => {
+        const result = ws.analysisResults.find((r) => r.id === scenario.latestResultId);
+        const hasResults = Boolean(
+          result &&
+            (Array.isArray(result.candidates)
+              ? result.candidates.length > 0
+              : Boolean(scenario.latestResultId))
+        );
+        return {
+          id: scenario.id,
+          name: scenario.name,
+          isActive: scenario.id === activeId,
+          hasResults,
+          stale: result?.stale ?? false,
+          decisionStatus: scenario.decisionStatus,
+        };
+      });
+      return {
+        projectId,
+        activeScenarioId: activeId,
+        count: scenarios.length,
+        scenarios,
+      };
+    }
     case "get_analysis_plan": {
       const projectId = resolveProjectId(input, context);
       const ws = await services.getWorkspace(projectId);
@@ -311,6 +401,46 @@ export async function executePlanningTool(
     }
     case "list_datasets":
       return services.listDatasets();
+    case "get_planning_constraints": {
+      const projectId = resolveProjectId(input, context);
+      const ws = await services.getWorkspace(projectId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+      const scenarioId = input.scenarioId
+        ? await resolveScenarioId(projectId, input, services.getWorkspace)
+        : undefined;
+      const snapshot = buildPlanningConstraintsSnapshot(ws, scenarioId);
+      if (!snapshot) throw new ToolError("NOT_FOUND", "Scenario not found", "scenarioId");
+      return snapshot;
+    }
+    case "list_decisions": {
+      const projectId = resolveProjectId(input, context);
+      const ws = await services.getWorkspace(projectId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+      const scenarioFilter =
+        typeof input.scenarioId === "string" && input.scenarioId.trim()
+          ? input.scenarioId.trim()
+          : undefined;
+      const limit = Math.min(100, Math.max(1, Number(input.limit ?? 20)));
+      let decisions = ws.decisions;
+      if (scenarioFilter) {
+        decisions = decisions.filter((d) => d.scenarioId === scenarioFilter);
+      }
+      const scenarioNames = new Map(ws.scenarios.map((s) => [s.id, s.name]));
+      return {
+        projectId,
+        count: decisions.length,
+        decisions: decisions.slice(0, limit).map((d) => ({
+          id: d.id,
+          type: d.type,
+          scenarioId: d.scenarioId,
+          scenarioName: scenarioNames.get(d.scenarioId),
+          subjectId: d.subjectId,
+          reason: d.reason,
+          actor: d.actor,
+          createdAt: d.createdAt,
+        })),
+      };
+    }
     case "compare_scenarios":
       return services.compareScenarios(
         resolveProjectId(input, context),
@@ -338,6 +468,16 @@ export async function executePlanningTool(
         workspaceUrl: `/workspace/${projectId}`,
         intent: ws.scenarios[0]?.objective.intent,
         next: "Review get_analysis_plan then run_analysis",
+      };
+    }
+    case "open_project": {
+      const projectId = await resolveOpenProjectRef(input, context);
+      await services.requireProject(projectId);
+      await services.recordProjectOpen(projectId);
+      return {
+        projectId,
+        workspaceUrl: `/workspace/${projectId}`,
+        note: "Navigated to workspace — use get_workspace or list_scenarios for details",
       };
     }
     case "set_planning_objective": {
@@ -456,6 +596,32 @@ export async function executePlanningTool(
         throw err;
       }
     }
+    case "set_active_scenario": {
+      const projectId = resolveProjectId(input, context);
+      const scenarioId = await resolveScenarioId(projectId, input, services.getWorkspace);
+      const ws = await services.setActiveScenario(projectId, scenarioId);
+      if (!ws) throw new ToolError("NOT_FOUND", "Project not found", "projectId");
+      const scenario = ws.scenarios.find((s) => s.id === scenarioId);
+      return {
+        projectId,
+        scenarioId,
+        scenarioName: scenario?.name,
+        activeScenarioId: scenarioId,
+        note: "Active scenario switched",
+      };
+    }
+    case "open_workspace_tab": {
+      const tab = assertWorkspaceTab(input);
+      const projectId =
+        typeof input.projectId === "string" && input.projectId.trim()
+          ? input.projectId.trim()
+          : context?.projectId;
+      return {
+        tab,
+        projectId,
+        note: `Open the ${tab} tab in the workspace UI`,
+      };
+    }
     case "create_scenario_branch": {
       const projectId = resolveProjectId(input, context);
       const name = String(input.name ?? "").trim();
@@ -484,7 +650,7 @@ export async function executePlanningTool(
         note: floodWeighted
           ? `Scenario duplicated with flood-weighted priorities (${weightsSummary}) — analysis results and decision status were not copied.`
           : "Scenario duplicated — analysis results and decision status were not copied.",
-        message: `Created scenario branch "${name}". Still viewing "${viewingName}" — switch scenarios in the header to configure the branch, then run analysis.${
+        message: `Created scenario branch "${name}". Still viewing "${viewingName}" — call set_active_scenario to switch to the branch, then run analysis.${
           floodWeighted
             ? ` Weights shifted toward flood resilience (${weightsSummary}).`
             : ""
@@ -747,7 +913,12 @@ export function validateToolInput(
     return { code: "UNKNOWN_TOOL", message: `Unknown tool: ${name}` };
   }
   const required = meta.inputSchema.required ?? [];
-  const toolsWithoutProject = new Set(["start_planning_project", "list_datasets", "list_projects"]);
+  const toolsWithoutProject = new Set([
+    "start_planning_project",
+    "list_datasets",
+    "list_projects",
+    "open_project",
+  ]);
   for (const key of required) {
     if (key === "projectId" && toolsWithoutProject.has(toolName)) continue;
     if (input[key] === undefined || input[key] === null) {

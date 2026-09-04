@@ -36,6 +36,7 @@ import {
   listCandidatesFromBrowserCache,
 } from "./browser-workspace-cache";
 import { applyShortlistMutation } from "@/lib/domain/shortlist-optimistic";
+import { resolveWorkspaceTab, WORKSPACE_TABS } from "@/lib/workspace-tabs";
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {
   const res = await fetch(path, {
@@ -217,6 +218,37 @@ async function invokeShortlistOptimistic(
   };
 }
 
+async function invokeOpenWorkspaceTabClient(
+  args: Record<string, unknown>,
+  context: { projectId?: string; scenarioId?: string }
+) {
+  const raw = typeof args.tab === "string" ? args.tab.trim() : "";
+  if (!raw) {
+    throw new ToolError("MISSING_FIELD", "tab is required", "tab");
+  }
+  if (!(WORKSPACE_TABS as readonly string[]).includes(raw)) {
+    throw new ToolError(
+      "INVALID_INPUT",
+      `tab must be one of: ${WORKSPACE_TABS.join(", ")}`,
+      "tab"
+    );
+  }
+  const tab = resolveWorkspaceTab(raw);
+  const projectId =
+    (typeof args.projectId === "string" ? args.projectId : undefined) ?? context.projectId;
+  notifyWorkspaceMutated({
+    tool: "open_workspace_tab",
+    projectId,
+    openTab: tab,
+    skipRefresh: true,
+  });
+  return {
+    tab,
+    projectId,
+    note: `Opened ${tab} tab`,
+  };
+}
+
 async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
   const resolvedName =
     name === "list_projects" ? "list_projects" : resolvePlanningToolAlias(name);
@@ -224,6 +256,9 @@ async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
 
   if (resolvedName === "set_map_view") {
     return invokeSetMapViewClientFirst(args, context);
+  }
+  if (resolvedName === "open_workspace_tab") {
+    return invokeOpenWorkspaceTabClient(args, context);
   }
   if (resolvedName === "add_to_shortlist" || resolvedName === "remove_from_shortlist") {
     return invokeShortlistOptimistic(resolvedName, args, context);
@@ -304,8 +339,25 @@ async function invokeMcpTool(name: string, rawArgs: Record<string, unknown>) {
     }
   }
 
-  if (name === "start_planning_project") {
+  if (name === "set_active_scenario" && result && typeof result === "object") {
+    const scenarioId = (result as { scenarioId?: string }).scenarioId;
+    const projectId =
+      (result as { projectId?: string }).projectId ??
+      (typeof args.projectId === "string" ? args.projectId : context.projectId);
+    if (scenarioId) {
+      setWebMcpBrowserContext({
+        projectId,
+        scenarioId,
+      });
+    }
+  }
+
+  if (name === "start_planning_project" || name === "open_project") {
     navigateToWorkspace(result);
+    const payload = (result ?? {}) as { projectId?: string };
+    if (payload.projectId) {
+      setWebMcpBrowserContext({ projectId: payload.projectId });
+    }
   }
   return result;
 }
@@ -369,7 +421,8 @@ export async function registerPlanningWebMcpTools(): Promise<WebMcpRegistration>
   const aliasTools: WebMcpToolDefinition[] = [
     {
       name: "list_projects",
-      description: "List saved planning projects on the server.",
+      description:
+        "List saved planning projects (id, name, geography). Use open_project to navigate by id or name.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true },
       execute: async (input) => {
@@ -386,7 +439,8 @@ export async function registerPlanningWebMcpTools(): Promise<WebMcpRegistration>
     },
     {
       name: "load_project",
-      description: "Load a planning project workspace (alias for get_workspace).",
+      description:
+        "Read-only snapshot of a project workspace (alias for get_workspace). Does not navigate — use open_project or visit workspaceUrl.",
       inputSchema: {
         type: "object",
         properties: {

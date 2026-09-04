@@ -2,6 +2,7 @@
 export const PLANNING_TOOL_ALIASES: Record<string, string> = {
   load_project: "get_workspace",
   exclude_from_selection: "exclude_features",
+  list_activity: "list_decisions",
 };
 
 export function resolvePlanningToolAlias(name: string): string {

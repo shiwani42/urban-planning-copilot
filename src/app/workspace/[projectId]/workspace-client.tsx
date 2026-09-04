@@ -755,6 +755,15 @@ export default function WorkspaceClient({
         setDrawerOpen(false);
         setDrawerPanel("candidates");
         setTab("results");
+        return;
+      }
+      if (
+        detail.openTab === "workspace" ||
+        detail.openTab === "evidence" ||
+        detail.openTab === "activity"
+      ) {
+        setTab(detail.openTab);
+        return;
       }
       if (detail.tool === "run_analysis") {
         setCriteriaStaleHint(false);
