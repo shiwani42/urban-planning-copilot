@@ -47,6 +47,39 @@ export function weightsEqual(a: CriterionWeight[], b: CriterionWeight[]): boolea
   );
 }
 
+function cloneWeights(weights: CriterionWeight[]): CriterionWeight[] {
+  return weights.map((w) => ({ ...w }));
+}
+
+export type WeightDraftSyncState = {
+  scenarioId: string;
+  serverWeights: CriterionWeight[];
+};
+
+/** Keep unsaved slider edits when workspace refresh bumps scenario.updatedAt. */
+export function mergeWeightDraftFromServer(
+  prev: CriterionWeight[] | null,
+  scenarioId: string,
+  serverWeights: CriterionWeight[],
+  sync: WeightDraftSyncState | null
+): { draft: CriterionWeight[]; sync: WeightDraftSyncState } {
+  const nextSync = { scenarioId, serverWeights };
+  if (!sync || sync.scenarioId !== scenarioId) {
+    return { draft: cloneWeights(serverWeights), sync: nextSync };
+  }
+  if (weightsEqual(sync.serverWeights, serverWeights)) {
+    return { draft: prev ?? cloneWeights(serverWeights), sync };
+  }
+  if (!prev) {
+    return { draft: cloneWeights(serverWeights), sync: nextSync };
+  }
+  const dirty = !weightsEqual(prev, sync.serverWeights);
+  return {
+    draft: dirty ? prev : cloneWeights(serverWeights),
+    sync: nextSync,
+  };
+}
+
 const FLOOD_WEIGHT_KEY_MARKERS = ["flood_resilience", "flood_exposure", "flood"];
 
 export const FLOOD_WEIGHTED_BRANCH_FLOOD_PERCENT = 35;
